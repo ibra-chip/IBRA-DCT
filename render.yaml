@@ -11,6 +11,8 @@ services:
         value: production
       - key: PORT
         value: 3000
+      - key: PUBLIC_URL
+        value: https://ibra-ba-l0nz.onrender.com
       - key: IBRA_JWT_SECRET
         sync: false
       - key: OPENAI_API_KEY
