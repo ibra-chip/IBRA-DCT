@@ -45,6 +45,24 @@ function manager(request, response, next) {
 	next();
 }
 
+async function sendMailSafe({ to, subject, text }) {
+	const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+	if (process.env.BREVO_API_KEY && from) {
+		const apiResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
+			method: 'POST',
+			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+			body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text })
+		});
+		if (!apiResponse.ok) throw new Error(`Brevo API returned ${apiResponse.status}`);
+		return { skipped: false };
+	}
+	if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return { skipped: true };
+	const nodemailer = await import('nodemailer');
+	const transporter = nodemailer.default.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
+	await transporter.sendMail({ from, to, subject, text });
+	return { skipped: false };
+}
+
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, '..', 'index.html')));
 app.post('/api/auth/login', async (request, response) => {
@@ -61,8 +79,10 @@ app.post('/api/auth/request-reset', async (request, response) => {
 	const email = String(request.body.email || '').toLowerCase().trim(); const data = await readData(); const user = data.users.find((item) => item.email === email);
 	if (!user) return response.json({ message: 'If the account exists, reset instructions will be sent.' });
 	const token = crypto.randomBytes(32).toString('hex'); const expiresAt = Date.now() + 15 * 60 * 1000; data.passwordResets = [...(data.passwordResets || []).filter((item) => item.userId !== user.id), { token, userId: user.id, expiresAt }]; await writeData(data);
-	if (!process.env.SMTP_HOST) return response.status(503).json({ error: 'Password reset email is not configured' });
-	const nodemailer = await import('nodemailer'); const transporter = nodemailer.default.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } }); const resetUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`; await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` }); response.json({ message: 'Reset instructions sent.' });
+	const resetUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`;
+	const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` });
+	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Password reset email is not configured' });
+	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
 app.post('/api/auth/reset-password', async (request, response) => {
 	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
@@ -200,7 +220,9 @@ app.post('/api/messages', auth, async (request, response) => {
 	if (!text || !request.body.recipientId || !request.body.projectId) return response.status(400).json({ error: 'Message fields required' });
 	const recipient = data.users.find((item) => item.id === request.body.recipientId); if (!recipient) return response.status(404).json({ error: 'Recipient not found' });
 	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, text, createdAt: new Date().toISOString(), read: false };
-	data.messages.push(message); await writeData(data); response.status(201).json(message);
+	data.messages.push(message); await writeData(data);
+	const mailResult = recipient.email ? await sendMailSafe({ to: recipient.email, subject: `IBRA-BA - nouvelle message de ${request.user.name}`, text: `Bonjour ${recipient.name},\n\n${request.user.name} vous a envoyé un message dans IBRA-BA :\n\n${text}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'http://localhost:3000'} pour répondre.` }) : { skipped: true };
+	response.status(201).json({ ...message, emailStatus: mailResult.skipped ? 'not-sent' : 'sent' });
 });
 app.get('/api/rendezvous', auth, async (request, response) => {
 	const data = await readData(); const canSeeAll = ['admin', 'gerant', 'manager'].includes(request.user.role); const projectIds = request.user.projectIds || [];
