@@ -417,7 +417,11 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const sources = [];
 	for (const document of documents) {
 		if (!document.storedName || !document.mimeType.includes('pdf')) continue;
-		const buffer = await fs.readFile(path.join(uploadDir, document.storedName));
+		let buffer;
+		try { buffer = await fs.readFile(path.join(uploadDir, document.storedName)); } catch (error) {
+			if (error.code === 'ENOENT') continue;
+			throw error;
+		}
 		const parsed = await parsePdf(buffer);
 		const pages = parsed.text.split('\f');
 		pages.forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, type: document.evidenceType, page: index + 1, text: text.slice(0, 12000) }); });
