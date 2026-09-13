@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: ibra-ba
+    runtime: docker
+    plan: starter
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: IBRA_DATA_DIR
+        value: /var/data
+      - key: IBRA_UPLOAD_DIR
+        value: /var/data/uploads
+      - key: IBRA_JWT_SECRET
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_VISION_MODEL
+        value: gpt-4o-mini
+      - key: AI_BASE_URL
+        value: https://api.openai.com/v1
+    disk:
+      name: ibra-ba-data
+      mountPath: /var/data
+      sizeGB: 10

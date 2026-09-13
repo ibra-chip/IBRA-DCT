@@ -1,0 +1,18 @@
+{
+  "name": "IBRA-BA",
+  "short_name": "IBRA-BA",
+  "description": "Gestion documentaire et opérationnelle des chantiers IBRA-BA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#08131f",
+  "theme_color": "#08131f",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="fr">
+<head>
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>IBRA-BA</title>
+	<link rel="manifest" href="manifest.webmanifest" />
+	<meta name="theme-color" content="#08131f" />
+	<link rel="icon" href="logo.svg" type="image/svg+xml" />
+	<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+	<div id="login-modal" class="modal">
+		<form id="login-form" class="login-card">
+			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
+			<h1>Connexion</h1>
+			<label>E-mail<input name="email" type="email" value="sanja.m@ibra.rs" required /></label>
+			<label>Mot de passe<input name="password" type="password" value="IBRA-demo-2026!" required /></label>
+			<button class="primary" type="submit">Accéder au système</button>
+			<p id="login-error" class="error"></p>
+		</form>
+	</div>
+	<div id="toast" class="toast"></div>
+	<div class="app-shell">
+		<aside class="sidebar">
+			<div class="brand"><span class="brand-mark">I</span><strong>IBRA-BA</strong></div>
+			<nav>
+				<button class="nav active" data-view="dashboard-view">Dashboard</button>
+				<button class="nav" data-view="devis-view">Devis</button>
+				<button class="nav" data-view="purchases-view">Nabavke</button>
+				<button class="nav" data-view="chantier-view">Chantier kontrole</button>
+				<button class="nav" data-view="documents-view">Dokumenti i slike</button>
+				<button class="nav" data-view="tasks-view">Zadaci i komunikacija</button>
+				<button class="nav" data-view="settings-view">Korisnici</button>
+				<button class="nav" data-view="evidence-summary-view">Dokazni paket</button>
+			</nav>
+			<button id="logout-button" class="secondary">Odjava</button>
+		</aside>
+		<main>
+			<header><div><small id="current-role">Prijavljen korisnik</small><h1 id="page-title">IBRA-BA</h1></div><div class="header-actions"><div class="language-switcher"><button class="language-button active" data-language="sr">BS/SR</button><button class="language-button" data-language="fr">FR</button></div><span id="api-status" class="status">API</span></div></header>
+			<section id="dashboard-view" class="view active">
+				<div class="hero"><small>LOT A · PAVILLONS 1-4</small><h2>Contrôle de la bonne exécution des travaux</h2><p>Plans, fiches techniques, photographies et validation du Conducteur dans un seul parcours.</p></div><div class="risk-indicator" id="project-risk-card"><small>Risque du chantier</small><strong id="project-risk">-</strong></div>
+				<div class="cards"><article><small>Avancement</small><strong>76%</strong></article><article><small>Contrôles ouverts</small><strong id="open-controls">-</strong></article><article><small>Temps de travail</small><strong id="total-hours">0 h</strong></article><article><small>Coût du travail ce mois-ci</small><strong id="payroll-total">0 EUR</strong></article><article><small>Budget restant</small><strong id="budget-remaining">Aucun devis</strong></article></div><div class="panel schedule-panel"><div class="section-head"><div><small>PLAN DU CHANTIER</small><h3>Début des travaux et échéance</h3></div><span id="schedule-status">Chargement...</span></div><div id="schedule-summary" class="list"></div></div>
+			</section>
+			<section id="devis-view" class="view"><div class="section-head"><div><small>DEVIS</small><h2>Budget du chantier</h2></div><span>Le devis est créé hors de l’application</span></div><div class="grid-two"><form id="budget-form" class="panel"><h3>Importer le PDF du devis</h3><label>Document PDF<input id="budget-file" type="file" accept="application/pdf,.pdf" required /></label><small id="devis-extraction-status">Les données seront lues automatiquement depuis le PDF.</small><label>Numéro du devis<input name="devisNumber" required /></label><label>Client<input name="client" required /></label><label>Chantier<input name="chantierName" required /></label><label>Chantier concerné<select name="projectId"><option value="lot-a">Lot A - Pavillons 1-4</option></select></label><label>Budget total du devis EUR<input name="total" type="number" min="0.01" step="0.01" required /></label><button class="primary">Enregistrer le devis</button><small>Le devis est créé hors de l’application. Si le PDF ne contient pas de texte, vérifiez les valeurs lues automatiquement.</small></form><div><h3>Budget et solde</h3><div id="budget-summary" class="list"><small>Aucun devis importé.</small></div></div></div></section>
+			<section id="purchases-view" class="view"><div class="section-head"><div><small>ACHATS ET DÉPENSES</small><h2>Trois groupes de dépenses séparés</h2></div><span>Chaque groupe possède sa propre pièce PDF</span></div><div class="grid-two"><form id="purchase-form" class="panel"><h3>Ajouter une dépense</h3><label>Facture PDF / justificatif<input id="invoice-file" type="file" accept="application/pdf,.pdf" required /></label><small id="purchase-extraction-status">Les données seront lues automatiquement depuis le PDF.</small><label>Chantier<select name="projectId"><option value="lot-a">Lot A - Pavillons 1-4</option></select></label><label>Catégorie<select name="category"><option value="material">Matériaux</option><option value="tools">Outillage</option><option value="machines">Machines</option><option value="workers">Salariés</option><option value="subcontracting">Sous-traitance</option><option value="other">Autre</option></select></label><label>Fournisseur / salarié / sous-traitant<input name="supplier" required /></label><label>Description de la dépense<input name="description" required /></label><label>Montant EUR<input name="amount" type="number" min="0.01" step="0.01" required /></label><label>Date<input name="purchaseDate" type="date" required /></label><button class="primary">Enregistrer la dépense</button></form><div class="purchase-groups"><section class="purchase-category"><h3>Matériaux, outillage et machines</h3><strong id="purchase-total-material-tools">0.00 EUR</strong><div id="purchase-material-tools" class="list"></div></section><section class="purchase-category"><h3>Salariés</h3><strong id="purchase-total-workers">0.00 EUR</strong><div id="purchase-workers" class="list"></div></section><section class="purchase-category"><h3>Sous-traitance</h3><strong id="purchase-total-subcontracting">0.00 EUR</strong><div id="purchase-subcontracting" class="list"></div></section></div></div></section>
+			<section id="chantier-view" class="view"><div class="section-head"><div><small>CHANTIER</small><h2>Liste de contrôle</h2></div><span>Objectif RGE/Qualibat</span></div><div id="controls" class="list"></div><div class="panel audit-history"><h3>Historique des modifications</h3><div id="control-history" class="list"><small>Aucune modification.</small></div></div></section>
+			<section id="evidence-summary-view" class="view"><div id="evidence-summary" class="section-head"><h2>Dossier de preuves</h2><p>Chargement...</p></div><div class="panel ai-panel"><h3>Question technique à l’IA</h3><p>L’IA répond uniquement à partir des plans et fiches techniques PDF importés, avec la source et la page.</p><form id="ai-form"><label>Question<textarea name="question" placeholder="À quelle hauteur commence le système de façade ?" required></textarea></label><button class="primary">Analyser la documentation</button></form><div id="ai-answer" class="list"></div></div></section>
+			<section id="documents-view" class="view"><div class="section-head"><div><small>JUSTIFICATIFS</small><h2>Documents et photos</h2></div><span>Conservés durablement</span></div><div class="grid-two"><form id="upload-form" class="panel"><h3>Ajouter un document</h3><label>Fichier<input id="file-input" type="file" accept=".pdf,.jpg,.jpeg,.png,.docx,.xlsx" required /></label><label>Chantier<select name="projectId"><option value="lot-a">Lot A - Pavillons 1-4</option></select></label><label>Type de preuve<select name="evidenceType"><option value="plan">Plan / PDF</option><option value="fiche-technique">Fiche technique</option><option value="photo-before">Photo avant travaux</option><option value="photo-during">Photo pendant les travaux</option><option value="photo-after">Photo après travaux</option><option value="other">Autre</option></select></label><label>Phase des travaux<select name="phase"><option value="preparation">Préparation</option><option value="execution">Exécution</option><option value="completion">Achèvement</option><option value="general">Général</option></select></label><button class="primary">Enregistrer sur le serveur</button><small>PDF, JPG, PNG, DOCX ou XLSX · 25 Mo maximum</small></form><div><h3>Fichiers enregistrés</h3><div id="documents" class="list"></div></div></div></section>
+			<section id="tasks-view" class="view">
+				<div class="grid-two">
+					<div class="panel"><div class="section-head"><h2>Communication</h2><small>Salarié · Conducteur · Gérant</small></div><div id="messages" class="list"></div><form id="message-form"><label>Destinataire<select id="recipient" name="recipientId" required></select></label><label>Message<textarea name="text" required></textarea></label><button class="primary">Envoyer le message</button></form></div>
+					<div class="panel"><div class="section-head"><h2>Temps de travail</h2><small>Calcul automatique</small></div><div id="time-summary" class="metric">0.00 h</div><div id="time-days">Jours : 0</div><div id="time-money">Calcul : 0,00 EUR</div><div id="time-entries" class="list"></div><form id="time-form"><div class="form-row"><label>Date<input type="date" name="date" required /></label><label>Chantier<select name="projectId"><option value="lot-a">Lot A</option></select></label></div><div class="form-row"><label>Début<input type="time" name="start" required /></label><label>Fin<input type="time" name="end" required /></label></div><label>Pause en minutes<input name="breakMinutes" type="number" value="30" min="0" /></label><button class="primary">Enregistrer les heures</button></form></div>
+				</div>
+			</section>
+			<section id="settings-view" class="view"><div class="section-head"><div><small>ACCÈS</small><h2>Utilisateurs et rôles</h2></div></div><div class="grid-two"><div id="users" class="list"></div><form id="user-form" class="panel"><h3>Ajouter un membre</h3><label>Nom et prénom<input name="name" required /></label><label>E-mail<input name="email" type="email" required /></label><label>Rôle<select name="role" id="user-role"><option value="gerant">Gérant</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label><label id="siret-field">SIRET de l’entreprise<input name="siret" pattern="[0-9 ]{9,20}" /></label><label id="company-field">Entreprise employeuse<input name="company" /></label><label>Mot de passe<input name="password" type="password" minlength="10" required /></label><button class="primary">Ajouter l’utilisateur</button></form></div></section>
+		</main>
+	</div>
+	<script src="script.js"></script>
+	<script>if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');</script>
+</body>
+</html>

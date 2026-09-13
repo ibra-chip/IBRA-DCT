@@ -1,0 +1,187 @@
+{
+  "users": [
+    {
+      "id": "user-sanja",
+      "name": "Sanja M.",
+      "email": "sanja.m@ibra.rs",
+      "role": "manager",
+      "passwordHash": "$2b$10$jMhmLQ8nqd7HwAW5wY9ZTeBBVNO4Wc0WefbkOBTnLxaYKvIrczYFy",
+      "projectIds": [
+        "lot-a"
+      ],
+      "dailyRate": 180,
+      "hourlyRate": 22
+    },
+    {
+      "id": "user-1789267798095",
+      "name": "IBRAHIM DZELJO",
+      "email": "dzeljoibrahim67@gmail.com",
+      "role": "user",
+      "projectIds": [
+        "lot-a"
+      ],
+      "dailyRate": 0,
+      "hourlyRate": 0,
+      "passwordHash": "$2b$12$mJTP017N3KH1s56I4t0rduWcu2evnGuhtzimvl45Lnfw3fQ/g8TUK"
+    }
+  ],
+  "projects": [
+    {
+      "id": "lot-a",
+      "name": "Lot A - Paviljoni 1-4",
+      "location": "Beograd, Nova Industrijska zona",
+      "progress": 76,
+      "status": "active",
+      "manager": "Sanja M."
+    }
+  ],
+  "projectBudgets": [
+    {
+      "id": "budget-1789264912154",
+      "projectId": "lot-a",
+      "chantierName": "La Fontaine Bertin, 2 rue de l’hostellerie, 95130 Franconville, France",
+      "devisNumber": "DEV-2024-0076",
+      "client": "GTM",
+      "total": 63882.08,
+      "spent": 0,
+      "remaining": 63882.08,
+      "sourceFile": "dae3ef42eb37865dcc938d6c07e8dcb7",
+      "sourceName": "devis DEV-2024-0076 GTM BATIMENT.pdf",
+      "status": "uploaded",
+      "uploadedBy": "user-sanja",
+      "updatedAt": "2026-09-13T05:04:57.432Z"
+    }
+  ],
+  "projectDelays": [],
+  "projectSchedules": [
+    {
+      "projectId": "lot-a",
+      "startDate": "2026-09-14",
+      "plannedEndDate": "2026-12-31",
+      "updatedBy": "user-sanja",
+      "updatedAt": "2026-09-13T03:39:53.445Z"
+    }
+  ],
+  "purchases": [],
+  "chantierControls": [
+    {
+      "id": "execution-quality",
+      "projectId": "lot-a",
+      "name": "Radovi izvedeni prema projektu i pravilima struke",
+      "status": "review",
+      "owner": "Aleksandar R."
+    },
+    {
+      "id": "site-safety",
+      "projectId": "lot-a",
+      "name": "Bezbednost na gradilištu i zaštitna oprema",
+      "status": "complete",
+      "owner": "Sanja M."
+    },
+    {
+      "id": "material-traceability",
+      "projectId": "lot-a",
+      "name": "Materijali, ugradnja i sledljivost",
+      "status": "review",
+      "owner": "Marko N."
+    },
+    {
+      "id": "photo-evidence",
+      "projectId": "lot-a",
+      "name": "Fotografije i dokazi po fazama rada",
+      "status": "incomplete",
+      "owner": "Dejan P.",
+      "updatedBy": "user-sanja",
+      "updatedAt": "2026-09-13T04:24:29.307Z"
+    }
+  ],
+  "controlHistory": [
+    {
+      "id": "control-history-1789273469307",
+      "controlId": "photo-evidence",
+      "projectId": "lot-a",
+      "from": "incomplete",
+      "to": "incomplete",
+      "changedBy": "user-sanja",
+      "changedAt": "2026-09-13T04:24:29.307Z"
+    }
+  ],
+  "rendezvous": [],
+  "messages": [],
+  "timeEntries": [],
+  "documents": [
+    {
+      "id": "document-1789270951571",
+      "originalName": "U TOKU FRANCOVIL.jpg",
+      "storedName": "1e1bb9cfb049db1f554fc41966022f33",
+      "mimeType": "image/jpeg",
+      "size": 263016,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T03:42:31.572Z"
+    },
+    {
+      "id": "document-1789271016831",
+      "originalName": "2023-Epinay-Orgemont-carnet de dÃ©tails-indB-24-03-25.pdf",
+      "storedName": "2b7d9249bcc418311467dbca141d5b3f",
+      "mimeType": "application/pdf",
+      "size": 3099985,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T03:43:36.831Z"
+    },
+    {
+      "id": "document-1789274124970",
+      "originalName": "FINISH FRANCOVIL.jpg",
+      "storedName": "30ecbee3371aee77328c00854309b4ed",
+      "mimeType": "image/jpeg",
+      "size": 308902,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T04:35:24.970Z"
+    },
+    {
+      "id": "document-1789274215537",
+      "originalName": "FINISH FRANCOVIL.jpg",
+      "storedName": "b892ca9532caf41bb527d12bb2525a55",
+      "mimeType": "image/jpeg",
+      "size": 308902,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T04:36:55.537Z"
+    },
+    {
+      "id": "document-1789274374642",
+      "originalName": "20251010_181217.jpg",
+      "storedName": "95f2c8b539200856bc400a5622680154",
+      "mimeType": "image/jpeg",
+      "size": 1325765,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T04:39:34.642Z"
+    },
+    {
+      "id": "document-1789274576247",
+      "originalName": "20251010_181217.jpg",
+      "storedName": "15d5601805331bb306a4e8c30a7f0c4b",
+      "mimeType": "image/jpeg",
+      "size": 1325765,
+      "projectId": "lot-a",
+      "evidenceType": "plan",
+      "phase": "preparation",
+      "uploadedBy": "user-sanja",
+      "uploadedAt": "2026-09-13T04:42:56.247Z"
+    }
+  ],
+  "complianceDocuments": []
+}
