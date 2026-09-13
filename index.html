@@ -25,6 +25,12 @@
 			<button class="secondary" id="show-login" type="button">J’ai déjà un compte</button>
 			<p id="registration-message" class="error"></p>
 		</form>
+		<section id="registration-success" class="login-card" hidden>
+			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
+			<h1>Email je poslat</h1>
+			<p id="registration-success-message">Privremena lozinka je poslata na vašu email adresu.</p>
+			<button class="primary" id="continue-to-password" type="button">Nastavi na unos lozinke</button>
+		</section>
 		<form id="login-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Connexion</h1>
@@ -34,6 +40,7 @@
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
 			<button class="secondary" id="show-registration" type="button">Créer un accès</button>
+			<button class="secondary" id="back-to-success" type="button" hidden>Nazad na potvrdu emaila</button>
 			<p id="login-error" class="error"></p>
 		</form>
 	</div>

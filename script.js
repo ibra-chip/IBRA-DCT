@@ -86,6 +86,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadPurchases() { const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], workers: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); }); const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join('') : '<small>Nema troškova.</small>'; }; render([...groups.material, ...groups.tools, ...groups.machines], 'purchase-material-tools', 'purchase-total-material-tools'); render(groups.workers, 'purchase-workers', 'purchase-total-workers'); render(groups.subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting'); }
 	let currentUser;
 	const registrationForm = document.querySelector('#registration-form');
+	const registrationSuccess = document.querySelector('#registration-success');
 	const loginForm = document.querySelector('#login-form');
 	const registrationRole = document.querySelector('#registration-role');
 	const updateRegistrationFields = () => {
@@ -98,8 +99,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	registrationRole?.addEventListener('change', updateRegistrationFields);
 	updateRegistrationFields();
-	document.querySelector('#show-login')?.addEventListener('click', () => { registrationForm.hidden = true; loginForm.hidden = false; });
-	document.querySelector('#show-registration')?.addEventListener('click', () => { loginForm.hidden = true; registrationForm.hidden = false; });
+	document.querySelector('#show-login')?.addEventListener('click', () => { registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = false; });
+	document.querySelector('#show-registration')?.addEventListener('click', () => { loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; });
+	document.querySelector('#continue-to-password')?.addEventListener('click', () => { registrationSuccess.hidden = true; loginForm.hidden = false; document.querySelector('#back-to-success').hidden = false; loginForm.elements.password.focus(); });
+	document.querySelector('#back-to-success')?.addEventListener('click', () => { loginForm.hidden = true; registrationSuccess.hidden = false; });
 	registrationForm?.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const message = document.querySelector('#registration-message');
@@ -108,7 +111,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const result = await fetch(`${api}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registrationForm).entries())) });
 			const data = await result.json();
 			if (!result.ok) throw new Error(data.error || 'Inscription impossible.');
-			registrationForm.reset(); updateRegistrationFields(); registrationForm.hidden = true; loginForm.hidden = false; document.querySelector('#login-error').textContent = `Lozinka je poslata na ${data.email}. Unesite je kada stigne.`; loginForm.elements.phone.value = data.email;
+			registrationForm.reset(); updateRegistrationFields(); registrationForm.hidden = true; registrationSuccess.hidden = false; document.querySelector('#registration-success-message').textContent = `Lozinka je poslata na ${data.email}. Kliknite dalje kada želite da unesete password.`; loginForm.elements.phone.value = data.email;
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
 	document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.text(); throw new Error(details); } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} · ${currentUser.role}`; await Promise.all([loadDashboard(), loadEvidenceSummary(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts()]); } catch { document.querySelector('#login-error').textContent = 'Profil, e-mail ili lozinka nisu ispravni.'; } });
