@@ -45,6 +45,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 		const allowed = access[role] || ['dashboard-view','tasks-view'];
 		document.querySelectorAll('.nav').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
+		const canSeeFinancials = ['admin', 'gerant', 'manager', 'conducteur'].includes(role);
+		document.querySelector('#budget-card')?.toggleAttribute('hidden', !canSeeFinancials);
+		document.querySelector('#payroll-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); }));
