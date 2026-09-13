@@ -67,9 +67,10 @@ app.get('/api/health', (_request, response) => response.json({ status: 'ok', ser
 app.get('/', (_request, response) => response.sendFile(path.join(root, '..', 'index.html')));
 app.post('/api/auth/login', async (request, response) => {
 	const data = await readData();
-	const email = String(request.body.email || '').toLowerCase().trim();
-	const user = data.users.find((item) => item.email === email);
-	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid email or password' });
+	const identifier = String(request.body.phone || request.body.email || '').trim();
+	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
+	const user = data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
+	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
 	const requestedRole = String(request.body.role || '').trim(); const roleMatches = user.role === requestedRole || (requestedRole === 'gerant' && ['admin', 'gerant', 'manager'].includes(user.role));
 	if (!roleMatches) return response.status(403).json({ error: 'Selected profile does not match this account' });
 	const token = jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
