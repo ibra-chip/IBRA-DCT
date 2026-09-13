@@ -1,5 +1,6 @@
 import bcrypt from 'bcryptjs';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import 'dotenv/config';
 import express from 'express';
 import jwt from 'jsonwebtoken';
@@ -56,9 +57,22 @@ app.post('/api/auth/login', async (request, response) => {
 	const token = jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
 	response.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
+app.post('/api/auth/request-reset', async (request, response) => {
+	const email = String(request.body.email || '').toLowerCase().trim(); const data = await readData(); const user = data.users.find((item) => item.email === email);
+	if (!user) return response.json({ message: 'If the account exists, reset instructions will be sent.' });
+	const token = crypto.randomBytes(32).toString('hex'); const expiresAt = Date.now() + 15 * 60 * 1000; data.passwordResets = [...(data.passwordResets || []).filter((item) => item.userId !== user.id), { token, userId: user.id, expiresAt }]; await writeData(data);
+	if (!process.env.SMTP_HOST) return response.status(503).json({ error: 'Password reset email is not configured' });
+	const nodemailer = await import('nodemailer'); const transporter = nodemailer.default.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } }); const resetUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`; await transporter.sendMail({ from: process.env.SMTP_FROM || process.env.SMTP_USER, to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` }); response.json({ message: 'Reset instructions sent.' });
+});
+app.post('/api/auth/reset-password', async (request, response) => {
+	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
+});
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
-app.get('/api/contacts', auth, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
+app.get('/api/contacts', auth, async (request, response) => {
+	const data = await readData(); const financialView = ['admin', 'gerant', 'manager'].includes(request.user.role);
+	response.json(data.users.map(({ passwordHash, dailyRate, hourlyRate, ...user }) => ({ ...user, ...(financialView ? { dailyRate, hourlyRate } : {}) })));
+});
 app.post('/api/users', auth, manager, async (request, response) => {
 	const data = await readData();
 	const name = String(request.body.name || '').trim();
@@ -66,10 +80,10 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const role = String(request.body.role || 'user').trim();
 	const password = String(request.body.password || '');
 	const allowedRoles = ['gerant', 'conducteur', 'worker', 'user'];
-	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim();
-	if (!name || !email || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, email, role, password, and role-specific company details are required' });
+	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim(); const phone = String(request.body.phone || '').trim();
+	if (!name || !email || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, email, phone, role, password, and role-specific company details are required' });
 	if (data.users.some((user) => user.email === email)) return response.status(409).json({ error: 'User already exists' });
-	const user = { id: `user-${Date.now()}`, name, email, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
+	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json(safeUser);
