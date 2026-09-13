@@ -96,14 +96,14 @@ app.post('/api/auth/login', async (request, response) => {
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
-	const name = String(request.body.name || '').trim();
 	const email = String(request.body.email || '').trim().toLowerCase();
+	const name = String(request.body.name || '').trim() || email.split('@')[0];
 	const phone = String(request.body.phone || '').trim();
 	const role = String(request.body.role || 'user').trim();
 	const siret = String(request.body.siret || '').trim();
 	const company = String(request.body.company || '').trim();
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
-	if (!name || !email || !allowedRoles.includes(role) || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, valid email, role, and role-specific company details are required' });
+	if (!email || !allowedRoles.includes(role) || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email, role, and role-specific company details are required' });
 	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
 	const password = crypto.randomBytes(9).toString('base64url');
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12) };
