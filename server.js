@@ -121,27 +121,34 @@ app.post('/api/auth/login', async (request, response) => {
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
-	const email = String(request.body.email || '').trim().toLowerCase();
-	const name = String(request.body.name || '').trim() || email.split('@')[0];
-	const phone = String(request.body.phone || '').trim();
+	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim();
+	const isEmail = /^\S+@\S+\.\S+$/.test(contact);
+	const email = isEmail ? contact.toLowerCase() : '';
+	const name = String(request.body.name || '').trim() || (isEmail ? email.split('@')[0] : contact);
+	const phone = isEmail ? '' : contact;
 	const role = String(request.body.role || 'user').trim();
 	const siret = String(request.body.siret || '').trim();
 	const company = String(request.body.company || '').trim();
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
-	if (!email || !allowedRoles.includes(role) || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email, role, and role-specific company details are required' });
+	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
 	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
 	const password = crypto.randomBytes(9).toString('base64url');
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12) };
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
 	try {
-		const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
-		if (mailResult.skipped) return response.status(503).json({ error: 'Email delivery is not configured' });
+		if (isEmail) {
+			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
+			if (mailResult.skipped) return response.status(503).json({ error: 'Email delivery is not configured' });
+		} else {
+			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnički ID: ${phone}.` });
+			if (smsResult.skipped) return response.status(503).json({ error: 'SMS delivery is not configured' });
+		}
 	} catch (error) {
 		console.error('Registration email failed:', error.message);
 		return response.status(502).json({ error: 'Registration email could not be sent' });
 	}
 	data.users.push(user); await writeData(data);
-	response.status(201).json({ message: 'Password sent by email', email, phone: phone || null });
+	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
 	const email = String(request.body.email || '').toLowerCase().trim(); const data = await readData(); const user = data.users.find((item) => item.email === email);

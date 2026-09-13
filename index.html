@@ -14,11 +14,11 @@
 		<form id="registration-form" class="login-card">
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Créer votre accès</h1>
-			<p>Choisissez votre rôle, renseignez vos coordonnées et recevez votre mot de passe par e-mail.</p>
+			<p>Choisissez votre rôle et recevez votre mot de passe par e-mail ou SMS.</p>
 			<label>Profil<select name="role" id="registration-role" required><option value="gerant">Gérant / Manager</option><option value="user">Utilisateur</option><option value="conducteur">Conducteur de travaux</option></select></label>
 			<label id="registration-siret">SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
 			<label id="registration-company" hidden>Entreprise employeuse<input name="company" /></label>
-			<label>E-mail pour recevoir le mot de passe<input name="email" type="email" autocomplete="email" required /></label>
+			<label>E-mail ou téléphone pour recevoir le mot de passe<input name="contact" type="text" autocomplete="email tel" placeholder="email@example.com ou +33 6 00 00 00 00" required /></label>
 			<button class="primary" id="send-registration-password" type="submit">SUIVANT / SLEDEĆI KORAK</button>
 			<small>Klikom na SUIVANT prelazite na slanje privremene lozinke na email.</small>
 			<button class="secondary" id="show-login" type="button">J’ai déjà un compte</button>
