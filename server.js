@@ -80,6 +80,31 @@ async function sendSmsSafe({ to, text }) {
 	if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
 	return { skipped: false };
 }
+function buildPayoutPdf(item) {
+	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+	const lines = [
+		'IBRA-BA - ZAHTEV ZA ISPLATU PLATE',
+		`Radnik: ${item.userName}`,
+		`Mesec: ${item.month}`,
+		`Broj dana: ${item.days}`,
+		`Dnevnica: ${Number(item.dailyRate || 0).toFixed(2)} EUR`,
+		`Ukupan zahtev: ${Number(item.amount || 0).toFixed(2)} EUR`,
+		`Status: ${item.status}`,
+		`Datum slanja: ${item.createdAt || item.submissionDate}`
+	];
+	const commands = ['BT', '/F1 12 Tf', '50 780 Td', ...lines.flatMap((line, index) => [index ? '0 -28 Td' : '', `(${escapePdf(line)}) Tj`]).filter(Boolean), 'ET'].join('\n');
+	const objects = [
+		'<< /Type /Catalog /Pages 2 0 R >>',
+		'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+		'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+		`<< /Length ${Buffer.byteLength(commands, 'utf8')} >>\nstream\n${commands}\nendstream`,
+		'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'
+	];
+	let pdf = '%PDF-1.4\n'; const offsets = [0];
+	objects.forEach((object, index) => { offsets[index + 1] = Buffer.byteLength(pdf, 'utf8'); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
+	const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
+	return Buffer.from(pdf, 'utf8');
+}
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
@@ -340,6 +365,11 @@ app.get('/api/payout-requests', auth, async (request, response) => {
 app.post('/api/payout-requests', auth, async (request, response) => {
 	const month = String(request.body.month || ''); const days = Number(request.body.days || 0); if (!/^\d{4}-\d{2}$/.test(month) || !Number.isInteger(days) || days < 0) return response.status(400).json({ error: 'Month and a non-negative integer number of days are required' });
 	const data = await readData(); const duplicate = (data.payoutRequests || []).find((item) => item.userId === request.user.sub && item.month === month && item.status !== 'rejected'); if (duplicate) return response.status(409).json({ error: 'Payout request already exists for this month' }); const user = data.users.find((item) => item.id === request.user.sub); const amount = days * Number(user?.dailyRate || 0); const item = { id: `payout-${Date.now()}`, userId: request.user.sub, userName: request.user.name, month, days, dailyRate: Number(user?.dailyRate || 0), amount, submissionDate: `${month}-01`, paymentDate: `${month}-15`, status: 'pending', createdAt: new Date().toISOString() }; data.payoutRequests = [...(data.payoutRequests || []), item]; await writeData(data); response.status(201).json(item);
+});
+app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
+	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
+	if (!item || (!['admin', 'gerant', 'manager'].includes(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
+	response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Disposition', `attachment; filename="ibra-payout-${item.month}-${item.userId}.pdf"`); response.send(buildPayoutPdf(item));
 });
 app.patch('/api/payout-requests/:id/status', auth, manager, async (request, response) => {
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
