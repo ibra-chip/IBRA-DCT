@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ibra-ba-v2';
+const CACHE_NAME = 'ibra-ba-v3';
 const APP_SHELL = ['/', '/index.html', '/script.js', '/styles.css', '/logo.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
