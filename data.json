@@ -4,8 +4,9 @@
       "id": "user-sanja",
       "name": "Sanja M.",
       "email": "sanja.m@ibra.rs",
+      "phone": "+381600000001",
       "role": "manager",
-      "passwordHash": "$2b$10$jMhmLQ8nqd7HwAW5wY9ZTeBBVNO4Wc0WefbkOBTnLxaYKvIrczYFy",
+      "passwordHash": "$2b$12$QH7/3nlL4PK9tKdJhb2NxO3dmP5D6eBalq.2KW0/0qLGD65k2ZyPC",
       "projectIds": [
         "lot-a"
       ],
@@ -183,5 +184,6 @@
       "uploadedAt": "2026-09-13T04:42:56.247Z"
     }
   ],
-  "complianceDocuments": []
+  "complianceDocuments": [],
+  "passwordResets": []
 }
