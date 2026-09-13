@@ -51,6 +51,8 @@ app.post('/api/auth/login', async (request, response) => {
 	const email = String(request.body.email || '').toLowerCase().trim();
 	const user = data.users.find((item) => item.email === email);
 	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid email or password' });
+	const requestedRole = String(request.body.role || '').trim(); const roleMatches = user.role === requestedRole || (requestedRole === 'gerant' && ['admin', 'gerant', 'manager'].includes(user.role));
+	if (!roleMatches) return response.status(403).json({ error: 'Selected profile does not match this account' });
 	const token = jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
 	response.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
 });
