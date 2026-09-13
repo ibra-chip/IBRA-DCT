@@ -15,16 +15,17 @@ const { PDFParse } = require('pdf-parse');
 const parsePdf = async (buffer) => { const parser = new PDFParse({ data: buffer }); return parser.getText(); };
 
 const app = express();
-const root = path.dirname(fileURLToPath(import.meta.url));
+const root = process.env.IBRA_APP_ROOT ? path.resolve(process.env.IBRA_APP_ROOT) : process.cwd();
 const persistentRoot = process.env.IBRA_DATA_DIR || root;
 const dataPath = path.join(persistentRoot, 'data.json');
 const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uploads');
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
+console.log('IBRA app root:', root);
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
 app.use(express.json());
-app.use(express.static(path.join(root, '..')));
+app.use(express.static(root));
 
 const readData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 const writeData = async (data) => {
@@ -62,9 +63,23 @@ async function sendMailSafe({ to, subject, text }) {
 	await transporter.sendMail({ from, to, subject, text });
 	return { skipped: false };
 }
+async function sendSmsSafe({ to, text }) {
+	const accountSid = process.env.TWILIO_ACCOUNT_SID;
+	const authToken = process.env.TWILIO_AUTH_TOKEN;
+	const from = process.env.TWILIO_FROM;
+	if (!accountSid || !authToken || !from) return { skipped: true };
+	const body = new URLSearchParams({ To: to, From: from, Body: text });
+	const apiResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+		method: 'POST',
+		headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+		body
+	});
+	if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
+	return { skipped: false };
+}
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
-app.get('/', (_request, response) => response.sendFile(path.join(root, '..', 'index.html')));
+app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.post('/api/auth/login', async (request, response) => {
 	const data = await readData();
 	const identifier = String(request.body.phone || request.body.email || '').trim();
@@ -99,15 +114,26 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	const email = String(request.body.email || '').trim().toLowerCase();
 	const role = String(request.body.role || 'user').trim();
-	const password = String(request.body.password || '');
+	const password = String(request.body.password || '') || crypto.randomBytes(9).toString('base64url');
 	const allowedRoles = ['gerant', 'conducteur', 'worker', 'user'];
 	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim(); const phone = String(request.body.phone || '').trim();
-	if (!name || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, phone, role, password, and role-specific company details are required' });
+	if (!name || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, phone, role, and role-specific company details are required' });
 	if (data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, ''))) return response.status(409).json({ error: 'User already exists' });
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	let delivery = 'manual';
+	if (email) {
+		const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
+		if (!mailResult.skipped) delivery = 'email';
+	}
+	if (delivery === 'manual') {
+		const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA : identifiant ${email || phone}, mot de passe temporaire ${password}. Changez-le après connexion.` });
+		if (!smsResult.skipped) delivery = 'sms';
+	}
+	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email or SMS delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
-	response.status(201).json(safeUser);
+	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
 });
 app.get('/api/projects', auth, async (_request, response) => response.json((await readData()).projects));
 app.get('/api/projects/:id/schedule', auth, async (request, response) => {
@@ -362,4 +388,4 @@ if (persistentRoot !== root) {
 	try { await fs.access(dataPath); } catch { await fs.copyFile(seedDataPath, dataPath); }
 	try { const existingUploads = await fs.readdir(uploadDir); if (!existingUploads.length) await fs.cp(seedUploadDir, uploadDir, { recursive: true, force: false }); } catch {}
 }
-app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`IBRA-BA web app listening on port ${process.env.PORT || 3000}`));
+app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`IBRA-BA web app listening on port ${process.env.PORT || 3000} at ${root}`));

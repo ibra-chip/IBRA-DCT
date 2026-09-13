@@ -1,19 +1,16 @@
 services:
   - type: web
     name: ibra-ba
-    runtime: docker
-    plan: starter
-    dockerfilePath: ./Dockerfile
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 3000
-      - key: IBRA_DATA_DIR
-        value: /var/data
-      - key: IBRA_UPLOAD_DIR
-        value: /var/data/uploads
       - key: IBRA_JWT_SECRET
         sync: false
       - key: OPENAI_API_KEY
@@ -26,7 +23,3 @@ services:
         value: https://api.openai.com/v1
       - key: BREVO_API_KEY
         sync: false
-    disk:
-      name: ibra-ba-data
-      mountPath: /var/data
-      sizeGB: 10
