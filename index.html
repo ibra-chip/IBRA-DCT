@@ -11,7 +11,21 @@
 </head>
 <body>
 	<div id="login-modal" class="modal">
-		<form id="login-form" class="login-card">
+		<form id="registration-form" class="login-card">
+			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
+			<h1>Créer votre accès</h1>
+			<p>Choisissez votre rôle, renseignez vos coordonnées et recevez votre mot de passe par e-mail.</p>
+			<label>Profil<select name="role" id="registration-role" required><option value="gerant">Gérant / Manager</option><option value="user">Utilisateur</option><option value="conducteur">Conducteur de travaux</option></select></label>
+			<label>Nom et prénom<input name="name" required /></label>
+			<label id="registration-siret">SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
+			<label id="registration-company" hidden>Entreprise employeuse<input name="company" /></label>
+			<label>E-mail pour recevoir le mot de passe<input name="email" type="email" autocomplete="email" required /></label>
+			<label>Téléphone (optionnel)<input name="phone" type="tel" autocomplete="tel" placeholder="+33 6 00 00 00 00" /></label>
+			<button class="primary" type="submit">Continuer</button>
+			<button class="secondary" id="show-login" type="button">J’ai déjà un compte</button>
+			<p id="registration-message" class="error"></p>
+		</form>
+		<form id="login-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Connexion</h1>
 			<label>Telefon ili e-mail<input name="phone" type="text" autocomplete="username" placeholder="+33 6 00 00 00 00 ili email" required /></label>
@@ -19,6 +33,7 @@
 			<label>Profil d’accès<select name="role" required><option value="" selected disabled>Choisissez votre profil</option><option value="gerant">Gérant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label>
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
+			<button class="secondary" id="show-registration" type="button">Créer un accès</button>
 			<p id="login-error" class="error"></p>
 		</form>
 	</div>
