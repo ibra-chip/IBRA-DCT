@@ -102,8 +102,8 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const password = String(request.body.password || '');
 	const allowedRoles = ['gerant', 'conducteur', 'worker', 'user'];
 	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim(); const phone = String(request.body.phone || '').trim();
-	if (!name || !email || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, email, phone, role, password, and role-specific company details are required' });
-	if (data.users.some((user) => user.email === email)) return response.status(409).json({ error: 'User already exists' });
+	if (!name || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, phone, role, password, and role-specific company details are required' });
+	if (data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, ''))) return response.status(409).json({ error: 'User already exists' });
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
