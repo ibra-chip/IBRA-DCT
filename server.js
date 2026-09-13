@@ -54,7 +54,10 @@ async function sendMailSafe({ to, subject, text }) {
 			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
 			body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text })
 		});
-		if (!apiResponse.ok) throw new Error(`Brevo API returned ${apiResponse.status}`);
+		if (!apiResponse.ok) {
+			const details = await apiResponse.text();
+			throw new Error(`Brevo API returned ${apiResponse.status}: ${details.slice(0, 240)}`);
+		}
 		return { skipped: false };
 	}
 	if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return { skipped: true };
@@ -96,7 +99,13 @@ app.post('/api/auth/request-reset', async (request, response) => {
 	if (!user) return response.json({ message: 'If the account exists, reset instructions will be sent.' });
 	const token = crypto.randomBytes(32).toString('hex'); const expiresAt = Date.now() + 15 * 60 * 1000; data.passwordResets = [...(data.passwordResets || []).filter((item) => item.userId !== user.id), { token, userId: user.id, expiresAt }]; await writeData(data);
 	const resetUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`;
-	const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` });
+	let mailResult;
+	try {
+		mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` });
+	} catch (error) {
+		console.error('Password reset email failed:', error.message);
+		return response.status(502).json({ error: 'Password reset email could not be sent' });
+	}
 	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Password reset email is not configured' });
 	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
