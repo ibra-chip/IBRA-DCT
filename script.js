@@ -45,7 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 		const allowed = access[role] || ['dashboard-view','tasks-view'];
 		document.querySelectorAll('.nav').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
-		const canSeeFinancials = ['admin', 'gerant', 'manager', 'conducteur'].includes(role);
+		const canSeeFinancials = ['admin', 'gerant', 'manager'].includes(role);
 		document.querySelector('#budget-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#payroll-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
