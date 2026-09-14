@@ -147,10 +147,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	const updateRegistrationFields = () => {
 		const isGerant = registrationRole?.value === 'gerant';
 		const isConducteur = registrationRole?.value === 'conducteur';
+		const isUser = registrationRole?.value === 'user';
 		const siret = document.querySelector('#registration-siret');
 		const company = document.querySelector('#registration-company');
+		const contact = document.querySelector('#registration-contact');
+		const credentials = document.querySelector('#registration-user-credentials');
 		if (siret) { siret.hidden = !isGerant; siret.querySelector('input').required = isGerant; }
 		if (company) { company.hidden = !isConducteur; company.querySelector('input').required = isConducteur; }
+		if (contact) { contact.hidden = isUser; contact.querySelector('input').required = !isUser; }
+		if (credentials) { credentials.hidden = !isUser; credentials.querySelector('[name="email"]').required = isUser; credentials.querySelector('[name="password"]').required = isUser; }
 	};
 	registrationRole?.addEventListener('change', updateRegistrationFields);
 	updateRegistrationFields();
@@ -171,7 +176,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const result = await fetch(`${api}/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(registrationForm).entries())) });
 			const data = await result.json();
 			if (!result.ok) throw new Error(data.error || 'Inscription impossible.');
-			registrationForm.reset(); updateRegistrationFields(); registrationForm.hidden = true; registrationSuccess.hidden = false; const deliveryTarget = data.email || data.phone; document.querySelector('#registration-success-message').textContent = `Lozinka je poslata na ${deliveryTarget}. Kliknite dalje kada želite da unesete password.`; loginForm.elements.phone.value = deliveryTarget;
+			registrationForm.reset(); updateRegistrationFields(); registrationForm.hidden = true; registrationSuccess.hidden = false; const deliveryTarget = data.email || data.phone; document.querySelector('#registration-success-message').textContent = data.direct ? 'Nalog je kreiran. Prijavite se svojim emailom i passwordom.' : `Lozinka je poslata na ${deliveryTarget}. Kliknite dalje kada želite da unesete password.`; loginForm.elements.phone.value = deliveryTarget || '';
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
 		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} · ${currentUser.role}`; await Promise.all([loadDashboard(), loadEvidenceSummary(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts()]); ensurePayoutPdfPanel(); ensureChangePasswordPanel(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } });
