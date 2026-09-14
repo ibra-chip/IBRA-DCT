@@ -156,7 +156,7 @@ app.post('/api/auth/register', async (request, response) => {
 	const siret = String(request.body.siret || '').trim();
 	const company = String(request.body.company || '').trim();
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
-	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
+	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && (!siret || !company))) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
 	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
 	const password = crypto.randomBytes(9).toString('base64url');
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12) };

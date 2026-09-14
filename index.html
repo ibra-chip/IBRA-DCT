@@ -12,7 +12,7 @@
 </head>
 <body>
 		<div id="login-modal" class="modal">
-			<section id="auth-choice" class="login-card">
+				<section id="auth-choice" class="login-card" hidden>
 				<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 				<h1>Dobro došli</h1>
 				<p>Izaberite kako želite da nastavite.</p>
@@ -40,16 +40,24 @@
 		</section>
 		<form id="login-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
-			<h1>Connexion</h1>
+					<h1>Connexion</h1>
 			<label>Telefon ili e-mail<input name="phone" type="text" autocomplete="username" placeholder="+33 6 00 00 00 00 ili email" required /></label>
 			<label>Mot de passe<input name="password" type="password" required /></label>
 			<label>Profil d’accès<select name="role" required><option value="" selected disabled>Choisissez votre profil</option><option value="gerant">Gérant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label>
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
-				<button class="secondary" id="show-registration" type="button">Novi sam · Kreiraj pristup</button>
+					<button class="secondary" id="show-registration" type="button">Créer un accès</button>
 			<button class="secondary" id="back-to-success" type="button" hidden>Nazad na potvrdu emaila</button>
 			<p id="login-error" class="error"></p>
 		</form>
+				<form id="reset-form" class="login-card" hidden>
+					<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
+					<h1>Réinitialiser le mot de passe</h1>
+					<label>Nouveau mot de passe<input name="password" type="password" minlength="10" autocomplete="new-password" required /></label>
+					<label>Confirmer le mot de passe<input name="confirmPassword" type="password" minlength="10" autocomplete="new-password" required /></label>
+					<button class="primary" type="submit">Enregistrer le nouveau mot de passe</button>
+					<p id="reset-message" class="error"></p>
+				</form>
 	</div>
 	<div id="toast" class="toast"></div>
 	<div class="app-shell">
