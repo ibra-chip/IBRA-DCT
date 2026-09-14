@@ -44,6 +44,8 @@
 			<label>Telefon ili e-mail<input name="phone" type="text" autocomplete="username" placeholder="+33 6 00 00 00 00 ili email" required /></label>
 			<label>Mot de passe<input name="password" type="password" required /></label>
 			<label>Profil d’accès<select name="role" required><option value="" selected disabled>Choisissez votre profil</option><option value="gerant">Gérant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label>
+					<label id="login-siret-field" hidden>SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
+					<label id="login-company-field" hidden>Entreprise employeuse<input name="company" /></label>
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
 					<button class="secondary" id="show-registration" type="button">Créer un accès</button>

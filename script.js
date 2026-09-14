@@ -145,6 +145,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	const registrationSuccess = document.querySelector('#registration-success');
 	const loginForm = document.querySelector('#login-form');
 	const registrationRole = document.querySelector('#registration-role');
+	const loginRole = loginForm?.elements.role;
+	const updateLoginFields = () => { const role = loginRole?.value; const siret = document.querySelector('#login-siret-field'); const company = document.querySelector('#login-company-field'); if (siret) { siret.hidden = role !== 'gerant'; siret.querySelector('input').required = false; } if (company) { company.hidden = role !== 'conducteur'; company.querySelector('input').required = false; } };
+	loginRole?.addEventListener('change', updateLoginFields);
+	updateLoginFields();
 	const updateRegistrationFields = () => {
 		const isGerant = registrationRole?.value === 'gerant';
 		const isConducteur = registrationRole?.value === 'conducteur';
