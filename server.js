@@ -494,7 +494,6 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
 	if (!aiResponse.ok) return response.status(502).json({ error: 'AI provider unavailable' });
 	const result = await aiResponse.json();
-	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: true });
 	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
