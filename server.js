@@ -351,8 +351,10 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 app.get('/api/time-entries', auth, async (request, response) => response.json((await readData()).timeEntries.filter((item) => ['admin','gerant','manager','conducteur'].includes(request.user.role) || item.workerId === request.user.sub)));
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
-	if (!request.body.date || !request.body.projectId || !hours || hours < 0) return response.status(400).json({ error: 'Invalid work time' });
-	const data = await readData(); const item = { id: `time-${Date.now()}`, workerId: request.user.sub, workerName: request.user.name, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, status: 'pending' };
+	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const worker = data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
+	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
+	const workAmount = rateType === 'hourly' ? hours * rate : rate;
+	const item = { id: `time-${Date.now()}`, workerId: request.user.sub, workerName: request.user.name, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
@@ -362,6 +364,7 @@ app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid time status' });
 	entry.status = status; entry.reviewedBy = request.user.sub; entry.reviewedAt = new Date().toISOString(); await writeData(data); response.json(entry);
 });
+const entryAmount = (entry, user) => Number(entry.workAmount ?? (entry.rateType === 'hourly' ? Number(entry.hours || 0) * Number(entry.rate || user?.hourlyRate || 0) : Number(entry.rate || user?.dailyRate || 0)));
 app.get('/api/payroll/summary', auth, manager, async (request, response) => {
 	const data = await readData();
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7));
@@ -370,7 +373,8 @@ app.get('/api/payroll/summary', auth, manager, async (request, response) => {
 		const workerEntries = entries.filter((entry) => entry.workerId === user.id);
 		const hours = workerEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 		const days = new Set(workerEntries.map((entry) => entry.date)).size;
-		return { userId: user.id, workerName: user.name, dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0, days, hours, estimatedTotal: (days * (user.dailyRate || 0)) + (hours * (user.hourlyRate || 0)) };
+		const estimatedTotal = workerEntries.reduce((sum, entry) => sum + entryAmount(entry, user), 0);
+		return { userId: user.id, workerName: user.name, dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0, days, hours, estimatedTotal, entries: workerEntries.map((entry) => ({ date: entry.date, projectId: entry.projectId, rateType: entry.rateType || 'daily', rate: entry.rate || 0, workAmount: entry.workAmount || 0 })) };
 	});
 	response.json({ month, summary, total: summary.reduce((sum, item) => sum + item.estimatedTotal, 0) });
 });
@@ -381,7 +385,8 @@ app.get('/api/my-payroll-summary', auth, async (request, response) => {
 	const entries = data.timeEntries.filter((entry) => entry.workerId === request.user.sub && entry.date.startsWith(month) && entry.status === 'approved');
 	const hours = entries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 	const days = new Set(entries.map((entry) => entry.date)).size;
-	response.json({ month, days, hours, dailyRate: user?.dailyRate || 0, hourlyRate: user?.hourlyRate || 0, estimatedTotal: days * (user?.dailyRate || 0) + hours * (user?.hourlyRate || 0) });
+	const estimatedTotal = entries.reduce((sum, entry) => sum + entryAmount(entry, user), 0);
+	response.json({ month, days, hours, dailyRate: user?.dailyRate || 0, hourlyRate: user?.hourlyRate || 0, estimatedTotal, entries: entries.map((entry) => ({ date: entry.date, projectId: entry.projectId, rateType: entry.rateType || 'daily', rate: entry.rate || 0, workAmount: entry.workAmount || 0 })) });
 });
 app.get('/api/payout-requests', auth, async (request, response) => {
 	const data = await readData(); const managerView = ['admin', 'gerant', 'manager'].includes(request.user.role); response.json((data.payoutRequests || []).filter((item) => managerView || item.userId === request.user.sub));

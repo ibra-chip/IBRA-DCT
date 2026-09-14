@@ -47,6 +47,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		syncDeliveryFields();
 	}
 	translateRuntimeText();
+	const userRateFields = document.querySelectorAll('.rate-field');
+	const userRateObserver = new MutationObserver(() => {
+		if (document.querySelector('#user-role')?.value === 'user') userRateFields.forEach((field) => { field.hidden = false; });
+	});
+	userRateFields.forEach((field) => userRateObserver.observe(field, { attributes: true, attributeFilter: ['hidden'] }));
 	new MutationObserver(translateRuntimeText).observe(document.body, { childList: true, subtree: true });
 	const request = async (path, options = {}) => { const response = await fetch(`${api}${path}`, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
 	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.textContent || 'IBRA-BA'; };
