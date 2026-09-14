@@ -290,15 +290,28 @@ app.get('/api/projects/:id/financial-summary', auth, async (request, response) =
 	const budget = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	const purchases = (data.purchases || []).filter((item) => item.projectId === request.params.id);
 	const approvedHours = (data.timeEntries || []).filter((item) => item.projectId === request.params.id && item.status === 'approved');
+	const laborCosts = (data.projectLaborCosts || []).filter((item) => item.projectId === request.params.id);
 	const usersById = new Map((data.users || []).map((user) => [user.id, user]));
 	const purchaseCategories = ['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'];
 	const purchaseTotals = Object.fromEntries(purchaseCategories.map((category) => [category, purchases.filter((item) => item.category === category).reduce((sum, item) => sum + Number(item.amount || 0), 0)]));
 	const purchaseTotal = Object.values(purchaseTotals).reduce((sum, amount) => sum + amount, 0);
 	const approvedWorkHours = approvedHours.reduce((sum, item) => sum + Number(item.hours || 0), 0);
-	const approvedLaborTotal = approvedHours.reduce((sum, item) => sum + entryAmount(item, usersById.get(item.workerId)), 0);
+	const approvedLaborTotal = laborCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
 	const spent = purchaseTotal + approvedLaborTotal;
 	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours };
-	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
+	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
+});
+app.post('/api/projects/:id/labor-costs', auth, manager, async (request, response) => {
+	const month = String(request.body.month || '');
+	const amount = Number(request.body.amount || 0);
+	const description = String(request.body.description || '').trim();
+	if (!/^\d{4}-\d{2}$/.test(month) || !Number.isFinite(amount) || amount < 0) return response.status(400).json({ error: 'Month and a non-negative final worker amount are required' });
+	const data = await readData();
+	const existing = (data.projectLaborCosts || []).find((item) => item.projectId === request.params.id && item.month === month);
+	const laborCost = { id: existing?.id || `labor-cost-${Date.now()}`, projectId: request.params.id, month, amount, description, status: 'final', enteredBy: request.user.sub, updatedAt: new Date().toISOString() };
+	data.projectLaborCosts = [...(data.projectLaborCosts || []).filter((item) => item.id !== existing?.id), laborCost];
+	await writeData(data);
+	response.status(existing ? 200 : 201).json(laborCost);
 });
 app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async (request, response) => {
 	const uploadedPdf = request.file ? await fs.readFile(request.file.path) : null;
