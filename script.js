@@ -137,11 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} · ${currentUser.role}`; await Promise.all([loadDashboard(), loadEvidenceSummary(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts()]); ensurePayoutPdfPanel(); ensureChangePasswordPanel(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } });
 	document.querySelector('#forgot-password')?.addEventListener('click', async () => {
-		const email = window.prompt('Unesite e-mail za resetovanje lozinke:');
-		if (!email?.trim()) return;
+		const contact = window.prompt('Unesite e-mail ili telefon za resetovanje lozinke:');
+		if (!contact?.trim()) return;
 		const error = document.querySelector('#login-error');
 		try {
-			const response = await fetch(`${api}/auth/request-reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: email.trim() }) });
+			const response = await fetch(`${api}/auth/request-reset`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contact: contact.trim() }) });
 			const result = await response.json();
 			if (!response.ok) throw new Error(result.error || 'Reset nije dostupan.');
 			error.textContent = result.resetUrl ? `Lokalni reset link: ${result.resetUrl}` : (result.message || 'Ako nalog postoji, instrukcije su poslate na e-mail.');
