@@ -11,8 +11,15 @@
 	<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-	<div id="login-modal" class="modal">
-		<form id="registration-form" class="login-card">
+		<div id="login-modal" class="modal">
+			<section id="auth-choice" class="login-card">
+				<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
+				<h1>Dobro došli</h1>
+				<p>Izaberite kako želite da nastavite.</p>
+				<button class="primary" id="choose-login" type="button">Već imam nalog · Prijava</button>
+				<button class="secondary" id="choose-registration" type="button">Novi sam · Kreiraj pristup</button>
+			</section>
+			<form id="registration-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Créer votre accès</h1>
 			<p>Choisissez votre rôle et recevez votre mot de passe par e-mail ou SMS.</p>
@@ -22,7 +29,7 @@
 			<label>E-mail ou téléphone pour recevoir le mot de passe<input name="contact" type="text" autocomplete="email tel" placeholder="email@example.com ou +33 6 00 00 00 00" required /></label>
 			<button class="primary" id="send-registration-password" type="submit">SUIVANT / SLEDEĆI KORAK</button>
 			<small>Klikom na SUIVANT prelazite na slanje privremene lozinke na email.</small>
-			<button class="secondary" id="show-login" type="button">J’ai déjà un compte</button>
+				<button class="secondary" id="show-login" type="button">Već imam nalog · Prijava</button>
 			<p id="registration-message" class="error"></p>
 		</form>
 		<section id="registration-success" class="login-card" hidden>
@@ -39,7 +46,7 @@
 			<label>Profil d’accès<select name="role" required><option value="" selected disabled>Choisissez votre profil</option><option value="gerant">Gérant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label>
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
-			<button class="secondary" id="show-registration" type="button">Créer un accès</button>
+				<button class="secondary" id="show-registration" type="button">Novi sam · Kreiraj pristup</button>
 			<button class="secondary" id="back-to-success" type="button" hidden>Nazad na potvrdu emaila</button>
 			<p id="login-error" class="error"></p>
 		</form>

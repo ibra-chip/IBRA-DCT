@@ -154,8 +154,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	registrationRole?.addEventListener('change', updateRegistrationFields);
 	updateRegistrationFields();
-	document.querySelector('#show-login')?.addEventListener('click', () => { registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = false; });
-	document.querySelector('#show-registration')?.addEventListener('click', () => { loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; });
+	const authChoice = document.querySelector('#auth-choice');
+	const showLogin = () => { authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); };
+	const showRegistration = () => { authChoice.hidden = true; loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; };
+	document.querySelector('#choose-login')?.addEventListener('click', showLogin);
+	document.querySelector('#choose-registration')?.addEventListener('click', showRegistration);
+	document.querySelector('#show-login')?.addEventListener('click', showLogin);
+	document.querySelector('#show-registration')?.addEventListener('click', showRegistration);
 	document.querySelector('#continue-to-password')?.addEventListener('click', () => { registrationSuccess.hidden = true; loginForm.hidden = false; document.querySelector('#back-to-success').hidden = false; loginForm.elements.password.focus(); });
 	document.querySelector('#back-to-success')?.addEventListener('click', () => { loginForm.hidden = true; registrationSuccess.hidden = false; });
 	registrationForm?.addEventListener('submit', async (event) => {
@@ -183,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			error.textContent = requestError.message || 'Reset lozinke trenutno nije dostupan.';
 		}
 	});
-	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#change-password-panel')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
+	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#change-password-panel')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId:'lot-a' }) }); event.currentTarget.reset(); await loadMessages(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await loadTime(); toast('Radno vreme je sačuvano.'); } catch { toast('Radno vreme nije sačuvano.'); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'conducteur'; companyField.querySelector('input').required = role === 'conducteur'; } rateFields.forEach((field) => { field.hidden = !['conducteur', 'worker'].includes(role); }); }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields();
