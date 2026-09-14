@@ -53,13 +53,13 @@ function isAllowedWorkDocument(file, evidenceType) {
 	return (type === 'plan' && isPdf) || (allowedWorkEvidenceTypes.includes(type) && type !== 'plan' && isImage);
 }
 
-async function sendMailSafe({ to, subject, text }) {
+async function sendMailSafe({ to, subject, text, attachments = [] }) {
 	const from = process.env.SMTP_FROM || process.env.SMTP_USER;
 	if (process.env.BREVO_API_KEY && from) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
 			method: 'POST',
 			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-			body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text })
+			body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text, ...(attachments.length ? { attachment: attachments.map(({ filename, content }) => ({ name: filename, content: Buffer.isBuffer(content) ? content.toString('base64') : content })) } : {}) })
 		});
 		if (!apiResponse.ok) {
 			const details = await apiResponse.text();
@@ -70,7 +70,7 @@ async function sendMailSafe({ to, subject, text }) {
 	if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return { skipped: true };
 	const nodemailer = await import('nodemailer');
 	const transporter = nodemailer.default.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
-	await transporter.sendMail({ from, to, subject, text });
+	await transporter.sendMail({ from, to, subject, text, attachments });
 	return { skipped: false };
 }
 async function sendSmsSafe({ to, text }) {
@@ -111,6 +111,13 @@ function buildPayoutPdf(item) {
 	objects.forEach((object, index) => { offsets[index + 1] = Buffer.byteLength(pdf, 'utf8'); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; });
 	const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
 	return Buffer.from(pdf, 'utf8');
+}
+function buildHoursPdf({ workerName, month, entries, total }) {
+	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
+	const lines = ['IBRA-BA - EVIDENCIJA RADNIH SATI', `Radnik: ${workerName}`, `Mesec: ${month}`, ...entries.map((entry) => `${entry.date} | ${entry.projectId} | ${Number(entry.hours || 0).toFixed(2)} h | ${entry.rateType === 'hourly' ? 'Satnica' : 'Dnevnica'} ${Number(entry.rate || 0).toFixed(2)} EUR | ${Number(entry.workAmount || 0).toFixed(2)} EUR`), `UKUPNO: ${Number(total || 0).toFixed(2)} EUR`];
+	const commands = ['BT', '/F1 10 Tf', '40 780 Td', ...lines.flatMap((line, index) => [index ? '0 -24 Td' : '', `(${escapePdf(line)}) Tj`]).filter(Boolean), 'ET'].join('\n');
+	const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>', `<< /Length ${Buffer.byteLength(commands, 'utf8')} >>\nstream\n${commands}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
+	let pdf = '%PDF-1.4\n'; const offsets = [0]; objects.forEach((object, index) => { offsets[index + 1] = Buffer.byteLength(pdf, 'utf8'); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }); const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`; return Buffer.from(pdf, 'utf8');
 }
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
@@ -356,6 +363,15 @@ app.post('/api/time-entries', auth, async (request, response) => {
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
 	const item = { id: `time-${Date.now()}`, workerId: request.user.sub, workerName: request.user.name, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
+});
+app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
+	const month = String(request.body.month || new Date().toISOString().slice(0, 7)); const data = await readData(); const entries = data.timeEntries.filter((entry) => entry.workerId === request.user.sub && entry.date.startsWith(month));
+	if (!entries.length) return response.status(400).json({ error: 'No work entries found for this month' });
+	const managers = data.users.filter((user) => ['admin', 'gerant', 'manager'].includes(user.role) && user.email);
+	if (!managers.length) return response.status(503).json({ error: 'No manager email is configured' });
+	const worker = data.users.find((user) => user.id === request.user.sub); const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) })); const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0); const pdf = buildHoursPdf({ workerName: request.user.name, month, entries: detailedEntries, total });
+	const results = await Promise.all(managers.map((managerUser) => sendMailSafe({ to: managerUser.email, subject: `IBRA-BA - sati rada ${request.user.name} - ${month}`, text: `U prilogu je PDF evidencije radnih sati za ${request.user.name}, ${month}.`, attachments: [{ filename: `ibra-hours-${month}-${request.user.sub}.pdf`, content: pdf }] })));
+	if (results.every((result) => result.skipped)) return response.status(503).json({ error: 'Email delivery is not configured' }); response.json({ message: 'Hours PDF sent to manager', recipients: managers.map((user) => user.email) });
 });
 app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
 	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Only supervisors can approve time' });
