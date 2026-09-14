@@ -193,20 +193,22 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const data = await readData();
 	const name = String(request.body.name || '').trim();
 	const email = String(request.body.email || '').trim().toLowerCase();
+	const deliveryMethod = String(request.body.deliveryMethod || '').trim();
 	const role = String(request.body.role || 'user').trim();
 	const password = String(request.body.password || '') || crypto.randomBytes(9).toString('base64url');
 	const allowedRoles = ['gerant', 'conducteur', 'worker', 'user'];
 	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim(); const phone = String(request.body.phone || '').trim();
-	if (!name || !phone || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, phone, role, and role-specific company details are required' });
-	if (data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, ''))) return response.status(409).json({ error: 'User already exists' });
-	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
+	const normalizedPhone = phone.replace(/[\s()-]/g, '');
+	if (!name || !['email', 'sms'].includes(deliveryMethod) || (deliveryMethod === 'email' && !/^\S+@\S+\.\S+$/.test(email)) || (deliveryMethod === 'sms' && !phone) || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, delivery method, matching email or phone, role, and role-specific company details are required' });
+	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
 	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
 	let delivery = 'manual';
-	if (email) {
+	if (deliveryMethod === 'email') {
 		const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
 		if (!mailResult.skipped) delivery = 'email';
 	}
-	if (delivery === 'manual') {
+	if (deliveryMethod === 'sms') {
 		const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA : identifiant ${email || phone}, mot de passe temporaire ${password}. Changez-le après connexion.` });
 		if (!smsResult.skipped) delivery = 'sms';
 	}

@@ -30,6 +30,22 @@ document.addEventListener('DOMContentLoaded', () => {
 	const setLanguage = (next) => { language = next; localStorage.setItem('ibra-language', next); originalText.forEach((text, element) => { element.textContent = next === 'fr' ? (translations[text] || text) : text; }); document.querySelectorAll('.language-button').forEach((button) => button.classList.toggle('active', button.dataset.language === next)); };
 	document.querySelectorAll('.language-button').forEach((button) => button.addEventListener('click', () => setLanguage(button.dataset.language)));
 	setLanguage(language);
+	const userForm = document.querySelector('#user-form');
+	if (userForm && !userForm.elements.deliveryMethod) {
+		const emailInput = userForm.elements.email;
+		const phoneInput = userForm.elements.phone;
+		const deliveryLabel = document.createElement('label');
+		deliveryLabel.innerHTML = 'Način slanja<select name="deliveryMethod" required><option value="email">Email</option><option value="sms">Telefon / SMS</option></select>';
+		userForm.insertBefore(deliveryLabel, emailInput.closest('label'));
+		const deliverySelect = deliveryLabel.querySelector('select');
+		const syncDeliveryFields = () => {
+			const emailMode = deliverySelect.value === 'email';
+			emailInput.required = emailMode;
+			phoneInput.required = !emailMode;
+		};
+		deliverySelect.addEventListener('change', syncDeliveryFields);
+		syncDeliveryFields();
+	}
 	translateRuntimeText();
 	new MutationObserver(translateRuntimeText).observe(document.body, { childList: true, subtree: true });
 	const request = async (path, options = {}) => { const response = await fetch(`${api}${path}`, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
