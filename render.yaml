@@ -12,8 +12,16 @@ services:
       - key: PORT
         value: 3000
       - key: PUBLIC_URL
-        value: https://ibra-ba-l0nz.onrender.com
+        value: https://ibra-ba.net
+      - key: APP_BASE_URL
+        value: https://ibra-ba.net
       - key: IBRA_JWT_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
       - key: OPENAI_API_KEY
         sync: false

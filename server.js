@@ -45,6 +45,13 @@ function manager(request, response, next) {
 	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	next();
 }
+const allowedWorkEvidenceTypes = ['plan', 'photo-before', 'photo-during', 'photo-after'];
+function isAllowedWorkDocument(file, evidenceType) {
+	const type = String(evidenceType || '');
+	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
+	const isImage = file.mimetype.startsWith('image/');
+	return (type === 'plan' && isPdf) || (allowedWorkEvidenceTypes.includes(type) && type !== 'plan' && isImage);
+}
 
 async function sendMailSafe({ to, subject, text }) {
 	const from = process.env.SMTP_FROM || process.env.SMTP_USER;
@@ -416,6 +423,7 @@ app.get('/api/projects/:id/situation-summary', auth, async (request, response) =
 });
 app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });
+	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
 	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType: request.body.evidenceType || 'other', phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
 	data.documents.push(item); await writeData(data); response.status(201).json(item);
 });
@@ -428,7 +436,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
 	if (!aiApiKey) return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Bez toga nema tehničkog odgovora.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData();
-	const documents = (data.documents || []).filter((item) => item.projectId === projectId && ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'].includes(item.evidenceType));
+	const documents = (data.documents || []).filter((item) => item.projectId === projectId && allowedWorkEvidenceTypes.includes(item.evidenceType));
 	const sources = [];
 	for (const document of documents) {
 		if (!document.storedName) continue;
@@ -452,6 +460,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	if (!aiResponse.ok) return response.status(502).json({ error: 'AI provider unavailable' });
 	const result = await aiResponse.json();
 	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: true });
+	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Conducteur-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
