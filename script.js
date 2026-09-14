@@ -150,7 +150,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const siret = document.querySelector('#registration-siret');
 		const company = document.querySelector('#registration-company');
 		if (siret) { siret.hidden = !isGerant; siret.querySelector('input').required = isGerant; }
-		if (company) { company.hidden = true; company.querySelector('input').required = false; }
+		if (company) { company.hidden = !isConducteur; company.querySelector('input').required = isConducteur; }
 	};
 	registrationRole?.addEventListener('change', updateRegistrationFields);
 	updateRegistrationFields();
