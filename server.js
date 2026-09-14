@@ -428,23 +428,27 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
 	if (!aiApiKey) return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Bez toga nema tehničkog odgovora.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData();
-	const documents = (data.documents || []).filter((item) => item.projectId === projectId && ['plan', 'fiche-technique'].includes(item.evidenceType));
+	const documents = (data.documents || []).filter((item) => item.projectId === projectId && ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'].includes(item.evidenceType));
 	const sources = [];
 	for (const document of documents) {
-		if (!document.storedName || !document.mimeType.includes('pdf')) continue;
+		if (!document.storedName) continue;
 		let buffer;
 		try { buffer = await fs.readFile(path.join(uploadDir, document.storedName)); } catch (error) {
 			if (error.code === 'ENOENT') continue;
 			throw error;
 		}
-		const parsed = await parsePdf(buffer);
-		const pages = parsed.text.split('\f');
-		pages.forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, type: document.evidenceType, page: index + 1, text: text.slice(0, 12000) }); });
+		if (document.mimeType.includes('pdf')) {
+			const parsed = await parsePdf(buffer); const pages = parsed.text.split('\f');
+			pages.forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, type: document.evidenceType, page: index + 1, text: text.slice(0, 12000) }); });
+		} else if (document.mimeType.startsWith('image/')) {
+			sources.push({ file: document.originalName, type: document.evidenceType, page: null, image: `data:${document.mimeType};base64,${buffer.toString('base64')}` });
+		}
 	}
-	if (!sources.length) return response.json({ status: 'no_source', answer: 'Nije pronađen plan ili fiche technique PDF za ovaj chantier. Ne mogu dati precizan tehnički odgovor.', sources: [], requiresHumanConfirmation: true });
-	const sourceText = sources.map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
-	const prompt = `Odgovori samo na osnovu SOURCE teksta. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno naveden, reci: "Podatak nije pronađen u dokumentaciji." Uvek navedi source file i page. Odgovor treba da bude tehnički jasan, na srpskom/bosanskom. Pitanje: ${question}\n\n${sourceText}`;
-	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i nikada ne nagađaš.' }, { role: 'user', content: prompt }] }) });
+	if (!sources.length) return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
+	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
+	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan, na srpskom/bosanskom. Pitanje: ${question}\n\n${sourceText}`;
+	const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
+	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
 	if (!aiResponse.ok) return response.status(502).json({ error: 'AI provider unavailable' });
 	const result = await aiResponse.json();
 	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: true });
