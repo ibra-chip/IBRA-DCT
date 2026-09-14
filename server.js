@@ -59,7 +59,13 @@ async function sendMailSafe({ to, subject, text, attachments = [] }) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
 			method: 'POST',
 			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
-			body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text, ...(attachments.length ? { attachment: attachments.map(({ filename, content }) => ({ name: filename, content: Buffer.isBuffer(content) ? content.toString('base64') : content })) } : {}) })
+			body: JSON.stringify({
+				sender: { name: 'IBRA-BA', email: from },
+				to: [{ email: to }],
+				subject,
+				textContent: text,
+				...(attachments.length ? { attachment: attachments.map(({ filename, content }) => ({ name: filename, content: Buffer.isBuffer(content) ? content.toString('base64') : content })) } : {})
+			})
 		});
 		if (!apiResponse.ok) {
 			const details = await apiResponse.text();
@@ -70,7 +76,13 @@ async function sendMailSafe({ to, subject, text, attachments = [] }) {
 	if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) return { skipped: true };
 	const nodemailer = await import('nodemailer');
 	const transporter = nodemailer.default.createTransport({ host: process.env.SMTP_HOST, port: Number(process.env.SMTP_PORT || 587), secure: process.env.SMTP_SECURE === 'true', auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } });
-	await transporter.sendMail({ from, to, subject, text, attachments });
+	await transporter.sendMail({
+		from: `IBRA-BA <${from}>`,
+		to,
+		subject,
+		text,
+		attachments
+	});
 	return { skipped: false };
 }
 async function sendSmsSafe({ to, text }) {
