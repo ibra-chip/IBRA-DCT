@@ -290,10 +290,15 @@ app.get('/api/projects/:id/financial-summary', auth, async (request, response) =
 	const budget = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	const purchases = (data.purchases || []).filter((item) => item.projectId === request.params.id);
 	const approvedHours = (data.timeEntries || []).filter((item) => item.projectId === request.params.id && item.status === 'approved');
-	const purchaseTotal = purchases.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-	const laborTotal = approvedHours.reduce((sum, item) => sum + Number(item.hours || 0), 0);
-	const spent = purchaseTotal + laborTotal;
-	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours: laborTotal, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
+	const usersById = new Map((data.users || []).map((user) => [user.id, user]));
+	const purchaseCategories = ['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'];
+	const purchaseTotals = Object.fromEntries(purchaseCategories.map((category) => [category, purchases.filter((item) => item.category === category).reduce((sum, item) => sum + Number(item.amount || 0), 0)]));
+	const purchaseTotal = Object.values(purchaseTotals).reduce((sum, amount) => sum + amount, 0);
+	const approvedWorkHours = approvedHours.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+	const approvedLaborTotal = approvedHours.reduce((sum, item) => sum + entryAmount(item, usersById.get(item.workerId)), 0);
+	const spent = purchaseTotal + approvedLaborTotal;
+	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours };
+	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
 });
 app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async (request, response) => {
 	const uploadedPdf = request.file ? await fs.readFile(request.file.path) : null;
