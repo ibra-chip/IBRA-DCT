@@ -481,6 +481,27 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	data.documents.push(item); await writeData(data); response.status(201).json(item);
 });
 app.get('/api/documents', auth, async (_request, response) => response.json((await readData()).documents));
+app.patch('/api/documents/:id', auth, manager, async (request, response) => {
+	const name = String(request.body.name || '').trim();
+	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	item.originalName = name; item.renamedAt = new Date().toISOString(); item.renamedBy = request.user.sub;
+	await writeData(data); response.json(item);
+});
+app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
+	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id);
+	if (!source) return response.status(404).json({ error: 'Document not found' });
+	const storedName = `${Date.now()}-${source.storedName}`; await fs.copyFile(path.join(uploadDir, source.storedName), path.join(uploadDir, storedName));
+	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
+	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
+});
+app.delete('/api/documents/:id', auth, manager, async (request, response) => {
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	await fs.unlink(path.join(uploadDir, item.storedName)).catch(() => {});
+	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
+});
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
 	const projectId = String(request.body.projectId || 'lot-a');
