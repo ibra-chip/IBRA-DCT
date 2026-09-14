@@ -480,24 +480,24 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType: request.body.evidenceType || 'other', phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
 	data.documents.push(item); await writeData(data); response.status(201).json(item);
 });
-app.get('/api/documents', auth, async (_request, response) => response.json((await readData()).documents));
+app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	item.originalName = name; item.renamedAt = new Date().toISOString(); item.renamedBy = request.user.sub;
 	await writeData(data); response.json(item);
 });
 app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
-	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id);
+	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
 	if (!source) return response.status(404).json({ error: 'Document not found' });
 	const storedName = `${Date.now()}-${source.storedName}`; await fs.copyFile(path.join(uploadDir, source.storedName), path.join(uploadDir, storedName));
 	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
 	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
 });
 app.delete('/api/documents/:id', auth, manager, async (request, response) => {
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	await fs.unlink(path.join(uploadDir, item.storedName)).catch(() => {});
 	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
@@ -510,7 +510,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
 	if (!aiApiKey) return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Bez toga nema tehničkog odgovora.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData();
-	const documents = (data.documents || []).filter((item) => item.projectId === projectId && allowedWorkEvidenceTypes.includes(item.evidenceType));
+	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
 	const sources = [];
 	for (const document of documents) {
 		if (!document.storedName) continue;
@@ -544,7 +544,7 @@ app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 });
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
-	const documents = data.documents.filter((item) => item.projectId === request.params.id);
+	const documents = data.documents.filter((item) => item.projectId === request.params.id && item.uploadedBy === request.user.sub);
 	const required = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 	const present = required.filter((type) => documents.some((item) => item.evidenceType === type));
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
