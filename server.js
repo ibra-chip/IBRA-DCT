@@ -168,6 +168,13 @@ app.post('/api/auth/request-reset', async (request, response) => {
 app.post('/api/auth/reset-password', async (request, response) => {
 	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
 });
+app.post('/api/auth/change-password', auth, async (request, response) => {
+	const currentPassword = String(request.body.currentPassword || ''); const newPassword = String(request.body.newPassword || '');
+	if (newPassword.length < 10) return response.status(400).json({ error: 'New password must be at least 10 characters' });
+	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
+	if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return response.status(401).json({ error: 'Current password is incorrect' });
+	user.passwordHash = await bcrypt.hash(newPassword, 12); await writeData(data); response.json({ message: 'Password changed' });
+});
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
 app.get('/api/contacts', auth, async (request, response) => {
