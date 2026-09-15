@@ -37,6 +37,12 @@ const writeData = async (data) => {
 	await fs.rename(temporaryPath, dataPath);
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
+const normalizeQuestion = (question) => question.toLowerCase().replace(/\s+/g, ' ').trim();
+const answerCacheKey = (userId, projectId, question, sourceVersion) => `${userId}:${projectId}:${sourceVersion}:${normalizeQuestion(question)}`;
+const saveCachedAnswer = async (data, entry) => {
+	data.aiAnswers = [...(data.aiAnswers || []).filter((item) => item.key !== entry.key), entry].slice(-200);
+	await writeData(data);
+};
 async function auth(request, response, next) {
 	try {
 		const payload = jwt.verify(tokenFrom(request), secret);
@@ -514,9 +520,10 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	if (!question) return response.status(400).json({ error: 'A technical question is required' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
-	if (!aiApiKey) return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Bez toga nema tehničkog odgovora.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData();
 	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
+	const sourceVersion = crypto.createHash('sha256').update(documents.map((item) => `${item.id}:${item.updatedAt || item.uploadedAt || ''}`).join('|')).digest('hex');
+	const cacheKey = answerCacheKey(request.user.sub, projectId, question, sourceVersion);
 	const sources = [];
 	for (const document of documents) {
 		if (!document.storedName) continue;
@@ -533,13 +540,19 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		}
 	}
 	if (!sources.length) return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
+	const cached = (data.aiAnswers || []).find((item) => item.key === cacheKey);
+	if (!aiApiKey && cached) return response.json({ ...cached, status: 'cached', cached: true });
+	if (!aiApiKey) return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Bez toga nema tehničkog odgovora.', sources: [], requiresHumanConfirmation: true });
 	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
 	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan, na srpskom/bosanskom. Pitanje: ${question}\n\n${sourceText}`;
 	const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
 	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
-	if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); }
+	if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); if (cached) return response.json({ ...cached, status: 'cached', cached: true }); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); }
 	const result = await aiResponse.json();
-	response.json({ status: 'grounded', answer: result.choices?.[0]?.message?.content || 'Nema odgovora.', sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false });
+	const answer = result.choices?.[0]?.message?.content || 'Nema odgovora.';
+	const responseSources = sources.map(({ file, type, page }) => ({ file, type, page }));
+	await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: responseSources, requiresHumanConfirmation: false, savedAt: new Date().toISOString() });
+	response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Conducteur-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
