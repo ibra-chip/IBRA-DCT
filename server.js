@@ -37,9 +37,15 @@ const writeData = async (data) => {
 	await fs.rename(temporaryPath, dataPath);
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
-function auth(request, response, next) {
-	try { request.user = jwt.verify(tokenFrom(request), secret); next(); }
-	catch { response.status(401).json({ error: 'Authentication required' }); }
+async function auth(request, response, next) {
+	try {
+		const payload = jwt.verify(tokenFrom(request), secret);
+		const data = await readData();
+		const user = data.users.find((item) => item.id === payload.sub);
+		if (!user || (user.passwordChangedAt && Number(payload.iat || 0) * 1000 < user.passwordChangedAt)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
+		request.user = payload;
+		next();
+	} catch { response.status(401).json({ error: 'Authentication required' }); }
 }
 function manager(request, response, next) {
 	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Access denied' });
@@ -193,14 +199,14 @@ app.post('/api/auth/request-reset', async (request, response) => {
 	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
 app.post('/api/auth/reset-password', async (request, response) => {
-	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
+	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); user.passwordChangedAt = Date.now(); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
 });
 app.post('/api/auth/change-password', auth, async (request, response) => {
 	const currentPassword = String(request.body.currentPassword || ''); const newPassword = String(request.body.newPassword || '');
 	if (newPassword.length < 10) return response.status(400).json({ error: 'New password must be at least 10 characters' });
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return response.status(401).json({ error: 'Current password is incorrect' });
-	user.passwordHash = await bcrypt.hash(newPassword, 12); await writeData(data); response.json({ message: 'Password changed' });
+	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Date.now(); await writeData(data); response.json({ message: 'Password changed' });
 });
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
