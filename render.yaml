@@ -35,3 +35,5 @@ services:
         value: https://api.openai.com/v1
       - key: BREVO_API_KEY
         sync: false
+      - key: SMTP_FROM
+        sync: false
