@@ -1,0 +1,15 @@
+{
+  "name": "ibra-ba",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web\"",
+    "build": "npm run build --workspace @ibra-ba/api && npm run build --workspace @ibra-ba/web",
+    "lint": "npm run lint --workspace @ibra-ba/api && npm run lint --workspace @ibra-ba/web"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

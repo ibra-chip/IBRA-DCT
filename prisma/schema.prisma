@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  siret     String?
+  address   String?
+  status    String   @default("active")
+  createdAt DateTime @default(now())
+  users     User[]
+  projects  Project[]
+}
+
+model Role {
+  id          String        @id @default(cuid())
+  name        String        @unique
+  description String?
+  users       User[]
+  projectMems ProjectMember[]
+}
+
+model User {
+  id           String        @id @default(cuid())
+  companyId    String?
+  roleId       String?
+  name         String
+  email        String        @unique
+  phone        String?
+  passwordHash String
+  status       String        @default("active")
+  company      Company?      @relation(fields: [companyId], references: [id])
+  role         Role?         @relation(fields: [roleId], references: [id])
+  projectMems  ProjectMember[]
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+}
+
+model Project {
+  id          String        @id @default(cuid())
+  companyId   String
+  name        String
+  location    String?
+  status      String        @default("planning")
+  startDate   DateTime?
+  endDate     DateTime?
+  managerId   String?
+  createdAt   DateTime      @default(now())
+  company     Company       @relation(fields: [companyId], references: [id])
+  members     ProjectMember[]
+  documents   Document[]
+  evidence    EvidenceItem[]
+  checklists  Checklist[]
+  workReports WorkReport[]
+  aiQuestions AIQuestion[]
+}
+
+model ProjectMember {
+  id        String   @id @default(cuid())
+  projectId String
+  userId    String
+  roleId    String?
+  status    String   @default("active")
+  project   Project  @relation(fields: [projectId], references: [id])
+  user      User     @relation(fields: [userId], references: [id])
+  role      Role?    @relation(fields: [roleId], references: [id])
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  projectId   String
+  uploadedBy  String
+  title       String
+  fileName    String
+  storageKey  String
+  mimeType    String
+  category    String?
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+model EvidenceItem {
+  id          String   @id @default(cuid())
+  projectId   String
+  createdBy   String
+  type        String
+  phase       String
+  description String?
+  imageUrl    String?
+  fileUrl     String?
+  latitude    Float?
+  longitude   Float?
+  approvedBy  String?
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+}
+
+model Checklist {
+  id        String         @id @default(cuid())
+  projectId String
+  type      String
+  title     String
+  createdBy String
+  createdAt DateTime       @default(now())
+  project   Project        @relation(fields: [projectId], references: [id])
+  items     ChecklistItem[]
+}
+
+model ChecklistItem {
+  id          String    @id @default(cuid())
+  checklistId String
+  title       String
+  description String?
+  status      String    @default("pending")
+  assignedTo  String?
+  dueDate     DateTime?
+  approvedBy  String?
+  comment     String?
+  createdAt   DateTime  @default(now())
+  checklist   Checklist @relation(fields: [checklistId], references: [id])
+}
+
+model WorkReport {
+  id        String   @id @default(cuid())
+  projectId String
+  createdBy String
+  title     String
+  summary   String?
+  date      DateTime
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+}
+
+model AIQuestion {
+  id        String    @id @default(cuid())
+  projectId String
+  userId    String
+  question  String
+  status    String    @default("pending")
+  createdAt DateTime  @default(now())
+  project   Project   @relation(fields: [projectId], references: [id])
+  answers   AIAnswer[]
+}
+
+model AIAnswer {
+  id               String     @id @default(cuid())
+  questionId       String
+  answer           String
+  sourceDocumentIds String?
+  confidence       Float?
+  createdAt        DateTime   @default(now())
+  question         AIQuestion @relation(fields: [questionId], references: [id])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  entityType String
+  entityId   String
+  action     String
+  userId     String?
+  metadata   String?
+  createdAt  DateTime @default(now())
+}
