@@ -1,13 +1,23 @@
-{
+﻿{
   "name": "ibra-ba",
+  "version": "1.0.0",
   "private": true,
-  "workspaces": [
-    "apps/*"
-  ],
+  "workspaces": ["apps/*"],
   "scripts": {
-    "dev": "concurrently \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web\"",
+    "start": "node server.js",
+    "dev": "concurrently \"node --watch server.js\" \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web\"",
     "build": "npm run build --workspace @ibra-ba/api && npm run build --workspace @ibra-ba/web",
     "lint": "npm run lint --workspace @ibra-ba/api && npm run lint --workspace @ibra-ba/web"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.2",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^2.3.0",
+    "nodemailer": "^7.0.6",
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
