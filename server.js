@@ -177,7 +177,7 @@ app.post('/api/auth/register', async (request, response) => {
 	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
-	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => item.email === email || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));
+	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => (item.email && item.email.trim().toLowerCase() === email) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));
 	if (!user) return response.json({ message: 'If the account exists, reset instructions will be sent.' });
 	const token = crypto.randomBytes(32).toString('hex'); const expiresAt = Date.now() + 15 * 60 * 1000; data.passwordResets = [...(data.passwordResets || []).filter((item) => item.userId !== user.id), { token, userId: user.id, expiresAt }]; await writeData(data);
 	const resetUrl = `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`;
