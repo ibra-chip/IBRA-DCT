@@ -25,6 +25,8 @@ services:
         sync: false
       - key: OPENAI_API_KEY
         sync: false
+      - key: AI_API_KEY
+        sync: false
       - key: OPENAI_MODEL
         value: gpt-4o-mini
       - key: OPENAI_VISION_MODEL
