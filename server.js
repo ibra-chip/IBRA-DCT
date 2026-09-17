@@ -25,6 +25,7 @@ const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const facadeKnowledge = await loadFacadeKnowledge(root);
 console.log('IBRA app root:', root);
+if (process.env.NODE_ENV === 'production' && !supabaseConfigured) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production; local data.json persistence is disabled.');
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
@@ -46,7 +47,8 @@ const readData = async () => {
 		if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
 		return local;
 	} catch (error) {
-		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable; using local data.json:', error.message); supabaseWarningShown = true; }
+		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable:', error.message); supabaseWarningShown = true; }
+		if (process.env.NODE_ENV === 'production') throw error;
 		return readLocalData();
 	}
 };
