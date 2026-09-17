@@ -560,7 +560,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 				requiresHumanConfirmation: false
 			});
 		}
-		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Za pitanja o ITE i fasadama dostupna je lokalna baza kada pitanje odgovara njenim temama.', sources: [], requiresHumanConfirmation: true });
+		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Lokalna baza nema dovoljno podataka za ovo pitanje.', sources: [], requiresHumanConfirmation: false });
 	}
 	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
 	const languageName = responseLanguage === 'fr' ? 'francuskom' : responseLanguage === 'bs' ? 'bosanskom' : 'srpskom';
