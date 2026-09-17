@@ -543,7 +543,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	}
 	if (!sources.length) {
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: true });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
 	}
 	const cached = (data.aiAnswers || []).find((item) => item.key === cacheKey);
@@ -556,7 +556,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 				answer: formatOfflineFacadeAnswer(localEntries),
 				sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))),
 				knowledgeBase: facadeKnowledge.title,
-				requiresHumanConfirmation: true
+				requiresHumanConfirmation: false
 			});
 		}
 		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Za pitanja o ITE i fasadama dostupna je lokalna baza kada pitanje odgovara njenim temama.', sources: [], requiresHumanConfirmation: true });
@@ -570,7 +570,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500));
 		if (cached) return response.json({ ...cached, status: 'cached', cached: true });
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: true });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.status(502).json({ error: 'AI provider unavailable', providerStatus });
 	}
 	const result = await aiResponse.json();
