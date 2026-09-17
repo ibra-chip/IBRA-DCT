@@ -552,9 +552,11 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	if (!aiApiKey) {
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
 		if (localEntries.length) {
+			const answer = formatOfflineFacadeAnswer(localEntries, responseLanguage);
+			await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false, savedAt: new Date().toISOString(), mode: 'offline_grounded' });
 			return response.json({
 				status: 'offline_grounded',
-				answer: formatOfflineFacadeAnswer(localEntries, responseLanguage),
+				answer,
 				sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))),
 				knowledgeBase: facadeKnowledge.title,
 				requiresHumanConfirmation: false
