@@ -21,15 +21,37 @@ const persistentRoot = process.env.IBRA_DATA_DIR || root;
 const dataPath = path.join(persistentRoot, 'data.json');
 const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uploads');
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
+const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const facadeKnowledge = await loadFacadeKnowledge(root);
 console.log('IBRA app root:', root);
+if (process.env.NODE_ENV === 'production' && !supabaseConfigured) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production; local data.json persistence is disabled.');
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
 app.use(express.json());
 app.use(express.static(root));
 
-const readData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
+const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
+const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+let supabaseWarningShown = false;
+const readData = async () => {
+	if (!supabaseConfigured) return readLocalData();
+	try {
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
+		if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
+		const rows = await result.json();
+		if (rows[0]?.data) return rows[0].data;
+		const local = await readLocalData();
+		const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
+		if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
+		return local;
+	} catch (error) {
+		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable:', error.message); supabaseWarningShown = true; }
+		if (process.env.NODE_ENV === 'production') throw error;
+		return readLocalData();
+	}
+};
 const writeData = async (data) => {
 	const serialized = `${JSON.stringify(data, null, 2)}\n`;
 	const backupPath = `${dataPath}.bak`;
@@ -37,6 +59,10 @@ const writeData = async (data) => {
 	await fs.copyFile(dataPath, backupPath).catch(() => {});
 	await fs.writeFile(temporaryPath, serialized, 'utf8');
 	await fs.rename(temporaryPath, dataPath);
+	if (supabaseConfigured) {
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
+		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
+	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
 const normalizeQuestion = (question) => question.toLowerCase().replace(/\s+/g, ' ').trim();
@@ -519,6 +545,7 @@ app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
 	const projectId = String(request.body.projectId || 'lot-a');
+	const responseLanguage = ['sr', 'bs', 'fr'].includes(request.body.responseLanguage) ? request.body.responseLanguage : 'sr';
 	if (!question) return response.status(400).json({ error: 'A technical question is required' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
@@ -543,7 +570,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	}
 	if (!sources.length) {
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: true });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries, responseLanguage), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
 	}
 	const cached = (data.aiAnswers || []).find((item) => item.key === cacheKey);
@@ -551,18 +578,21 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	if (!aiApiKey) {
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
 		if (localEntries.length) {
+			const answer = formatOfflineFacadeAnswer(localEntries, responseLanguage);
+			await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false, savedAt: new Date().toISOString(), mode: 'offline_grounded' });
 			return response.json({
 				status: 'offline_grounded',
-				answer: formatOfflineFacadeAnswer(localEntries),
+				answer,
 				sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))),
 				knowledgeBase: facadeKnowledge.title,
-				requiresHumanConfirmation: true
+				requiresHumanConfirmation: false
 			});
 		}
-		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Za pitanja o ITE i fasadama dostupna je lokalna baza kada pitanje odgovara njenim temama.', sources: [], requiresHumanConfirmation: true });
+		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Lokalna baza nema dovoljno podataka za ovo pitanje.', sources: [], requiresHumanConfirmation: false });
 	}
 	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
-	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan, na srpskom/bosanskom. Pitanje: ${question}\n\n${sourceText}`;
+	const languageName = responseLanguage === 'fr' ? 'francuskom' : responseLanguage === 'bs' ? 'bosanskom' : 'srpskom';
+	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan na ${languageName} jeziku. Pitanje: ${question}\n\n${sourceText}`;
 	const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
 	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
 	if (!aiResponse.ok) {
@@ -570,7 +600,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500));
 		if (cached) return response.json({ ...cached, status: 'cached', cached: true });
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: true });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries, responseLanguage), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.status(502).json({ error: 'AI provider unavailable', providerStatus });
 	}
 	const result = await aiResponse.json();

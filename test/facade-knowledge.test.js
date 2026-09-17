@@ -17,4 +17,15 @@ test('retrieval returns cited, concise offline guidance', async () => {
   assert.ok(entries.length > 0);
   assert.ok(entries.every((entry) => entry.sources?.[0]?.pages));
   assert.match(formatOfflineFacadeAnswer(entries), /Réponse locale/);
+  assert.doesNotMatch(formatOfflineFacadeAnswer(entries), /Conducteur/);
+  assert.match(formatOfflineFacadeAnswer(entries, 'bs'), /Lokalni odgovor/);
+  assert.match(formatOfflineFacadeAnswer(entries, 'bs'), /pričvršćiva/);
+});
+
+test('retrieval changes with the question topic', async () => {
+  const knowledge = await loadFacadeKnowledge(process.cwd());
+  const support = findFacadeKnowledge(knowledge, 'Kako pripremiti vlažan i ispucan zid pre izolacije?');
+  const ventilation = findFacadeKnowledge(knowledge, 'Kako proveriti ventilisanu lame d’air kod bardage fasade?');
+  assert.equal(support[0].id, 'facade-diagnostic');
+  assert.equal(ventilation[0].id, 'ventilated-cladding');
 });
