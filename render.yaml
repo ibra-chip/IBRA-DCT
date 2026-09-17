@@ -3,7 +3,7 @@ services:
     name: ibra-ba
     runtime: node
     plan: free
-    buildCommand: npm install
+    buildCommand: npm install --omit=dev --workspaces=false
     startCommand: node server.js
     healthCheckPath: /api/health
     envVars:
