@@ -18,6 +18,8 @@ test('retrieval returns cited, concise offline guidance', async () => {
   assert.ok(entries.every((entry) => entry.sources?.[0]?.pages));
   assert.match(formatOfflineFacadeAnswer(entries), /Réponse locale/);
   assert.doesNotMatch(formatOfflineFacadeAnswer(entries), /Conducteur/);
+  assert.match(formatOfflineFacadeAnswer(entries, 'bs'), /Lokalni odgovor/);
+  assert.match(formatOfflineFacadeAnswer(entries, 'bs'), /pričvršćiva/);
 });
 
 test('retrieval changes with the question topic', async () => {

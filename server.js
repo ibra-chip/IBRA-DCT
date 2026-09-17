@@ -519,6 +519,7 @@ app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
 	const projectId = String(request.body.projectId || 'lot-a');
+	const responseLanguage = ['sr', 'bs', 'fr'].includes(request.body.responseLanguage) ? request.body.responseLanguage : 'sr';
 	if (!question) return response.status(400).json({ error: 'A technical question is required' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
@@ -543,7 +544,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	}
 	if (!sources.length) {
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries, responseLanguage), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
 	}
 	const cached = (data.aiAnswers || []).find((item) => item.key === cacheKey);
@@ -553,7 +554,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		if (localEntries.length) {
 			return response.json({
 				status: 'offline_grounded',
-				answer: formatOfflineFacadeAnswer(localEntries),
+				answer: formatOfflineFacadeAnswer(localEntries, responseLanguage),
 				sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))),
 				knowledgeBase: facadeKnowledge.title,
 				requiresHumanConfirmation: false
@@ -562,7 +563,8 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Za pitanja o ITE i fasadama dostupna je lokalna baza kada pitanje odgovara njenim temama.', sources: [], requiresHumanConfirmation: true });
 	}
 	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
-	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan, na srpskom/bosanskom. Pitanje: ${question}\n\n${sourceText}`;
+	const languageName = responseLanguage === 'fr' ? 'francuskom' : responseLanguage === 'bs' ? 'bosanskom' : 'srpskom';
+	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan na ${languageName} jeziku. Pitanje: ${question}\n\n${sourceText}`;
 	const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
 	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
 	if (!aiResponse.ok) {
@@ -570,7 +572,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500));
 		if (cached) return response.json({ ...cached, status: 'cached', cached: true });
 		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
+		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries, responseLanguage), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
 		return response.status(502).json({ error: 'AI provider unavailable', providerStatus });
 	}
 	const result = await aiResponse.json();
