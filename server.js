@@ -23,6 +23,7 @@ const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uplo
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 const facadeKnowledge = await loadFacadeKnowledge(root);
 console.log('IBRA app root:', root);
 if (process.env.NODE_ENV === 'production' && !supabaseConfigured) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production; local data.json persistence is disabled.');
@@ -33,7 +34,6 @@ app.use(express.json());
 app.use(express.static(root));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
-const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
 let supabaseWarningShown = false;
 const readData = async () => {
 	if (!supabaseConfigured) return readLocalData();
