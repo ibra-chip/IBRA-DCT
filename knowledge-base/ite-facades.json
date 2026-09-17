@@ -1,0 +1,91 @@
+{
+  "title": "Référentiel local — façades complètes, ITE et bardage",
+  "version": "2026-06",
+  "notice": "Synthèse originale destinée à l’aide au chantier. Elle ne remplace ni le système fabricant, ni les DTU/CPT, ni une étude hygrothermique.",
+  "entries": [
+    {
+      "id": "facade-diagnostic",
+      "topics": ["façade", "diagnostic", "préparation", "support", "pathologie"],
+      "summary": "Avant toute ITE, caractériser le support et ses désordres : nature, planéité, cohésion, humidité, fissures, remontées capillaires, sels, anciennes finitions et points singuliers. Traiter les causes d’humidité et déposer ou réparer les parties instables avant de poser l’isolant.",
+      "checks": ["support sain et suffisamment cohésif", "surface propre, sèche et compatible avec le système", "fissures et infiltrations traitées", "baies, appuis, débords et réseaux repérés"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "24-28"}]
+    },
+    {
+      "id": "ite-systems",
+      "topics": ["ite", "sous enduit", "bardage", "vêture", "système"],
+      "summary": "Une façade isolée par l’extérieur est un système complet : support, fixations ou collage, isolant, couches de protection, lame d’air éventuelle, pare-pluie ou membrane, ossature et parement. Les composants doivent rester ceux du procédé évalué et être posés selon sa notice.",
+      "checks": ["type de procédé identifié", "compatibilité de tous les composants vérifiée", "notice de pose disponible au chantier"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "24, 40, 54"}]
+    },
+    {
+      "id": "thermal-layers",
+      "topics": ["couches", "isolant", "lambda", "résistance thermique", "r", "performance"],
+      "summary": "La résistance thermique d’une paroi dépend des résistances des couches successives ; l’épaisseur et la conductivité de l’isolant sont donc indissociables. Les résistances des parements, lames d’air et ponts thermiques complètent le bilan. Ne pas déduire une performance avec la seule épaisseur nominale.",
+      "checks": ["épaisseur et référence de l’isolant relevées", "R du système vérifié dans le document applicable", "continuité de l’isolant contrôlée"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "21-26"}]
+    },
+    {
+      "id": "materials",
+      "topics": ["matériaux", "pse", "laine", "fibreux", "biosourcé", "isolant"],
+      "summary": "Les isolants se distinguent par leur conductivité, leur comportement à l’eau, à la vapeur, au feu et leur stabilité. En bardage, le choix dépend du procédé et de la lame d’air ; sous enduit, seuls les isolants prévus par le système sont admissibles. Vérifier la fiche technique et les limites d’emploi plutôt que généraliser à partir du matériau.",
+      "checks": ["référence et classement du produit vérifiés", "usage sous enduit ou sous bardage confirmé", "exposition à l’eau et au feu prise en compte"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "27-28, 40, 43"}]
+    },
+    {
+      "id": "attachments",
+      "topics": ["fixations", "chevilles", "collage", "ancrage", "ossature", "attaches"],
+      "summary": "Les fixations traversantes et l’ossature doivent être dimensionnées pour le support, les charges et le procédé. Leur implantation, profondeur d’ancrage, rondelle, verticalité et traitement des têtes influencent la tenue et les ponts thermiques. Respecter le calepinage et les prescriptions du fabricant.",
+      "checks": ["support et profondeur d’ancrage compatibles", "nombre et répartition conformes au système", "fixations non desserrées ou sur-encastrées", "ponts thermiques des attaches pris en compte"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "21-24, 57, 62"}]
+    },
+    {
+      "id": "moisture-vapour",
+      "topics": ["humidité", "vapeur", "condensation", "pare-vapeur", "frein-vapeur", "pare-pluie", "sd"],
+      "summary": "Le flux de vapeur dépend des conditions intérieures/extérieures et de la résistance à la diffusion des couches. Un pare-vapeur (Sd élevé) et un frein-vapeur ne sont pas interchangeables. En ossature bois ou avec isolant fibreux sous bardage, analyser la composition et assurer la continuité de l’étanchéité à l’air ; en façade maçonnée, la nécessité doit être vérifiée par le système et le calcul.",
+      "checks": ["composition complète connue côté chaud et côté extérieur", "continuité des membranes et raccords contrôlée", "risque de condensation évalué si nécessaire", "pare-pluie HPV et lame d’air prévus pour le bardage concerné"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "41-54"}]
+    },
+    {
+      "id": "thermal-bridges",
+      "topics": ["pont thermique", "liaison", "baie", "balcon", "refend", "attache"],
+      "summary": "Les ponts thermiques se concentrent aux jonctions et traversées : tableaux, appuis, angles, planchers, refends, balcons, pieds et têtes de façade, ainsi qu’aux fixations. Prévoir la continuité de l’isolant et des détails compatibles avec l’évacuation de l’eau, sans créer de chemin préférentiel pour l’air ou l’humidité.",
+      "checks": ["détails de baies et jonctions disponibles", "retours d’isolant continus", "profilés et bavettes raccordés", "pieds de façade protégés des projections d’eau"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "55-63, 96, 105-106"}]
+    },
+    {
+      "id": "ventilated-cladding",
+      "topics": ["bardage", "bardage ventilé", "lame d’air", "parement", "ossature"],
+      "summary": "Un bardage ventilé nécessite une lame d’air continue, des entrées et sorties protégées, une ossature réglée et un parement fixé suivant son système. Ne pas obstruer la ventilation par l’isolant, les bavettes ou les grilles ; traiter les recouvrements, angles, ouvertures et pénétrations avant la fermeture.",
+      "checks": ["lame d’air continue et non obturée", "ventilation basse et haute protégée", "ossature alignée et ancrée", "parement et joints posés selon la notice"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "40, 54-63"}]
+    },
+    {
+      "id": "under-render",
+      "topics": ["enduit", "sous enduit", "treillis", "armature", "finition"],
+      "summary": "Sous enduit, la protection de l’isolant se construit par couches compatibles : base armée, treillis correctement noyé et recouvrements traités, puis finition. Les angles, tableaux, jonctions et zones sollicitées demandent les renforts prévus. La finition ne doit pas masquer un support dégradé ou une armature mal positionnée.",
+      "checks": ["isolant jointif et plan", "treillis au bon niveau dans la couche", "recouvrements et renforts présents", "temps de séchage et conditions météo respectés"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "40, 48-54, 93-101"}]
+    },
+    {
+      "id": "sequence",
+      "topics": ["séquence", "ordre", "phasage", "chantier", "mise en oeuvre"],
+      "summary": "Le phasage sûr est : diagnostic et préparation du support, traitement des points singuliers, pose de l’isolant et des attaches, réalisation des protections (ou ossature/lame d’air), traitement des baies et interfaces, puis finition et contrôles. Photographier chaque étape avant qu’elle ne soit masquée.",
+      "checks": ["support accepté avant isolation", "interfaces coordonnées avec les autres lots", "étapes cachées documentées", "réception intermédiaire avant fermeture"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "55-63, 121-123"}]
+    },
+    {
+      "id": "controls-defects",
+      "topics": ["contrôle", "rge", "défaut", "non-conformité", "réception", "qualité"],
+      "summary": "Contrôler la conformité du support, la référence des produits, le calepinage, les fixations, la continuité de l’isolant, les détails de baies, la gestion de l’eau et la ventilation du bardage. Défauts fréquents : support humide ou friable, joints ouverts, fixations mal ancrées, armature insuffisamment recouverte, lame d’air interrompue et raccords de membrane discontinus.",
+      "checks": ["contrôles datés et attribués", "écarts corrigés avant recouvrement", "photos et fiches produits archivées", "réserves levées à la réception"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "118-123, 129, 159-166"}]
+    },
+    {
+      "id": "interfaces",
+      "topics": ["interfaces", "menuiserie", "toiture", "étanchéité", "réseaux", "autres lots"],
+      "summary": "Une façade complète doit être coordonnée avec menuiseries, toiture, étanchéité, ventilation, réseaux, descentes d’eau et sol extérieur. Chaque raccord doit conserver l’étanchéité à l’eau et à l’air, la continuité thermique et l’accessibilité pour les contrôles. Définir qui traite chaque interface avant la pose.",
+      "checks": ["responsabilités d’interface écrites", "raccords aux menuiseries et toiture validés", "réseaux fixés sans dégrader le système", "évacuation des eaux maintenue"],
+      "sources": [{"file": "202606_RENOPERF_ITE_S0_GUIDE APPRENANT.pdf", "pages": "121-123, 129, 133, 142"}]
+    }
+  ]
+}

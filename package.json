@@ -2,12 +2,14 @@
   "name": "ibra-ba",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "workspaces": ["apps/*"],
   "scripts": {
     "start": "node server.js",
     "dev": "concurrently \"node --watch server.js\" \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web\"",
     "build": "npm run build --workspace @ibra-ba/api && npm run build --workspace @ibra-ba/web",
-    "lint": "npm run lint --workspace @ibra-ba/api && npm run lint --workspace @ibra-ba/web"
+    "lint": "npm run lint --workspace @ibra-ba/api && npm run lint --workspace @ibra-ba/web",
+    "test": "node --test test/facade-knowledge.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
