@@ -21,6 +21,8 @@ const persistentRoot = process.env.IBRA_DATA_DIR || root;
 const dataPath = path.join(persistentRoot, 'data.json');
 const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uploads');
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
+const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
+const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const facadeKnowledge = await loadFacadeKnowledge(root);
 console.log('IBRA app root:', root);
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
@@ -29,7 +31,25 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(root));
 
-const readData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
+const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
+const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+let supabaseWarningShown = false;
+const readData = async () => {
+	if (!supabaseConfigured) return readLocalData();
+	try {
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
+		if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
+		const rows = await result.json();
+		if (rows[0]?.data) return rows[0].data;
+		const local = await readLocalData();
+		const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
+		if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
+		return local;
+	} catch (error) {
+		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable; using local data.json:', error.message); supabaseWarningShown = true; }
+		return readLocalData();
+	}
+};
 const writeData = async (data) => {
 	const serialized = `${JSON.stringify(data, null, 2)}\n`;
 	const backupPath = `${dataPath}.bak`;
@@ -37,6 +57,10 @@ const writeData = async (data) => {
 	await fs.copyFile(dataPath, backupPath).catch(() => {});
 	await fs.writeFile(temporaryPath, serialized, 'utf8');
 	await fs.rename(temporaryPath, dataPath);
+	if (supabaseConfigured) {
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
+		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
+	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
 const normalizeQuestion = (question) => question.toLowerCase().replace(/\s+/g, ' ').trim();
