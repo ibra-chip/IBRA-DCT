@@ -35,5 +35,23 @@ services:
         value: https://api.openai.com/v1
       - key: BREVO_API_KEY
         sync: false
+      - key: BREVO_SMS_SENDER
+        sync: false
       - key: SMTP_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
         sync: false

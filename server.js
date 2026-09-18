@@ -138,16 +138,31 @@ async function sendMailSafe({ to, subject, text, attachments = [] }) {
 async function sendSmsSafe({ to, text }) {
 	const accountSid = process.env.TWILIO_ACCOUNT_SID;
 	const authToken = process.env.TWILIO_AUTH_TOKEN;
-	const from = process.env.TWILIO_FROM;
-	if (!accountSid || !authToken || !from) return { skipped: true };
-	const body = new URLSearchParams({ To: to, From: from, Body: text });
-	const apiResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-		method: 'POST',
-		headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
-		body
-	});
-	if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
-	return { skipped: false };
+	const twilioFrom = process.env.TWILIO_FROM;
+	if (accountSid && authToken && twilioFrom) {
+		const body = new URLSearchParams({ To: to, From: twilioFrom, Body: text });
+		const apiResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+			method: 'POST',
+			headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+			body
+		});
+		if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
+		return { skipped: false, provider: 'twilio' };
+	}
+	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || 'IBRABA';
+	if (process.env.BREVO_API_KEY && brevoSender) {
+		const apiResponse = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+			method: 'POST',
+			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+			body: JSON.stringify({ sender: brevoSender, recipient: to.replace(/[\s()-]/g, ''), content: text, type: 'transactional', tag: 'ibra-ba-auth' })
+		});
+		if (!apiResponse.ok) {
+			const details = await apiResponse.text();
+			throw new Error(`Brevo SMS returned ${apiResponse.status}: ${details.slice(0, 240)}`);
+		}
+		return { skipped: false, provider: 'brevo-sms' };
+	}
+	return { skipped: true };
 }
 function buildPayoutPdf(item) {
 	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
@@ -220,8 +235,8 @@ app.post('/api/auth/register', async (request, response) => {
 			if (smsResult.skipped) return response.status(503).json({ error: 'SMS delivery is not configured' });
 		}
 	} catch (error) {
-		console.error('Registration email failed:', error.message);
-		return response.status(502).json({ error: 'Registration email could not be sent' });
+		console.error('Registration delivery failed:', error.message);
+		return response.status(502).json({ error: isEmail ? 'Registration email could not be sent' : 'Registration SMS could not be sent' });
 	}
 	data.users.push(user); await writeData(data);
 	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null });
@@ -236,10 +251,10 @@ app.post('/api/auth/request-reset', async (request, response) => {
 		if (user.email) mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` });
 		else { const smsResult = await sendSmsSafe({ to: user.phone, text: `IBRA-BA: otvorite reset link ${resetUrl}` }); mailResult = { skipped: smsResult.skipped }; }
 	} catch (error) {
-		console.error('Password reset email failed:', error.message);
-		return response.status(502).json({ error: 'Password reset email could not be sent' });
+		console.error('Password reset delivery failed:', error.message);
+		return response.status(502).json({ error: user.email ? 'Password reset email could not be sent' : 'Password reset SMS could not be sent' });
 	}
-	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Password reset email is not configured' });
+	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: user.email ? 'Password reset email is not configured' : 'Password reset SMS is not configured' });
 	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
 app.post('/api/auth/reset-password', async (request, response) => {
@@ -281,7 +296,7 @@ app.post('/api/users', auth, manager, async (request, response) => {
 		const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA : identifiant ${email || phone}, mot de passe temporaire ${password}. Changez-le après connexion.` });
 		if (!smsResult.skipped) delivery = 'sms';
 	}
-	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email or SMS delivery before creating users' });
+	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: deliveryMethod === 'sms' ? 'Configure SMS delivery before creating users' : 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
