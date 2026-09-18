@@ -65,6 +65,16 @@ const writeData = async (data) => {
 	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
+const changedAtSeconds = (value) => { const number = Number(value || 0); return number > 100000000000 ? Math.floor(number / 1000) : Math.floor(number); };
+const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role });
+const issueAuthToken = (user) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
+const tokenIssuedBeforePasswordChange = (payload, user) => { const changedAt = changedAtSeconds(user.passwordChangedAt); return Boolean(changedAt && Number(payload.iat || 0) < changedAt); };
+const configuredMailFrom = () => {
+	const explicit = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || process.env.MAIL_FROM;
+	if (explicit) return explicit;
+	try { const host = new URL(process.env.PUBLIC_URL || '').hostname.replace(/^www\./, ''); if (host) return `noreply@${host}`; } catch {}
+	return '';
+};
 const normalizeQuestion = (question) => question.toLowerCase().replace(/\s+/g, ' ').trim();
 const answerCacheKey = (userId, projectId, question, sourceVersion) => `${userId}:${projectId}:${sourceVersion}:${normalizeQuestion(question)}`;
 const saveCachedAnswer = async (data, entry) => {
@@ -76,7 +86,7 @@ async function auth(request, response, next) {
 		const payload = jwt.verify(tokenFrom(request), secret);
 		const data = await readData();
 		const user = data.users.find((item) => item.id === payload.sub);
-		if (!user || (user.passwordChangedAt && Number(payload.iat || 0) * 1000 < user.passwordChangedAt)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
+		if (!user || tokenIssuedBeforePasswordChange(payload, user)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
 		request.user = payload;
 		next();
 	} catch { response.status(401).json({ error: 'Authentication required' }); }
@@ -94,7 +104,7 @@ function isAllowedWorkDocument(file, evidenceType) {
 }
 
 async function sendMailSafe({ to, subject, text, attachments = [] }) {
-	const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+	const from = configuredMailFrom();
 	if (process.env.BREVO_API_KEY && from) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
 			method: 'POST',
@@ -182,8 +192,8 @@ app.post('/api/auth/login', async (request, response) => {
 	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
 	const requestedRole = String(request.body.role || '').trim(); const roleMatches = user.role === requestedRole || (requestedRole === 'gerant' && ['admin', 'gerant', 'manager'].includes(user.role));
 	if (!roleMatches) return response.status(403).json({ error: 'Selected profile does not match this account' });
-	const token = jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
-	response.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+	const token = issueAuthToken(user);
+	response.json({ token, user: publicUser(user) });
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
@@ -233,14 +243,14 @@ app.post('/api/auth/request-reset', async (request, response) => {
 	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
 app.post('/api/auth/reset-password', async (request, response) => {
-	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); user.passwordChangedAt = Date.now(); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
+	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
 });
 app.post('/api/auth/change-password', auth, async (request, response) => {
 	const currentPassword = String(request.body.currentPassword || ''); const newPassword = String(request.body.newPassword || '');
 	if (newPassword.length < 10) return response.status(400).json({ error: 'New password must be at least 10 characters' });
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return response.status(401).json({ error: 'Current password is incorrect' });
-	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Date.now(); await writeData(data); response.json({ message: 'Password changed' });
+	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); response.json({ message: 'Password changed', token: issueAuthToken(user), user: publicUser(user) });
 });
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
