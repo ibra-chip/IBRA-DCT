@@ -89,34 +89,67 @@ const saveCachedAnswer = async (data, entry) => {
 async function analyzePhotoWithVision({ buffer, mimeType, fileName, evidenceType, language }) {
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
-	if (!aiApiKey) return { status: 'not_configured', vision: null };
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!aiApiKey && !geminiApiKey) return { status: 'not_configured', vision: null };
 	const french = language === 'fr';
-	const image = `data:${mimeType};base64,${buffer.toString('base64')}`;
+	const base64Image = buffer.toString('base64');
+	const image = `data:${mimeType};base64,${base64Image}`;
 	const prompt = `${french ? 'Analyse cette photo de chantier façade/ITE/bardage' : 'Analiziraj ovu fotografiju chantier fasade/ITE/bardage'}.
 Réponds uniquement en JSON avec: workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1.
 Ne devine jamais les mesures, marques ou performances non visibles. Si un élément n'est pas clairement visible, écris qu'il faut confirmer par plan/fiche technique/DTA.
 File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.`;
-	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
-		method: 'POST',
-		headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
-			temperature: 0,
-			response_format: { type: 'json_object' },
-			messages: [
-				{ role: 'system', content: 'Tu es un assistant chantier RGE/QUALIBAT. Tu analyses les photos prudemment, sans inventer, et tu demandes confirmation humaine.' },
-				{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image, detail: 'high' } }] }
-			]
-		})
-	});
-	if (!aiResponse.ok) {
-		const details = await aiResponse.text();
-		console.error('Vision AI rejected document photo analysis', aiResponse.status, details.slice(0, 500));
-		return { status: 'provider_unavailable', vision: null };
+	const parseVisionJson = (text) => {
+		const clean = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
+		return JSON.parse(clean);
+	};
+	if (geminiApiKey) {
+		const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+				contents: [{
+					role: 'user',
+					parts: [
+						{ text: `Tu es un assistant chantier RGE/QUALIBAT. Analyse prudemment, sans inventer, et demande confirmation humaine.\n\n${prompt}` },
+						{ inlineData: { mimeType, data: base64Image } }
+					]
+				}]
+			})
+		});
+		if (geminiResponse.ok) {
+			const result = await geminiResponse.json();
+			try { return { status: 'ai_analyzed', provider: 'gemini', vision: parseVisionJson(result.candidates?.[0]?.content?.parts?.[0]?.text) }; }
+			catch { return { status: 'invalid_ai_response', provider: 'gemini', vision: null }; }
+		}
+		const details = await geminiResponse.text();
+		console.error('Gemini Vision rejected document photo analysis', geminiResponse.status, details.slice(0, 500));
+		if (!aiApiKey) return { status: 'provider_unavailable', provider: 'gemini', vision: null };
 	}
-	const result = await aiResponse.json();
-	try { return { status: 'ai_analyzed', vision: JSON.parse(result.choices?.[0]?.message?.content || '{}') }; }
-	catch { return { status: 'invalid_ai_response', vision: null }; }
+	if (aiApiKey) {
+		const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+			method: 'POST',
+			headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+				temperature: 0,
+				response_format: { type: 'json_object' },
+				messages: [
+					{ role: 'system', content: 'Tu es un assistant chantier RGE/QUALIBAT. Tu analyses les photos prudemment, sans inventer, et tu demandes confirmation humaine.' },
+					{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image, detail: 'high' } }] }
+				]
+			})
+		});
+		if (aiResponse.ok) {
+			const result = await aiResponse.json();
+			try { return { status: 'ai_analyzed', provider: 'openai', vision: parseVisionJson(result.choices?.[0]?.message?.content) }; }
+			catch { return { status: 'invalid_ai_response', provider: 'openai', vision: null }; }
+		}
+		const details = await aiResponse.text();
+		console.error('OpenAI Vision rejected document photo analysis', aiResponse.status, details.slice(0, 500));
+	}
+	return { status: 'provider_unavailable', vision: null };
 }
 async function auth(request, response, next) {
 	try {
