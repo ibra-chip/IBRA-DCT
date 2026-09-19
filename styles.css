@@ -49,6 +49,9 @@ input,select,textarea{min-height:44px;border-radius:11px;background:#061421}
 .purchase-groups{gap:14px}
 .purchase-category{border-radius:16px;background:linear-gradient(180deg,#ffffff08,#ffffff03)}
 #budget-summary .list-item,#documents .list-item,#users .list-item,#messages .list-item,#time-entries .list-item{border-left:3px solid #72b9ff55}
+.project-switcher{min-width:260px;margin-top:12px;padding:12px;border:1px solid #72b9ff26;border-radius:14px;background:#07152299;color:var(--blue)}
+.project-switcher select{margin-top:6px;background:#061421}
+.chantier-progress{border-left:3px solid var(--green);background:linear-gradient(135deg,#31d3a418,#72b9ff10)}
 .document-actions,.control-actions{align-items:center}
 .rge-modules{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
 .production-panel,.ai-panel,.schedule-panel,.audit-history,.rge-modules-panel{margin-top:18px}
