@@ -133,13 +133,17 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadControlHistory() { const history = await request('/projects/lot-a/control-history'); const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena.</small>'; }
 	async function loadUsers() { const users = await request('/contacts'); const managerView = ['admin', 'gerant', 'manager'].includes(currentUser?.role); document.querySelector('#users').innerHTML = users.map((user) => `<div class="list-item"><strong>${user.name}</strong><small>${user.role} · ${user.email || 'bez e-maila'} · ${user.phone || 'bez telefona'}${user.siret ? ` · SIRET: ${user.siret}` : ''}${user.company ? ` · ${user.company}` : ''}${managerView && (user.dailyRate || user.hourlyRate) ? ` · Dnevno: ${formatEUR(user.dailyRate)} · Satnica: ${formatEUR(user.hourlyRate)}` : ''}</small>${managerView && user.id !== currentUser?.id ? `<button class="secondary remove-user" data-user="${user.id}" data-name="${escapeHtml(user.name)}" type="button">Ukloni korisnika</button>` : ''}</div>`).join(''); document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm(`Ukloniti korisnika ${button.dataset.name}?`)) return; try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } })); const recipient = document.querySelector('#recipient'); recipient.innerHTML = users.filter((user) => user.id !== currentUser.id).map((user) => `<option value="${user.id}">${user.name} · ${user.role}</option>`).join(''); }
 	let projectsCache = [];
+	const visibleProjects = () => projectsCache.filter((project) => project.id !== 'lot-a').sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' }));
 	async function loadProjectOptions() {
 		projectsCache = await request('/projects');
+		const projects = visibleProjects();
 		document.querySelectorAll('select[name="projectId"]').forEach((select) => {
-			const current = select.value || 'lot-a';
+			const current = select.value;
 			const isBudgetSelect = select.closest('#budget-form');
-			select.innerHTML = `${projectsCache.map((project) => `<option value="${project.id}">${escapeHtml(project.name)}</option>`).join('')}${isBudgetSelect ? '<option value="__new">+ Nouveau chantier depuis ce Devis</option>' : ''}`;
-			select.value = projectsCache.some((project) => project.id === current) ? current : (current === '__new' && isBudgetSelect ? '__new' : 'lot-a');
+			const projectOptions = projects.map((project) => `<option value="${project.id}">${escapeHtml(project.name)}</option>`).join('');
+			select.innerHTML = isBudgetSelect ? `<option value="__new">+ Nouveau chantier depuis ce Devis</option>${projectOptions}` : (projectOptions || '<option value="">Creer un chantier dans Devis</option>');
+			select.value = projects.some((project) => project.id === current) ? current : (isBudgetSelect ? '__new' : (projects[0]?.id || ''));
+			select.disabled = !isBudgetSelect && !projects.length;
 		});
 	}
 	function ensureRendezvousForm() { if (document.querySelector('#rendezvous-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const form = document.createElement('form'); form.id = 'rendezvous-form'; form.innerHTML = `<h3>Demander un rendez-vous chantier</h3><small>La demande doit être faite entre 7 et 2 jours avant le rendez-vous. Tous les membres du chantier, y compris le Conducteur, seront informés.</small><label>Date du rendez-vous<input name="date" type="date" required /></label><label>Heure<input name="time" type="time" required /></label><label>Date d’absence<input name="absenceDate" type="date" required /></label><label>Motif<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Envoyer la demande de rendez-vous</button>`; panel.append(form); form.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(form).entries()); values.projectId = 'lot-a'; try { await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); form.reset(); await refreshActiveView(); toast('La demande a été enregistrée et transmise à toute l’équipe.'); } catch (error) { toast(`Rendez-vous non enregistré : ${error.message || 'erreur inconnue'}`); } }); }
@@ -429,9 +433,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		await loadProjectOptions();
 		const target = document.querySelector('#budget-summary');
 		const form = document.querySelector('#budget-form');
-		const selectedProjectId = form?.querySelector('[name="projectId"]')?.value || 'lot-a';
+		const projects = visibleProjects();
+		const selectedProjectId = form?.querySelector('[name="projectId"]')?.value || '__new';
 		const rows = [];
-		for (const project of projectsCache) {
+		for (const project of projects) {
 			const budget = await request(`/projects/${project.id}/budget`);
 			const financial = await request(`/projects/${project.id}/financial-summary`);
 			rows.push({ project, budget, financial });
