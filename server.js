@@ -409,17 +409,59 @@ app.get('/api/projects/:id/budget', auth, async (request, response) => {
 	const budget = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	response.json(budget || { projectId: request.params.id, status: 'missing', total: 0, spent: 0, remaining: 0 });
 });
+const parseAmount = (value) => {
+	const number = Number(String(value || '').replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'));
+	return Number.isFinite(number) ? number : 0;
+};
+const extractDevisFields = (text) => {
+	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
+	const rawAmount = amountMatches.at(-1)?.[1] || '';
+	return {
+		number: normalized.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
+		client: normalized.match(/(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '',
+		chantier: normalized.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '',
+		total: parseAmount(rawAmount)
+	};
+};
+const inspectDevisWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+	const prompt = 'Read this French construction quote/devis PDF. Return only JSON with fields: number string, client string, chantier string, total number. Use the final TTC/net payable total when available. If a field is not visible, use empty string or 0.';
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+		})
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini devis inspect rejected', geminiResponse.status, details.slice(0, 500));
+		return null;
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
-	const parsed = await parsePdf(request.file.buffer);
-	const text = parsed.text.replace(/\s+/g, ' ').trim();
-	const number = text.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '';
-	const client = text.match(/(?:client|donneur d'ordre|client)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '';
-	const chantier = text.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '';
-	const amountMatches = [...text.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
-	const rawAmount = amountMatches.at(-1)?.[1] || '';
-	const total = rawAmount ? Number(rawAmount.replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
-	response.json({ extracted: { number, client, chantier, total: Number.isFinite(total) ? total : 0 }, textFound: text.length > 0, needsConfirmation: !number || !client || !chantier || !total, source: request.file.originalname });
+	let text = '';
+	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
+	const extracted = extractDevisFields(text);
+	let source = request.file.originalname;
+	if (!extracted.number || !extracted.client || !extracted.chantier || !extracted.total) {
+		const ai = await inspectDevisWithGemini(request.file);
+		if (ai) {
+			extracted.number = extracted.number || String(ai.number || '');
+			extracted.client = extracted.client || String(ai.client || '');
+			extracted.chantier = extracted.chantier || String(ai.chantier || '');
+			extracted.total = extracted.total || parseAmount(ai.total);
+			source = `${request.file.originalname} · Gemini`;
+		}
+	}
+	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') });
 });
 app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
