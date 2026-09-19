@@ -52,6 +52,19 @@ input,select,textarea{min-height:44px;border-radius:11px;background:#061421}
 .project-switcher{min-width:260px;margin-top:12px;padding:12px;border:1px solid #72b9ff26;border-radius:14px;background:#07152299;color:var(--blue)}
 .project-switcher select{margin-top:6px;background:#061421}
 .chantier-progress{border-left:3px solid var(--green);background:linear-gradient(135deg,#31d3a418,#72b9ff10)}
+.time-live-calculation{margin:14px 0;padding:14px;border:1px solid #f4c86f44;border-radius:14px;background:#f4c86f10}
+.time-live-calculation.ready{border-color:#31d3a466;background:#31d3a412}
+.time-live-calculation strong{display:block;color:var(--yellow);font-size:1.05rem}
+.time-live-calculation.ready strong{color:var(--green)}
+.work-calendar{margin:16px 0;padding:14px;border:1px solid #ffffff14;border-radius:16px;background:#ffffff05}
+.work-calendar-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+.calendar-weekdays,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.calendar-weekdays span{color:var(--muted);font-size:.72rem;font-weight:900;text-align:center;text-transform:uppercase}
+.calendar-cell{min-height:52px;padding:7px;border:1px solid #ffffff12;border-radius:10px;background:#071522;display:grid;place-items:center;text-align:center}
+.calendar-cell small{font-size:.68rem;color:var(--green)}
+.calendar-cell.weekend{opacity:.5;background:#ffffff05}
+.calendar-cell.worked{border-color:#31d3a466;background:#31d3a418;color:#dffcf4}
+.calendar-cell.empty{border:0;background:transparent}
 .document-actions,.control-actions{align-items:center}
 .rge-modules{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
 .production-panel,.ai-panel,.schedule-panel,.audit-history,.rge-modules-panel{margin-top:18px}

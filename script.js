@@ -472,7 +472,87 @@ document.addEventListener('DOMContentLoaded', () => {
 		target.innerHTML = `<div class="list-item auto-analysis"><strong>${french ? 'Analyse automatique' : 'Automatska analiza'} · ${escapeHtml(analysis.workType)}</strong><small>${french ? 'Confiance' : 'Sigurnost'}: ${Math.round(Number(analysis.confidence || 0) * 100)}% · ${escapeHtml(analysis.fileName || '')}</small>${specificAnswer}${section(french ? 'Système' : 'Sistem', analysis.systems)}${section(french ? 'Matériaux détectés' : 'Prepoznati materijali', analysis.materials)}${section(french ? 'Comment exécuter' : 'Kako se radi', analysis.howTo)}${section(french ? 'Contrôles' : 'Šta kontrolisati', analysis.controls)}${section(french ? 'Preuves photos' : 'Šta slikati kao dokaz', analysis.evidence)}${section(french ? 'Risques / à confirmer' : 'Rizici / šta potvrditi', analysis.risks)}</div>`;
 		return true;
 	}
-	async function loadTime() { const entries = await request('/time-entries'); const hours = entries.reduce((sum, item) => sum + Number(item.hours || 0), 0); const own = await request('/my-payroll-summary'); document.querySelector('#total-hours').textContent = `${hours.toFixed(2)} h`; const rates = document.querySelector('#time-rates') || (() => { const element = document.createElement('div'); element.id = 'time-rates'; document.querySelector('#time-summary').before(element); return element; })(); rates.textContent = `Dnevnica: ${formatEUR(own.dailyRate)} · Satnica: ${formatEUR(own.hourlyRate)}`; document.querySelector('#time-summary').textContent = `${own.hours.toFixed(2)} h`; document.querySelector('#time-days').textContent = `Dani: ${own.days}`; document.querySelector('#time-money').textContent = `Obračun: ${formatEUR(own.estimatedTotal)}`; const canApprove = ['admin','gerant','manager','conducteur'].includes(currentUser?.role); document.querySelector('#time-entries').innerHTML = entries.length ? entries.map((item) => `<div class="list-item"><strong>${item.workerName} · ${item.hours.toFixed(2)} h</strong><small>${item.date} · ${item.start}-${item.end} · ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Nema unosa radnog vremena.</small>'; document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); })); }
+	let latestOwnTimeEntries = [];
+	const monthKeyFromDate = (dateValue) => String(dateValue || new Date().toISOString().slice(0, 10)).slice(0, 7);
+	const calculateTimeDraft = () => {
+		const form = document.querySelector('#time-form');
+		if (!form) return { hours: 0, amount: 0, valid: false };
+		const [startH, startM] = String(form.elements.start?.value || '').split(':').map(Number);
+		const [endH, endM] = String(form.elements.end?.value || '').split(':').map(Number);
+		const rate = Number(form.elements.rate?.value || 0);
+		const breakMinutes = Number(form.elements.breakMinutes?.value || 0);
+		const rateType = form.elements.rateType?.value || 'daily';
+		if (![startH, startM, endH, endM].every(Number.isFinite) || !Number.isFinite(rate) || rate <= 0) return { hours: 0, amount: 0, valid: false };
+		const startMinutes = startH * 60 + startM;
+		const endMinutes = endH * 60 + endM;
+		const hours = startMinutes >= endMinutes ? 0 : (endMinutes - startMinutes - breakMinutes) / 60;
+		if (!Number.isFinite(hours) || hours <= 0) return { hours: 0, amount: 0, valid: false };
+		return { hours, amount: rateType === 'hourly' ? hours * rate : rate, valid: true };
+	};
+	const updateTimeLiveCalculation = () => {
+		const target = document.querySelector('#time-live-calculation');
+		if (!target) return;
+		const draft = calculateTimeDraft();
+		target.classList.toggle('ready', draft.valid);
+		target.innerHTML = draft.valid ? `<strong>Obracun ovog unosa: ${draft.hours.toFixed(2)} h ? ${formatEUR(draft.amount)}</strong><small>Ovo je automatski obracun prije cuvanja. Poslije spremanja ide u kalendar i listu.</small>` : '<strong>Obracun ovog unosa: 0.00 h ? 0,00 EUR</strong><small>Unesite datum, pocetak, kraj, pauzu i cijenu rada.</small>';
+	};
+	function ensureTimeAutoCalculation(own) {
+		const form = document.querySelector('#time-form');
+		if (!form) return;
+		if (!form.elements.date.value) form.elements.date.value = new Date().toISOString().slice(0, 10);
+		const fillDefaultRate = () => {
+			if (Number(form.elements.rate.value || 0) > 0) return;
+			form.elements.rate.value = form.elements.rateType.value === 'hourly' ? Number(own?.hourlyRate || 0) : Number(own?.dailyRate || 0);
+		};
+		if (form.dataset.autoCalculation !== 'ready') {
+			form.dataset.autoCalculation = 'ready';
+			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType'].forEach((name) => form.elements[name]?.addEventListener('input', updateTimeLiveCalculation));
+			form.elements.date?.addEventListener('input', () => renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value));
+			form.elements.rateType?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); updateTimeLiveCalculation(); });
+		}
+		fillDefaultRate(); updateTimeLiveCalculation();
+	}
+	function renderWorkCalendar(entries, selectedDate) {
+		const target = document.querySelector('#work-calendar');
+		if (!target) return;
+		const month = monthKeyFromDate(selectedDate);
+		const [year, monthNumber] = month.split('-').map(Number);
+		const first = new Date(year, monthNumber - 1, 1);
+		const last = new Date(year, monthNumber, 0);
+		const entryByDate = new Map((entries || []).filter((entry) => String(entry.date || '').startsWith(month)).map((entry) => [entry.date, entry]));
+		let workingDays = 0;
+		let cells = '';
+		for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty"></span>';
+		for (let day = 1; day <= last.getDate(); day += 1) {
+			const date = `${month}-${String(day).padStart(2, '0')}`;
+			const weekday = new Date(year, monthNumber - 1, day).getDay();
+			const weekend = weekday === 0 || weekday === 6;
+			if (!weekend) workingDays += 1;
+			const entry = entryByDate.get(date);
+			cells += `<span class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}" title="${entry ? `${Number(entry.hours || 0).toFixed(2)} h ? ${formatEUR(entry.workAmount || 0)}` : date}"><strong>${day}</strong>${entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : ''}</span>`;
+		}
+		const workedDays = entryByDate.size;
+		const monthHours = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
+		const monthAmount = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.workAmount || 0), 0);
+		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana ? ${month}</strong><small>Radnih dana: ${workingDays} ? Uneseno: ${workedDays} ? ${monthHours.toFixed(2)} h ? ${formatEUR(monthAmount)}</small></div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
+	}
+	async function loadTime() {
+		const entries = await request('/time-entries');
+		const hours = entries.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+		const own = await request('/my-payroll-summary');
+		document.querySelector('#total-hours').textContent = `${hours.toFixed(2)} h`;
+		const rates = document.querySelector('#time-rates') || (() => { const element = document.createElement('div'); element.id = 'time-rates'; document.querySelector('#time-summary').before(element); return element; })();
+		rates.textContent = `Taux journalier : ${formatEUR(own.dailyRate)} ? Taux horaire : ${formatEUR(own.hourlyRate)}`;
+		document.querySelector('#time-summary').textContent = `${own.hours.toFixed(2)} h`;
+		document.querySelector('#time-days').textContent = `Jours : ${own.days}`;
+		document.querySelector('#time-money').textContent = `Calcul : ${formatEUR(own.estimatedTotal)}`;
+		latestOwnTimeEntries = own.entries || [];
+		ensureTimeAutoCalculation(own);
+		renderWorkCalendar(latestOwnTimeEntries, document.querySelector('#time-form')?.elements.date?.value);
+		const canApprove = ['admin','gerant','manager','conducteur'].includes(currentUser?.role);
+		document.querySelector('#time-entries').innerHTML = entries.length ? entries.map((item) => `<div class="list-item"><strong>${item.workerName} ? ${Number(item.hours || 0).toFixed(2)} h ? ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} ? ${item.start}-${item.end} ? ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Aucune saisie de temps de travail.</small>';
+		document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); }));
+	}
 	async function loadPayroll() { try { const result = await request('/payroll/summary'); document.querySelector('#payroll-total').textContent = `${Number(result.total || 0).toFixed(2)} EUR`; } catch { document.querySelector('#payroll-total').textContent = 'Nedostupno'; } }
 	async function loadFinancialSummary() {
 		try {
