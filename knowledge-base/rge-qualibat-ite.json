@@ -110,6 +110,51 @@
         "R za pomoci se odnosi na dodatni izolator, ne na cijeli zid.",
         "Uvijek provjeriti ANAH, France Renov, CEE FAQ, RENO REGLO i aktuelne tabele performansi."
       ]
+    },
+    {
+      "title": "Bardage ventile - princip sistema",
+      "items": [
+        "Bardage ventile je spoljasnja obloga na ossature sa ventilisanom lame d'air izmedju izolatora/pare-pluie i obloge.",
+        "Uloga sistema je zastita od kise i udarca, dekorativni izgled, i odvajanje vlage kroz ventilisanu zracnu supljinu.",
+        "Ne smije se zatvoriti donji ili gornji otvor ventilacije; zrak mora ulaziti dole i izlaziti gore.",
+        "Bardage nije sam po sebi izolacija: termicki rezultat dolazi od kontinuiranog izolatora iza njega i korektnih detalja."
+      ]
+    },
+    {
+      "title": "Bardage bois",
+      "items": [
+        "Za bardage bois gledati NF DTU 41.2 i uputstvo proizvodjaca za klasu upotrebe, vlaznost, profil, razmak i fixations.",
+        "Drvo mora biti prilagodjeno eksterijeru: trajnost/traitement, klasa upotrebe, stabilnost i kompatibilna inox ili zasticena fixacija.",
+        "Kod vertikalnih dasaka potreban je double tasseautage da ventilacija ostane kontinuirana.",
+        "Krajevi dasaka, uglovi i rezovi moraju biti zasticeni prema sistemu da ne piju vodu i ne trunu."
+      ]
+    },
+    {
+      "title": "Bardage metallique i panneaux",
+      "items": [
+        "Za bardage rapporte sa lame d'air ventilee gledati NF DTU 45.4, Avis Technique/DTA ili cahier fabricant.",
+        "Metal, fibro-ciment, HPL/Trespa, composite i drugi panneaux zahtijevaju tacan entraxe ossature, dilatation, jeux, fixations i kompatibilne podloske.",
+        "Ne stezati panele kao da nema dilatacije; postovati tacke fixe/coulissantes kada sistem to trazi.",
+        "Rezovi i probijanja moraju biti zasticeni od korozije, infiltracije i pucanja prema tehnickoj dokumentaciji."
+      ]
+    },
+    {
+      "title": "Ossature, fixations i support",
+      "items": [
+        "Support mora biti nosiv, stabilan i provjeren prije ugradnje equerres/chevilles/rails/tasseaux.",
+        "Ossature bois ili metallique se bira prema sistemu, opterecenju, visini, vjetru, pozaru i oblozi.",
+        "Entraxe montanata/tasseaux nije proizvoljan: uzima se iz DTA/DTU/proizvodjaca i proracuna vjetra.",
+        "Fixations moraju biti kompatibilne sa supportom i korozivnom klasom; broj, dubina i raspored moraju biti dokazivi."
+      ]
+    },
+    {
+      "title": "Bardage - kriticne tacke RGE kontrole",
+      "items": [
+        "Kontrolor gleda administrativne dokaze, fiche technique, R izolatora, continuity, pare-pluie, ventilaciju lame d'air i detalje oko baies/sokla/krova.",
+        "Najcesce greske su prekinuta ventilacija, izolator koji dodiruje oblogu, pogresan pare-pluie, lose fixations, lose rjesen sokl i uglovi.",
+        "Svaku fazu slikati: support, equerres/ossature, izolator, pare-pluie, lame d'air, obloga, detalji prozora i zavrsni prijem.",
+        "Ako sistem ima Avis Technique/DTA, ono je jace od navike sa gradilista: raditi po dokumentu, ne po sjecanju."
+      ]
     }
   ],
   "checklist": [
@@ -128,7 +173,16 @@
     "Ne ugradjivati cijevi kisnice/otpadne vode u ITE sistem.",
     "Provjeriti detalje oko prozora, vrata, krovnih prepusta i ventilation.",
     "Za bardage ventile sacuvati lame d'air 2 cm kontinuirano.",
-    "Na kraju uraditi reception/PV i dati uputstva klijentu."
+    "Na kraju uraditi reception/PV i dati uputstva klijentu.",
+    "Bardage: provjeriti DTU 41.2 za bois ili DTU 45.4/DTA za bardage rapporte.",
+    "Bardage: provjeriti support i tip fixation prije busenja.",
+    "Bardage: dokazati entraxe ossature i raspored equerres/tasseaux.",
+    "Bardage: postaviti pare-pluie HPV kada sistem i izolator to zahtijevaju.",
+    "Bardage: ostaviti ulaz zraka dole i izlaz zraka gore, sa zastitom od insekata gdje je predvidjeno.",
+    "Bardage: osigurati da lame d'air ne bude blokirana izolatorom, mortierom, opiljcima ili horizontalnim elementima.",
+    "Bardage: za vertikalni bois uraditi double tasseautage.",
+    "Bardage: postovati jeux de dilatation kod metalnih, fibro-ciment, HPL/Trespa i composite panela.",
+    "Bardage: fotografisati zavrsne detalje oko prozora, uglova, sokla, atike i spojeva."
   ],
   "questions": [
     {
@@ -622,6 +676,174 @@
     {
       "question": "Najvazniji odgovor za RGE/QUALIBAT?",
       "answer": "Odobren sistem, pravilan support, kontinuitet izolacije, vlaga/para, pozar, ventilacija, detalji, reception i dokazi."
+    },
+    {
+      "question": "Sta je bardage ventile?",
+      "answer": "Spoljasnja obloga na podkonstrukciji sa ventilisanom lame d'air iza obloge."
+    },
+    {
+      "question": "Koja je osnovna funkcija lame d'air kod bardage?",
+      "answer": "Da odvede vlagu i omoguci ventilaciju od dna prema vrhu."
+    },
+    {
+      "question": "Kolika je minimalna lame d'air kod bardage ventile?",
+      "answer": "Najmanje 2 cm izmedju izolatora/pare-pluie i zadnje strane obloge, ako dokument sistema ne trazi vise."
+    },
+    {
+      "question": "Da li lame d'air smije biti prekinuta?",
+      "answer": "Ne, mora biti kontinuirana od donjeg ulaza do gornjeg izlaza zraka."
+    },
+    {
+      "question": "Sta ako izolator dodiruje zadnju stranu bardage obloge?",
+      "answer": "Ventilacija je blokirana i to je rizik non-conformite, vlage i degradacije."
+    },
+    {
+      "question": "Sta je double tasseautage?",
+      "answer": "Dva sloja letvi/tasseaux koji omogucavaju ventilaciju, posebno kod vertikalnog bardage bois."
+    },
+    {
+      "question": "Kada treba double tasseautage?",
+      "answer": "Kod bardage bois sa vertikalnim daskama da lame d'air ostane otvorena."
+    },
+    {
+      "question": "Koji DTU za bardage rapporte sa ventilisanom lame d'air?",
+      "answer": "NF DTU 45.4, uz DTA/Avis Technique sistema kada postoji."
+    },
+    {
+      "question": "Sta provjeriti za bardage bois prije ugradnje?",
+      "answer": "Klasu upotrebe, trajnost/traitement, vlaznost, profil, fixations, razmak i ventilaciju."
+    },
+    {
+      "question": "Koje fixations koristiti za bardage bois?",
+      "answer": "Fixations kompatibilne sa drvetom i eksterijerom, najcesce inox ili zasticene prema proizvodjacu."
+    },
+    {
+      "question": "Sta je rizik ako se koriste pogresni sarafi/ekseri na bardage bois?",
+      "answer": "Korozija, fleke, pucanje, odvajanje dasaka i non-conformite."
+    },
+    {
+      "question": "Sta provjeriti na krajevima dasaka bardage bois?",
+      "answer": "Zastitu rezova/krajeva od vode prema uputstvu proizvodjaca."
+    },
+    {
+      "question": "Sta je bardage metallique?",
+      "answer": "Metalna fasadna obloga postavljena na ossature, sa pravilnim fixations, dilatacijom i ventilacijom prema sistemu."
+    },
+    {
+      "question": "Sta paziti kod bardage metallique?",
+      "answer": "Koroziju, dilataciju, pravilne fixations, rezove, spojeve i kompatibilnost materijala."
+    },
+    {
+      "question": "Sta je bardage fibro-ciment?",
+      "answer": "Fasadni panel/ploca od fibro-cimenta; mora se ugraditi prema DTA/proizvodjacu sa propisanim fixations i jeux."
+    },
+    {
+      "question": "Sta je bardage HPL ili Trespa?",
+      "answer": "Kompaktni fasadni panel koji zahtijeva ventilisanu podkonstrukciju, dilataciju i tacan raspored fixations."
+    },
+    {
+      "question": "Da li se HPL/Trespa paneli smiju stegnuti bez dilatacije?",
+      "answer": "Ne, treba postovati tacke fixe/coulissantes i jeux de dilatation iz sistema."
+    },
+    {
+      "question": "Sta je ossature kod bardage?",
+      "answer": "Podkonstrukcija od bois ili metal na koju se fiksira obloga i koja formira ventilisanu supljinu."
+    },
+    {
+      "question": "Od cega zavisi entraxe ossature?",
+      "answer": "Od tipa obloge, visine, vjetra, supporta i tehnicke dokumentacije sistema."
+    },
+    {
+      "question": "Da li je entraxe tasseaux/montants proizvoljan?",
+      "answer": "Ne, mora pratiti DTU/DTA/proizvodjaca i po potrebi proracun vjetra."
+    },
+    {
+      "question": "Sta provjeriti na supportu prije bardage?",
+      "answer": "Nosivost, ravnost, vlaga, pukotine, kompatibilnost i tip cheville/fixation."
+    },
+    {
+      "question": "Sta ako support nije nosiv?",
+      "answer": "Ne fiksirati bardage dok se support ne popravi ili dok se ne definise odgovarajuca fixation/proracun."
+    },
+    {
+      "question": "Sta je equerre kod bardage?",
+      "answer": "Metalni nosac koji drzi ossature udaljenu od supporta i prenosi opterecenja."
+    },
+    {
+      "question": "Sta provjeriti za equerres?",
+      "answer": "Tip, broj, raspored, dubinu fiksacije, thermal break ako je predvidjen i kompatibilnost sa supportom."
+    },
+    {
+      "question": "Da li bardage pravi toplotne mostove?",
+      "answer": "Moze, preko equerres/fixations; zato se bira sistem i thermal break prema dokumentaciji."
+    },
+    {
+      "question": "Koja membrana se cesto koristi iza bardage sa izolatorom?",
+      "answer": "Pare-pluie HPV kada sistem i izolator to zahtijevaju."
+    },
+    {
+      "question": "Sta znaci HPV kod pare-pluie?",
+      "answer": "Haute permeabilite a la vapeur: membrana propusta paru, tipicno Sd < 0,10 m."
+    },
+    {
+      "question": "Da li pare-pluie smije zatvoriti izlaz vlage?",
+      "answer": "Ne, treba biti kompatibilan sa zidom/izolatorom i propustan kada je to zahtijevano."
+    },
+    {
+      "question": "Sta je donji ulaz ventilacije kod bardage?",
+      "answer": "Otvor pri dnu obloge kroz koji zrak ulazi u lame d'air, obicno sa zastitom od insekata/rongeurs."
+    },
+    {
+      "question": "Sta je gornji izlaz ventilacije kod bardage?",
+      "answer": "Otvor pri vrhu obloge kroz koji vlazan/topao zrak izlazi."
+    },
+    {
+      "question": "Sta su najcesce greske kod bardage ventile?",
+      "answer": "Blokirana lame d'air, pogresna ossature, los pare-pluie, pogresne fixations, losi detalji sokla/prozora/uglova."
+    },
+    {
+      "question": "Sta slikati za RGE dokaz kod bardage?",
+      "answer": "Support, ossature/equerres, izolator, pare-pluie, lame d'air, fixations, detalje oko baies/sokla i zavrsenu fasadu."
+    },
+    {
+      "question": "Sta kontrolor RGE gleda kod bardage?",
+      "answer": "Dokaze, uskladjenost sa DTU/DTA, R izolatora, kontinuitet izolacije, ventilaciju, fixations i zavrsne detalje."
+    },
+    {
+      "question": "Da li se komponente bardage sistema smiju mijesati?",
+      "answer": "Ne bez odobrenja; koristiti kompletan sistem prema DTA/Avis Technique/proizvodjacu."
+    },
+    {
+      "question": "Sta je rizik zatvorenog sokla kod bardage?",
+      "answer": "Nema ulaza zraka, zadrzava se vlaga i raste rizik truljenja/korozije/non-conformite."
+    },
+    {
+      "question": "Sta paziti oko prozora kod bardage?",
+      "answer": "Etancheite, bavette/appui, retour, ventilaciju, dilataciju i da voda ne ulazi iza sistema."
+    },
+    {
+      "question": "Sta paziti na uglovima bardage?",
+      "answer": "Pravilne profile, fixations, jeux, zastitu rezova i kontinuitet ventilacije."
+    },
+    {
+      "question": "Sta paziti na spoju bardage i krova/atike?",
+      "answer": "Izlaz ventilacije, zastitu od vode, op?ivke i kompatibilnost sa krovnim detaljima."
+    },
+    {
+      "question": "Da li bardage zamjenjuje ventilaciju kuce?",
+      "answer": "Ne, ventilacija objekta ostaje poseban sistem kao VMC ili ulazi zraka."
+    },
+    {
+      "question": "Da li bardage sam garantuje RGE uspjeh?",
+      "answer": "Ne, mora postojati dokaz o izolatoru, pravilnoj ugradnji, ventilaciji, dokumentaciji i reception."
+    },
+    {
+      "question": "Sta je prva kontrola prije bardage?",
+      "answer": "Etat des lieux supporta i provjera tehnicke dokumentacije sistema."
+    },
+    {
+      "question": "Sta je zadnja kontrola poslije bardage?",
+      "answer": "Reception/PV, fotografije zavrsenih detalja i uputstva za odrzavanje klijentu."
     }
   ]
 }
