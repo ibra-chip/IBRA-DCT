@@ -23,3 +23,17 @@ test('RGE Qualibat knowledge base includes detailed bardage guidance', () => {
 		assert.ok(text.includes(term), `Missing ${term}`);
 	}
 });
+
+test('RGE Qualibat knowledge base is bilingual French and Bosnian Serbian', () => {
+	assert.equal(knowledge.checklistFr.length, knowledge.checklist.length);
+	for (const module of knowledge.modules) {
+		assert.ok(module.titleFr, `Missing French title for ${module.title}`);
+		assert.equal(module.itemsFr.length, module.items.length, `French item count mismatch for ${module.title}`);
+	}
+	for (const item of knowledge.questions) {
+		assert.ok(item.questionFr, `Missing French question for ${item.question}`);
+		assert.ok(item.answerFr, `Missing French answer for ${item.question}`);
+		assert.ok(item.question, 'Missing Bosnian/Serbian question');
+		assert.ok(item.answer, 'Missing Bosnian/Serbian answer');
+	}
+});
