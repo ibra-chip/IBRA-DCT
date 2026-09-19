@@ -56,6 +56,7 @@ input,select,textarea{min-height:44px;border-radius:11px;background:#061421}
 .quick-worker-form{margin-top:18px;padding:16px;border:1px solid #72b9ff26;border-radius:16px;background:linear-gradient(180deg,#72b9ff10,#ffffff04)}
 .quick-worker-form h3{margin:0}
 .quick-workers{margin-top:14px}.worker-actions{display:flex;gap:8px;flex-wrap:wrap}
+.hours-pdf-panel{margin-top:14px;padding:12px;border:1px solid #31d3a433;border-radius:14px;background:#31d3a40f}.hours-pdf-panel small{display:block;margin-top:8px}
 .time-live-calculation.ready{border-color:#31d3a466;background:#31d3a412}
 .time-live-calculation strong{display:block;color:var(--yellow);font-size:1.05rem}
 .time-live-calculation.ready strong{color:var(--green)}

@@ -720,8 +720,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	function ensureHoursPdfButton() {
 		if (document.querySelector('#send-hours-pdf')) return;
 		const form = document.querySelector('#time-form'); if (!form) return;
-		const button = document.createElement('button'); button.type = 'button'; button.id = 'send-hours-pdf'; button.className = 'secondary'; button.textContent = 'Pošalji PDF sati gazdi'; form.append(button);
-		button.addEventListener('click', async () => { try { await request('/time-entries/pdf/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month: new Date().toISOString().slice(0, 7) }) }); toast('PDF sati je poslat gazdi.'); } catch { toast('PDF sati nije poslat. Proverite email podešavanja.'); } });
+		const previous = new Date(); previous.setMonth(previous.getMonth() - 1);
+		const defaultMonth = previous.toISOString().slice(0, 7);
+		const panel = document.createElement('div');
+		panel.className = 'hours-pdf-panel';
+		panel.innerHTML = `<label>PDF lista dana za gazdu (šalje se 1. u mjesecu)<input id="hours-pdf-month" type="month" value="${defaultMonth}" /></label><button class="secondary" id="send-hours-pdf" type="button">Pošalji PDF listu dana gazdi</button><small>Sadrži odobrene dane, sate i iznos za izabrani mjesec.</small>`;
+		form.append(panel);
+		panel.querySelector('#send-hours-pdf').addEventListener('click', async () => { try { const month = panel.querySelector('#hours-pdf-month').value || defaultMonth; const result = await request('/time-entries/pdf/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }) }); toast(`PDF lista dana je poslata gazdi: ${Number(result.amount || 0).toFixed(2)} EUR.`); } catch { toast('PDF lista dana nije poslata. Proverite odobrene dane i email podešavanja.'); } });
 	}
 	function ensureChangePasswordPanel() {
 		if (document.querySelector('#change-password-panel')) return;

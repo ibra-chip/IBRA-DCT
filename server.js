@@ -365,6 +365,10 @@ function buildHoursPdf({ workerName, month, entries, total }) {
 	const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>', `<< /Length ${Buffer.byteLength(commands, 'utf8')} >>\nstream\n${commands}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
 	let pdf = '%PDF-1.4\n'; const offsets = [0]; objects.forEach((object, index) => { offsets[index + 1] = Buffer.byteLength(pdf, 'utf8'); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }); const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`; return Buffer.from(pdf, 'utf8');
 }
+const previousMonthKey = (date = new Date()) => {
+	const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
+	return previous.toISOString().slice(0, 7);
+};
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
@@ -800,13 +804,29 @@ app.post('/api/time-entries', auth, async (request, response) => {
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
-	const month = String(request.body.month || new Date().toISOString().slice(0, 7)); const data = await readData(); const entries = data.timeEntries.filter((entry) => entry.workerId === request.user.sub && entry.date.startsWith(month));
-	if (!entries.length) return response.status(400).json({ error: 'No work entries found for this month' });
-	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email);
-	if (!managers.length) return response.status(503).json({ error: 'No manager email is configured' });
-	const worker = data.users.find((user) => user.id === request.user.sub); const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) })); const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0); const pdf = buildHoursPdf({ workerName: request.user.name, month, entries: detailedEntries, total });
-	const results = await Promise.all(managers.map((managerUser) => sendMailSafe({ to: managerUser.email, subject: `IBRA-BA - sati rada ${request.user.name} - ${month}`, text: `U prilogu je PDF evidencije radnih sati za ${request.user.name}, ${month}.`, attachments: [{ filename: `ibra-hours-${month}-${request.user.sub}.pdf`, content: pdf }] })));
-	if (results.every((result) => result.skipped)) return response.status(503).json({ error: 'Email delivery is not configured' }); response.json({ message: 'Hours PDF sent to manager', recipients: managers.map((user) => user.email) });
+	const month = String(request.body.month || previousMonthKey());
+	const data = await readData();
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	const entries = data.timeEntries.filter((entry) => entry.workerId === request.user.sub && entry.date.startsWith(month) && entry.status === 'approved');
+	if (!entries.length) return response.status(400).json({ error: 'No approved work entries found for this month' });
+	const ownerSiret = worker?.employerSiret || '';
+	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email && (user.id === worker?.invitedBy || (ownerSiret && cleanSiret(user.siret) === cleanSiret(ownerSiret))));
+	const recipients = managers.length ? managers : data.users.filter((user) => isOwnerRole(user.role) && user.email);
+	if (!recipients.length) return response.status(503).json({ error: 'No owner email is configured' });
+	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) }));
+	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
+	const days = new Set(detailedEntries.map((entry) => entry.date)).size;
+	const pdf = buildHoursPdf({ workerName: request.user.name, month, entries: detailedEntries, total });
+	const results = await Promise.all(recipients.map((owner) => sendMailSafe({
+		to: owner.email,
+		subject: `IBRA-BA - lista dana ${request.user.name} - ${month}`,
+		text: `Bonjour ${owner.name},\n\n${request.user.name} vous envoie la liste PDF des jours travaillés pour ${month}.\nEntreprise: ${worker?.employerCompany || worker?.company || 'N/A'}\nSIRET: ${worker?.employerSiret || 'N/A'}\nJours: ${days}\nHeures: ${detailedEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0).toFixed(2)}\nMontant: ${total.toFixed(2)} EUR\n\nLe PDF est en pièce jointe.`,
+		attachments: [{ filename: `ibra-days-${month}-${request.user.sub}.pdf`, content: pdf }]
+	})));
+	if (results.every((result) => result.skipped)) return response.status(503).json({ error: 'Email delivery is not configured' });
+	data.monthlyPdfSubmissions = [...(data.monthlyPdfSubmissions || []), { id: `hours-pdf-${Date.now()}`, workerId: request.user.sub, workerName: request.user.name, employerSiret: worker?.employerSiret || '', employerCompany: worker?.employerCompany || worker?.company || '', month, days, hours: detailedEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0), amount: total, recipients: recipients.map((user) => user.email), sentAt: new Date().toISOString() }];
+	await writeData(data);
+	response.json({ message: 'Hours PDF sent to owner', month, days, amount: total, recipients: recipients.map((user) => user.email) });
 });
 app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
 	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can approve time' });
