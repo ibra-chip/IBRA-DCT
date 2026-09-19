@@ -222,10 +222,18 @@ app.post('/api/auth/register', async (request, response) => {
 	const phone = isEmail ? '' : contact;
 	const siret = String(request.body.siret || '').trim();
 	const company = String(request.body.company || '').trim();
+	const requestedPassword = String(request.body.password || '');
+	const existingUser = data.users.find((user) => (email && user.email && user.email.toLowerCase() === email) || (phone && user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')));
+	if (requestedPassword && existingUser) {
+		if (requestedPassword.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+		existingUser.passwordHash = await bcrypt.hash(requestedPassword, 12);
+		existingUser.passwordChangedAt = Math.floor(Date.now() / 1000);
+		await writeData(data);
+		return response.status(200).json({ message: 'Password updated for existing account', email: existingUser.email || null, phone: existingUser.phone || null, role: existingUser.role, delivery: 'password-set' });
+	}
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
 	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
-	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
-	const requestedPassword = String(request.body.password || '');
+	if (existingUser) return response.status(409).json({ error: 'User already exists' });
 	const password = requestedPassword || crypto.randomBytes(9).toString('base64url');
 	if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
