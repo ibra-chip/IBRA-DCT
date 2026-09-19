@@ -449,7 +449,51 @@ app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	await writeData(data);
 	response.json({ removed: true, id: user.id, name: user.name });
 });
+const slugifyProjectId = (value) => {
+	const base = String(value || 'chantier').toLowerCase().normalize('NFD').replace(/\p{Diacritic}/gu, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 48) || 'chantier';
+	return base;
+};
+const defaultControlsForProject = (projectId) => [
+	{ id: `${projectId}-execution-quality`, projectId, name: 'Radovi izvedeni prema projektu i pravilima struke', status: 'review', owner: 'Conducteur' },
+	{ id: `${projectId}-site-safety`, projectId, name: 'Bezbednost na gradilištu i zaštitna oprema', status: 'review', owner: 'Conducteur' },
+	{ id: `${projectId}-material-traceability`, projectId, name: 'Materijali, ugradnja i sledljivost', status: 'review', owner: 'Conducteur' },
+	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Conducteur' }
+];
 app.get('/api/projects', auth, async (_request, response) => response.json((await readData()).projects));
+app.post('/api/projects', auth, manager, async (request, response) => {
+	const name = String(request.body.name || request.body.chantierName || '').trim();
+	if (!name) return response.status(400).json({ error: 'Chantier name is required' });
+	const data = await readData();
+	let id = slugifyProjectId(name);
+	if ((data.projects || []).some((project) => project.id === id)) id = `${id}-${Date.now()}`;
+	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, createdAt: new Date().toISOString() };
+	data.projects = [...(data.projects || []), project];
+	data.chantierControls = [...(data.chantierControls || []), ...defaultControlsForProject(id)];
+	data.users = (data.users || []).map((user) => ['admin', 'gerant', 'manager'].includes(user.role) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
+	await writeData(data);
+	response.status(201).json(project);
+});
+app.delete('/api/projects/:id', auth, manager, async (request, response) => {
+	if (request.params.id === 'lot-a') return response.status(400).json({ error: 'Default chantier cannot be removed' });
+	const data = await readData();
+	const project = (data.projects || []).find((item) => item.id === request.params.id);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	data.projects = (data.projects || []).filter((item) => item.id !== request.params.id);
+	data.projectBudgets = (data.projectBudgets || []).filter((item) => item.projectId !== request.params.id);
+	data.projectSchedules = (data.projectSchedules || []).filter((item) => item.projectId !== request.params.id);
+	data.projectDelays = (data.projectDelays || []).filter((item) => item.projectId !== request.params.id);
+	data.chantierControls = (data.chantierControls || []).filter((item) => item.projectId !== request.params.id);
+	data.controlHistory = (data.controlHistory || []).filter((item) => item.projectId !== request.params.id);
+	data.documents = (data.documents || []).filter((item) => item.projectId !== request.params.id);
+	data.purchases = (data.purchases || []).filter((item) => item.projectId !== request.params.id);
+	data.workReports = (data.workReports || []).filter((item) => item.projectId !== request.params.id);
+	data.messages = (data.messages || []).filter((item) => item.projectId !== request.params.id);
+	data.rendezvous = (data.rendezvous || []).filter((item) => item.projectId !== request.params.id);
+	data.timeEntries = (data.timeEntries || []).filter((item) => item.projectId !== request.params.id);
+	data.users = (data.users || []).map((user) => ({ ...user, projectIds: (user.projectIds || []).filter((id) => id !== request.params.id) }));
+	await writeData(data);
+	response.json({ removed: true, id: project.id, name: project.name });
+});
 app.get('/api/projects/:id/schedule', auth, async (request, response) => {
 	const data = await readData(); const schedule = (data.projectSchedules || []).find((item) => item.projectId === request.params.id);
 	const delays = (data.projectDelays || []).filter((item) => item.projectId === request.params.id);
