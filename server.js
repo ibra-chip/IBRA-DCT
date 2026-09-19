@@ -25,9 +25,15 @@ const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-b
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 const supabaseConfigured = Boolean(supabaseUrl && supabaseKey);
+const renderBranch = process.env.RENDER_GIT_BRANCH || process.env.RENDER_BRANCH || '';
+const strictSupabaseRequired = process.env.NODE_ENV === 'production' && (!renderBranch || renderBranch === 'main' || process.env.REQUIRE_SUPABASE === 'true');
 const facadeKnowledge = await loadFacadeKnowledge(root);
 console.log('IBRA app root:', root);
-if (process.env.NODE_ENV === 'production' && !supabaseConfigured) throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production; local data.json persistence is disabled.');
+if (!supabaseConfigured) {
+	const message = 'SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are not configured; using local data.json fallback.';
+	if (strictSupabaseRequired) throw new Error(`${message} Set both variables on the main Render service.`);
+	console.warn(message);
+}
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
