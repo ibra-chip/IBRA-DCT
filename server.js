@@ -205,8 +205,6 @@ app.post('/api/auth/login', async (request, response) => {
 	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
 	const user = data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
 	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
-	const requestedRole = String(request.body.role || '').trim(); const roleMatches = user.role === requestedRole || (requestedRole === 'gerant' && ['admin', 'gerant', 'manager'].includes(user.role));
-	if (!roleMatches) return response.status(403).json({ error: 'Selected profile does not match this account' });
 	const token = issueAuthToken(user);
 	response.json({ token, user: publicUser(user) });
 });
@@ -229,7 +227,7 @@ app.post('/api/auth/register', async (request, response) => {
 	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
 	if (requestedPassword) {
 		data.users.push(user); await writeData(data);
-		return response.status(201).json({ message: 'Account created with chosen password', email: email || null, phone: phone || null, delivery: 'password-set' });
+		return response.status(201).json({ message: 'Account created with chosen password', email: email || null, phone: phone || null, role, delivery: 'password-set' });
 	}
 	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est pret.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe apres votre premiere connexion.`;
 	try {
@@ -245,7 +243,7 @@ app.post('/api/auth/register', async (request, response) => {
 		return response.status(502).json({ error: isEmail ? 'Registration email could not be sent' : 'Registration SMS could not be sent' });
 	}
 	data.users.push(user); await writeData(data);
-	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null, delivery: isEmail ? 'email' : 'sms' });
+	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null, role, delivery: isEmail ? 'email' : 'sms' });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
 	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => (item.email && item.email.trim().toLowerCase() === email) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));

@@ -23,7 +23,7 @@
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Créer votre accès</h1>
 			<p>Choisissez votre rôle, e-mail ou téléphone, puis créez votre mot de passe.</p>
-			<label>Profil<select name="role" id="registration-role" required><option value="gerant">Gérant / Manager</option><option value="user">Utilisateur</option><option value="conducteur">Conducteur de travaux</option></select></label>
+			<label>Profil<select name="role" id="registration-role" required><option value="user" selected>Utilisateur</option><option value="gerant">Gerant / Manager</option><option value="conducteur">Conducteur de travaux</option></select></label>
 			<label id="registration-siret">SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
 			<label id="registration-company" hidden>Entreprise employeuse<input name="company" /></label>
 			<label id="registration-contact">E-mail ou téléphone pour la connexion<input name="contact" type="text" autocomplete="email tel" placeholder="email@example.com ou +33 6 00 00 00 00" required /></label>
@@ -45,14 +45,14 @@
 					<h1>Connexion</h1>
 			<label>Telefon ili e-mail<input name="phone" type="text" autocomplete="username" placeholder="+33 6 00 00 00 00 ili email" required /></label>
 			<label>Mot de passe<input name="password" type="password" required /></label>
-			<label>Profil d’accès<select name="role" required><option value="" selected disabled>Choisissez votre profil</option><option value="gerant">Gérant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option><option value="user">Utilisateur</option></select></label>
+			<label>Profil d acces<select name="role"><option value="user" selected>Utilisateur</option><option value="gerant">Gerant / Manager</option><option value="conducteur">Conducteur de travaux</option><option value="worker">Ouvrier / artisan</option></select></label>
 					<label id="login-siret-field" hidden>SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
 					<label id="login-company-field" hidden>Entreprise employeuse<input name="company" /></label>
 			<button class="primary" type="submit">Accéder au système</button>
 			<button class="secondary" id="forgot-password" type="button">Mot de passe oublié ?</button>
 			<div id="reset-request-panel" hidden><label>E-mail pour recevoir le lien<input id="reset-contact" type="email" autocomplete="email" placeholder="email@exemple.com" /></label><button class="secondary" id="send-reset" type="button">Envoyer le lien de réinitialisation</button></div>
 					<button class="secondary" id="show-registration" type="button">Créer un accès</button>
-					<small>Création d’un accès : Gérant = SIRET · Conducteur = entreprise</small>
+					<small>Za obican ulaz ostavite Utilisateur. Gerant = SIRET - Conducteur = entreprise.</small>
 			<button class="secondary" id="back-to-success" type="button" hidden>Nazad na potvrdu emaila</button>
 			<p id="login-error" class="error"></p>
 		</form>
