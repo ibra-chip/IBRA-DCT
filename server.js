@@ -603,15 +603,57 @@ app.get('/api/work-reports', auth, async (request, response) => {
 });
 app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
 	if (!request.file || !request.file.mimetype.startsWith('image/')) return response.status(400).json({ error: 'A work photo is required' });
+	const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2';
+	const base64Image = request.file.buffer.toString('base64');
+	const parseEstimate = (text) => {
+		try { return JSON.parse(String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return {}; }
+	};
+	const normalizeEstimate = (parsed, status = 'estimated') => {
+		const rawQuantity = parsed.estimatedQuantity ?? (quantityUnit === 'm2' ? parsed.estimatedM2 : parsed.estimatedMl);
+		const estimatedQuantity = Number.isFinite(Number(rawQuantity)) ? Number(rawQuantity) : null;
+		return {
+			status,
+			quantityUnit,
+			estimatedQuantity,
+			estimatedM2: quantityUnit === 'm2' ? estimatedQuantity : null,
+			estimatedMl: quantityUnit === 'ml' ? estimatedQuantity : null,
+			confidence: Number(parsed.confidence || 0),
+			answer: parsed.reason || parsed.answer || 'Nema pouzdane procene. Dodajte mjeru, metar, laser, plan ili poznatu referencu pa potvrdite ručno.',
+			requiresHumanConfirmation: true
+		};
+	};
+	const unitLabel = quantityUnit === 'ml' ? 'linear meters / mètres linéaires / ml' : 'square meters / mètres carrés / m²';
+	const prompt = `Analyze the work photo and estimate the executed quantity in ${unitLabel}.
+Return only JSON with: estimatedQuantity number or null, confidence number 0-1, reason string.
+Never invent dimensions. Estimate only if the photo has a reliable scale/reference, visible measuring tool, known module size, plan reference, or clearly countable repeated elements. If scale is missing, estimatedQuantity must be null and reason must say what measurement/photo is required.
+For m² use visible height x width of executed work. For ml use visible linear length of executed work such as joints, rails, profiles, flashing, bands, base rails, edge trims or linear façade elements.`;
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (geminiApiKey) {
+		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: request.file.mimetype, data: base64Image } }] }]
+			})
+		});
+		if (geminiResponse.ok) {
+			const result = await geminiResponse.json();
+			return response.json(normalizeEstimate(parseEstimate(result.candidates?.[0]?.content?.parts?.[0]?.text), 'estimated'));
+		}
+		const details = await geminiResponse.text();
+		console.error('Gemini quantity estimate rejected', geminiResponse.status, details.slice(0, 500));
+	}
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
-	if (!aiApiKey) return response.json({ status: 'not_configured', estimatedM2: null, answer: 'Vision AI nije konfigurisan. Unesite m² ručno i potvrdite evidenciju.', requiresHumanConfirmation: true });
-	const image = `data:${request.file.mimetype};base64,${request.file.buffer.toString('base64')}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Proceni površinu izvedenih radova samo ako fotografija ima pouzdanu skalu ili poznatu referencu. Nikada ne nagađaj. Vrati JSON: estimatedM2 broj ili null, confidence broj 0-1, reason tekst.' }, { role: 'user', content: [{ type: 'text', text: 'Proceni vidljivu izvedenu površinu u m². Ako nema merila, vrati null.' }, { type: 'image_url', image_url: { url: image } }] }] }) });
-	if (!aiResponse.ok) return response.status(502).json({ error: 'Vision AI provider unavailable' }); const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'estimated', estimatedM2: Number.isFinite(Number(parsed.estimatedM2)) ? Number(parsed.estimatedM2) : null, confidence: Number(parsed.confidence || 0), answer: parsed.reason || 'Nema pouzdane procene.', requiresHumanConfirmation: true });
+	if (!aiApiKey) return response.json(normalizeEstimate({}, 'not_configured'));
+	const image = `data:${request.file.mimetype};base64,${base64Image}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Estimate construction quantities only with reliable visible scale. Never guess. Return JSON only.' }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] }] }) });
+	if (!aiResponse.ok) return response.status(502).json({ error: 'Vision AI provider unavailable' }); const result = await aiResponse.json(); return response.json(normalizeEstimate(parseEstimate(result.choices?.[0]?.message?.content), 'estimated'));
 });
 app.post('/api/work-reports', auth, upload.single('photo'), async (request, response) => {
-	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const date = String(request.body.date || ''); const capturedAt = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitude = Number(request.body.latitude); const longitude = Number(request.body.longitude); const quantityM2 = Number(request.body.quantityM2 || 0); const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || '');
-	if (!projectId || !request.file || !request.file.mimetype.startsWith('image/') || !description || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAt) || !locationName || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(quantityM2) || quantityM2 <= 0 || !Number.isFinite(unitRate) || unitRate < 0) return response.status(400).json({ error: 'Photo, date, time, location, description, square-meter estimate, and unit rate are required' });
-	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub); const report = { id: `work-report-${Date.now()}`, projectId, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityM2, m2Source, unitRate, calculatedAmount: quantityM2 * unitRate, photoFile: request.file.filename, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2, status: 'pending', pricingSource: 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const date = String(request.body.date || ''); const capturedAt = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitude = Number(request.body.latitude); const longitude = Number(request.body.longitude); const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
+	if (!projectId || !request.file || !request.file.mimetype.startsWith('image/') || !description || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAt) || !locationName || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitRate) || unitRate < 0) return response.status(400).json({ error: 'Photo, date, time, location, description, AI quantity estimate, and unit rate are required' });
+	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub); const report = { id: `work-report-${Date.now()}`, projectId, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile: request.file.filename, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
@@ -619,7 +661,7 @@ app.patch('/api/work-reports/:id/status', auth, manager, async (request, respons
 	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
 });
 app.get('/api/projects/:id/situation-summary', auth, async (request, response) => {
-	const data = await readData(); const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = ['admin', 'gerant', 'manager'].includes(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
+	const data = await readData(); const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = ['admin', 'gerant', 'manager'].includes(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
 app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });

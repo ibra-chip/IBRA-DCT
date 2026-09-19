@@ -117,9 +117,103 @@
 	async function loadMessages() { ensureRendezvousForm(); const messages = await request('/messages'); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
 	function ensurePayoutPanel() { if (document.querySelector('#payout-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const section = document.createElement('section'); section.className = 'panel payout-panel'; section.innerHTML = `<div class="section-head"><div><h2>Demandes de paiement</h2><small>Les jours sont envoyés le 1er du mois. Le paiement est prévu le 15.</small></div></div><form id="payout-form"><label>Mois à payer<input name="month" type="month" required /></label><label>Nombre de jours à payer<input name="days" type="number" min="0" step="1" required /></label><button class="primary" type="submit">Envoyer la demande au Gérant</button></form><div id="payout-list" class="list"></div></section>`; section.querySelector('#payout-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/payout-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await loadPayouts(); toast('La demande du 1er a été envoyée au Gérant. Paiement prévu le 15.'); } catch (error) { toast(`Demande non enregistrée : ${error.message || 'erreur inconnue'}`); } }); panel.after(section); }
 	async function loadPayouts() { ensurePayoutPanel(); const items = await request('/payout-requests'); const target = document.querySelector('#payout-list'); if (!target) return; const managerView = ['admin', 'gerant', 'manager'].includes(currentUser?.role); target.innerHTML = items.length ? `<h3>${managerView ? 'Demandes reçues' : 'Mes demandes'}</h3>${items.slice().reverse().map((item) => `<div class="list-item"><strong>${item.month} · ${item.userName} · ${item.days} jours</strong><small>${managerView ? `${formatEUR(item.amount)} · ` : ''}Demande le ${item.submissionDate} · Paiement le ${item.paymentDate} · ${item.status}</small>${managerView && item.status === 'pending' ? `<button class="secondary payout-status" data-payout="${item.id}" data-status="approved">Approuver</button><button class="secondary payout-status" data-payout="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucune demande de paiement.</small>'; document.querySelectorAll('.payout-status').forEach((button) => button.addEventListener('click', async () => { await request(`/payout-requests/${button.dataset.payout}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadPayouts(); })); }
-	function ensureProductionPanel() { if (document.querySelector('#production-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const section = document.createElement('section'); section.className = 'panel production-panel'; section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L’IA propose les m², puis l’utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail réalisé<input name="photo" type="file" accept="image/*" required /></label><button class="secondary" id="estimate-area" type="button">Estimer les m² avec l’IA</button><small id="area-estimate-status">Sans fournisseur Vision AI, saisissez les m² manuellement.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label>Surface exécutée (m²)<input name="quantityM2" type="number" min="0" step="0.01" value="0" required /></label><label>Prix par m² EUR<input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gérant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`; panel.after(section); const form = section.querySelector('#production-form'); section.querySelector('#estimate-area').addEventListener('click', async () => { const file = form.elements.photo.files[0]; const status = section.querySelector('#area-estimate-status'); if (!file) { status.textContent = 'Sélectionnez d’abord une photo.'; return; } const body = new FormData(); body.append('photo', file, file.name); status.textContent = 'Analyse de la photo...'; try { const result = await fetch(`${api}/ai/estimate-area`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body }).then(async (response) => { if (!response.ok) throw new Error(await response.text()); return response.json(); }); if (result.estimatedM2 === null) { status.textContent = result.answer; return; } form.elements.quantityM2.value = result.estimatedM2; status.textContent = `Proposition IA : ${result.estimatedM2} m². Vérifiez et confirmez avant l’enregistrement.`; } catch (error) { status.textContent = `Estimation indisponible : ${error.message || 'erreur inconnue'}`; } }); form.addEventListener('submit', async (event) => { event.preventDefault(); const body = new FormData(form); body.append('projectId', 'lot-a'); try { const response = await fetch(`${api}/work-reports`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body }); if (!response.ok) throw new Error(await response.text()); form.reset(); await loadProduction(); toast('La production a été enregistrée pour validation.'); } catch (error) { toast(`Production non enregistrée : ${error.message || 'erreur inconnue'}`); } }); }
-	function ensureCaptureMetadata() { const form = document.querySelector('#production-form'); if (!form || document.querySelector('#capture-metadata')) return; const block = document.createElement('div'); block.id = 'capture-metadata'; block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo<input name="captureTime" type="time" required /></label><label>Lieu de la photo<input name="locationName" placeholder="Autorisation GPS requise" required /></label><small id="capture-status">La photo doit avoir une date, une heure et une position GPS.</small>`; form.querySelector('#estimate-area').before(block); const m2Input = form.elements.quantityM2; m2Input.readOnly = true; m2Input.value = ''; m2Input.previousElementSibling.textContent = 'Surface déterminée par l’IA (m²)'; form.elements.photo.addEventListener('change', () => { const now = new Date(); form.elements.capturedAt.value = now.toISOString(); form.elements.captureTime.value = now.toTimeString().slice(0, 5); form.elements.m2Source.value = ''; m2Input.value = ''; const status = block.querySelector('#capture-status'); if (!navigator.geolocation) { status.textContent = 'GPS indisponible sur cet appareil.'; return; } status.textContent = 'Obtention de la position GPS...'; navigator.geolocation.getCurrentPosition((position) => { form.elements.latitude.value = position.coords.latitude; form.elements.longitude.value = position.coords.longitude; if (!form.elements.locationName.value) form.elements.locationName.value = `GPS ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`; status.textContent = `Photo capturée le ${now.toLocaleDateString('fr-FR')} à ${form.elements.captureTime.value}, avec position GPS.`; }, () => { status.textContent = 'Autorisez la localisation pour enregistrer la photo.'; }, { enableHighAccuracy: true, timeout: 10000 }); }); }
-	async function loadProduction() { ensureProductionPanel(); ensureCaptureMetadata(); const reports = await request('/work-reports'); const today = new Date().toISOString().slice(0, 10); const summary = await request(`/projects/lot-a/situation-summary?date=${today}`); const summaryTarget = document.querySelector('#production-summary'); const reportTarget = document.querySelector('#production-reports'); if (!summaryTarget || !reportTarget) return; const managerView = ['admin', 'gerant', 'manager'].includes(currentUser?.role); const workerTotals = summary.byWorker?.map((item) => `${item.workerName}: ${Number(item.quantityM2).toFixed(2)} m²${managerView ? ` · ${formatEUR(item.amount)}` : ''}`).join(' | ') || 'Aucun détail par utilisateur'; summaryTarget.innerHTML = `<div class="list-item"><strong>Situation du ${today}</strong><small>${summary.reportCount} rapport(s) approuvé(s) · ${Number(summary.quantityM2).toFixed(2)} m²${managerView ? ` · ${formatEUR(summary.amount)}` : ''}</small><small>${workerTotals}</small><small>Calcul basé uniquement sur les rapports approuvés. Validation humaine requise.</small></div>`; const canReview = ['admin', 'gerant', 'manager', 'conducteur'].includes(currentUser?.role); reportTarget.innerHTML = reports.length ? `<h3>Rapports de production</h3>${reports.slice().reverse().map((item) => `<div class="list-item"><strong>${item.date} · ${item.workerName} · ${Number(item.quantityM2).toFixed(2)} m²</strong><small>${item.description} · ${managerView ? `${formatEUR(item.calculatedAmount)} · ` : ''}${item.status} · ${item.aiStatus} · ${item.capturedAt} · ${item.locationName}</small>${canReview && item.status === 'pending' ? `<button class="secondary production-status" data-report="${item.id}" data-status="approved">Approuver</button><button class="secondary production-status" data-report="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucun rapport de production.</small>'; document.querySelectorAll('.production-status').forEach((button) => button.addEventListener('click', async () => { await request(`/work-reports/${button.dataset.report}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadProduction(); })); }
+	function ensureProductionPanel() {
+		if (document.querySelector('#production-form')) return;
+		const panel = document.querySelector('#tasks-view .panel');
+		if (!panel) return;
+		const section = document.createElement('section');
+		section.className = 'panel production-panel';
+		section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L'IA propose m? ou ml, puis l'utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail realise<input name="photo" type="file" accept="image/*" required /></label><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><button class="secondary" id="estimate-area" type="button">Estimer avec l?IA</button><small id="area-estimate-status">L'IA calcule seulement si la photo montre une echelle fiable, une mesure ou une reference.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite determinee par l?IA</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gerant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`;
+		panel.after(section);
+		const form = section.querySelector('#production-form');
+		const quantityInput = form.elements.quantity;
+		const updateUnitLabels = () => {
+			const unit = form.elements.quantityUnit.value;
+			section.querySelector('[data-quantity-label]').textContent = unit === 'ml' ? 'Longueur determinee par l?IA (ml)' : 'Surface determinee par l?IA (m2)';
+			section.querySelector('[data-rate-label]').textContent = unit === 'ml' ? 'Prix par ml EUR' : 'Prix par m2 EUR';
+			section.querySelector('#estimate-area').textContent = unit === 'ml' ? 'Estimer les ml avec l?IA' : 'Estimer les m? avec l?IA';
+		};
+		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); });
+		updateUnitLabels();
+		section.querySelector('#estimate-area').addEventListener('click', async () => {
+			const file = form.elements.photo.files[0];
+			const unit = form.elements.quantityUnit.value;
+			const status = section.querySelector('#area-estimate-status');
+			if (!file) { status.textContent = "Selectionnez d'abord une photo."; return; }
+			const body = new FormData();
+			body.append('photo', file, file.name);
+			body.append('quantityUnit', unit);
+			status.textContent = unit === 'ml' ? 'Analyse de la longueur visible...' : 'Analyse de la surface visible...';
+			try {
+				const result = await fetch(`${api}/ai/estimate-area`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }).then(async (response) => { if (!response.ok) throw new Error(await response.text()); return response.json(); });
+				if (result.estimatedQuantity === null || result.estimatedQuantity === undefined) { status.textContent = result.answer; return; }
+				quantityInput.value = result.estimatedQuantity;
+				form.elements.quantityM2.value = unit === 'm2' ? result.estimatedQuantity : '';
+				form.elements.m2Source.value = `ai-${unit}`;
+				status.textContent = `Proposition IA : ${result.estimatedQuantity} ${unit}. Confiance ${Math.round(Number(result.confidence || 0) * 100)}%. Verifiez et confirmez avant l'enregistrement. ${result.answer || ''}`;
+			} catch (error) {
+				status.textContent = `Estimation indisponible : ${error.message || 'erreur inconnue'}`;
+			}
+		});
+		form.addEventListener('submit', async (event) => {
+			event.preventDefault();
+			const body = new FormData(form);
+			body.append('projectId', 'lot-a');
+			try {
+				const response = await fetch(`${api}/work-reports`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
+				if (!response.ok) throw new Error(await response.text());
+				form.reset();
+				updateUnitLabels();
+				await loadProduction();
+				toast('La production a ?t? enregistr?e pour validation.');
+			} catch (error) {
+				toast(`Production non enregistr?e : ${error.message || 'erreur inconnue'}`);
+			}
+		});
+	}
+	function ensureCaptureMetadata() {
+		const form = document.querySelector('#production-form');
+		if (!form || document.querySelector('#capture-metadata')) return;
+		const block = document.createElement('div');
+		block.id = 'capture-metadata';
+		block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo<input name="captureTime" type="time" required /></label><label>Lieu de la photo<input name="locationName" placeholder="Autorisation GPS requise" required /></label><small id="capture-status">La photo doit avoir une date, une heure et une position GPS.</small>`;
+		form.querySelector('#estimate-area').before(block);
+		const quantityInput = form.elements.quantity;
+		form.elements.photo.addEventListener('change', () => {
+			const now = new Date();
+			form.elements.capturedAt.value = now.toISOString();
+			form.elements.captureTime.value = now.toTimeString().slice(0, 5);
+			form.elements.m2Source.value = '';
+			form.elements.quantityM2.value = '';
+			quantityInput.value = '';
+			const status = block.querySelector('#capture-status');
+			if (!navigator.geolocation) { status.textContent = 'GPS indisponible sur cet appareil.'; return; }
+			status.textContent = 'Obtention de la position GPS...';
+			navigator.geolocation.getCurrentPosition((position) => {
+				form.elements.latitude.value = position.coords.latitude;
+				form.elements.longitude.value = position.coords.longitude;
+				if (!form.elements.locationName.value) form.elements.locationName.value = `GPS ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
+				status.textContent = `Photo captur?e le ${now.toLocaleDateString('fr-FR')} ? ${form.elements.captureTime.value}, avec position GPS.`;
+			}, () => { status.textContent = 'Autorisez la localisation pour enregistrer la photo.'; }, { enableHighAccuracy: true, timeout: 10000 });
+		});
+	}
+	async function loadProduction() {
+		ensureProductionPanel();
+		ensureCaptureMetadata();
+		const reports = await request('/work-reports');
+		const today = new Date().toISOString().slice(0, 10);
+		const summary = await request(`/projects/lot-a/situation-summary?date=${today}`);
+		const summaryTarget = document.querySelector('#production-summary');
+		const reportTarget = document.querySelector('#production-reports');
+		if (!summaryTarget || !reportTarget) return;
+		const managerView = ['admin', 'gerant', 'manager'].includes(currentUser?.role);
+		const quantityLabel = (item) => `${Number(item.quantity ?? item.quantityM2 ?? 0).toFixed(2)} ${item.quantityUnit || 'm2'}`;
+		const workerTotals = summary.byWorker?.map((item) => `${item.workerName}: ${Number(item.quantityM2 || 0).toFixed(2)} m2 ? ${Number(item.quantityMl || 0).toFixed(2)} ml${managerView ? ` ? ${formatEUR(item.amount)}` : ''}`).join(' | ') || 'Aucun detail par utilisateur';
+		summaryTarget.innerHTML = `<div class="list-item"><strong>Situation du ${today}</strong><small>${summary.reportCount} rapport(s) approuve(s) ? ${Number(summary.quantityM2 || 0).toFixed(2)} m2 ? ${Number(summary.quantityMl || 0).toFixed(2)} ml${managerView ? ` ? ${formatEUR(summary.amount)}` : ''}</small><small>${workerTotals}</small><small>Calcul base uniquement sur les rapports approuves. Validation humaine requise.</small></div>`;
+		const canReview = ['admin', 'gerant', 'manager', 'conducteur'].includes(currentUser?.role);
+		reportTarget.innerHTML = reports.length ? `<h3>Rapports de production</h3>${reports.slice().reverse().map((item) => `<div class="list-item"><strong>${item.date} ? ${item.workerName} ? ${quantityLabel(item)}</strong><small>${item.description} ? ${managerView ? `${formatEUR(item.calculatedAmount)} ? ` : ''}${item.status} ? ${item.aiStatus} ? ${item.capturedAt} ? ${item.locationName}</small>${canReview && item.status === 'pending' ? `<button class="secondary production-status" data-report="${item.id}" data-status="approved">Approuver</button><button class="secondary production-status" data-report="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucun rapport de production.</small>';
+		document.querySelectorAll('.production-status').forEach((button) => button.addEventListener('click', async () => { await request(`/work-reports/${button.dataset.report}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadProduction(); }));
+	}
 	async function loadWorkSequence() { const panel = document.querySelector('.ai-panel'); if (!panel || document.querySelector('#work-sequence')) return; const section = document.createElement('div'); section.id = 'work-sequence'; section.className = 'list'; section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse de la documentation...</small>'; panel.append(section); try { const result = await request('/projects/lot-a/work-sequence'); section.innerHTML = `<h3>Ordre des travaux selon les plans</h3><small>${result.answer}</small>${result.steps?.length ? result.steps.map((step) => `<div class="list-item"><strong>${step.order}. ${step.title}</strong><small>${step.instruction} · Preuve requise : ${step.requiredEvidence || 'à confirmer'} · Source : ${step.sourcePage || 'à confirmer'}</small></div>`).join('') : '<small>La séquence ne peut pas être affichée sans documentation source et configuration AI.</small>'}`; } catch { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse indisponible. Ajoutez un plan ou une fiche technique PDF.</small>'; } }
 	function renderAutoAnalysis(target, analysis) {
 		if (!target || !analysis) return false;
