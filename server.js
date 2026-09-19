@@ -151,6 +151,58 @@ File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 
 	}
 	return { status: 'provider_unavailable', vision: null };
 }
+async function analyzeDocumentWithGemini({ buffer, mimeType, fileName, evidenceType, language, text }) {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const french = language === 'fr';
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+	const prompt = `${french ? 'Analyse ce document chantier RGE/QUALIBAT' : 'Analiziraj ovaj chantier dokument RGE/QUALIBAT'}: ${fileName}.
+Tu dois répondre SPECIFIQUEMENT selon ce plan/fiche, pas avec un texte générique.
+Si le document parle de bardage ventilé, explique exactement par où commencer, l'ordre logique: support, calepinage, ossature/équerres/tasseaux, isolant, pare-pluie, lame d'air, profils départ/angles/tableaux, pose du parement, contrôles et photos preuve.
+Si une information précise n'est pas dans le document, écris "à confirmer dans le plan/fiche/DTA" au lieu d'inventer.
+Réponds uniquement en JSON avec:
+summary string, workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1, answer string.
+Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.
+Texte extrait du PDF si disponible:
+${String(text || '').slice(0, 18000)}`;
+	const parse = (value) => JSON.parse(String(value || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+	const asArray = (value) => Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
+			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
+		})
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini document analysis rejected', geminiResponse.status, details.slice(0, 500));
+		return null;
+	}
+	const result = await geminiResponse.json();
+	try {
+		const parsed = parse(result.candidates?.[0]?.content?.parts?.[0]?.text);
+		return {
+			status: 'document_ai_analyzed',
+			fileName,
+			evidenceType,
+			summary: String(parsed.summary || (french ? 'Analyse spécifique du document.' : 'Specifična analiza dokumenta.')),
+			workType: String(parsed.workType || (french ? 'Travaux à confirmer selon le plan' : 'Radovi za potvrdu prema planu')),
+			systems: asArray(parsed.systems),
+			materials: asArray(parsed.materials),
+			howTo: asArray(parsed.howTo),
+			controls: asArray(parsed.controls),
+			evidence: asArray(parsed.evidence),
+			risks: asArray(parsed.risks),
+			confidence: Number.isFinite(Number(parsed.confidence)) ? Number(parsed.confidence) : 0.65,
+			answer: String(parsed.answer || ''),
+			requiresHumanConfirmation: true
+		};
+	} catch {
+		return null;
+	}
+}
 async function auth(request, response, next) {
 	try {
 		const payload = jwt.verify(tokenFrom(request), secret);
@@ -725,9 +777,16 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	let autoAnalysis = null;
 	if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
 		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
-		const parsed = await parsePdf(buffer);
-		autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language: request.body.responseLanguage || 'sr' });
-		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, request.body.responseLanguage || 'sr');
+		const language = request.body.responseLanguage || 'sr';
+		let parsed = { text: '' };
+		try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
+		autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' });
+		if (!autoAnalysis) {
+			autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
+			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+		} else if (!autoAnalysis.answer) {
+			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+		}
 	} else if (request.file.mimetype.startsWith('image/')) {
 		const language = request.body.responseLanguage || 'sr';
 		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
