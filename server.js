@@ -379,6 +379,12 @@ app.get('/api/siret/:siret', async (request, response) => {
 		response.status(error.status || 500).json({ error: error.message || 'Company lookup failed' });
 	}
 });
+const createPasswordSetupUrl = (data, userId) => {
+	const token = crypto.randomBytes(32).toString('hex');
+	const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
+	data.passwordResets = [...(data.passwordResets || []).filter((item) => item.userId !== userId), { token, userId, expiresAt }];
+	return `${process.env.PUBLIC_URL || 'http://localhost:3000'}/?reset=${token}`;
+};
 app.post('/api/auth/login', async (request, response) => {
 	const data = await readData();
 	const identifier = String(request.body.phone || request.body.email || '').trim();
@@ -468,11 +474,10 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const email = String(request.body.email || '').trim().toLowerCase();
 	const deliveryMethod = 'email';
 	const role = String(request.body.role || 'user').trim() === 'gerant' ? 'gerant' : 'user';
-	const password = String(request.body.password || '') || crypto.randomBytes(9).toString('base64url');
 	const siret = String(request.body.siret || '').trim(); const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const company = String(request.body.company || '').trim();
-	if (!name || !/^\S+@\S+\.\S+$/.test(email) || password.length < 10 || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany))) return response.status(400).json({ error: 'Name, email, company/SIRET details, and a valid password are required' });
+	if (!name || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany))) return response.status(400).json({ error: 'Name, email, and company/SIRET details are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	if (role === 'gerant' && data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
 	let companyInfo = null;
@@ -480,15 +485,16 @@ app.post('/api/users', auth, manager, async (request, response) => {
 		try { companyInfo = await resolveCompanyFromSiret(siret); }
 		catch { companyInfo = { name: company, siren: cleanSiret(siret).slice(0, 9), siret: cleanSiret(siret), address: '' }; }
 	}
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? companyInfo.siret : '', siren: role === 'gerant' ? companyInfo.siren : '', company: role === 'gerant' ? company : ownerCompany, companyRegistryName: role === 'gerant' ? companyInfo.name : '', companyAddress: role === 'gerant' ? companyInfo.address : '', employerSiret: role === 'user' ? ownerSiret : '', employerCompany: role === 'user' ? ownerCompany : '', invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt pour ${user.employerCompany || user.company}.\nSIRET: ${user.employerSiret || user.siret || 'N/A'}\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? companyInfo.siret : '', siren: role === 'gerant' ? companyInfo.siren : '', company: role === 'gerant' ? company : ownerCompany, companyRegistryName: role === 'gerant' ? companyInfo.name : '', companyAddress: role === 'gerant' ? companyInfo.address : '', employerSiret: role === 'user' ? ownerSiret : '', employerCompany: role === 'user' ? ownerCompany : '', invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const setupUrl = createPasswordSetupUrl(data, user.id);
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt pour ${user.employerCompany || user.company}.\nSIRET: ${user.employerSiret || user.siret || 'N/A'}\nIdentifiant : ${email || phone}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nCe lien est valable 7 jours.`;
 	let delivery = 'manual';
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
 	if (!mailResult.skipped) delivery = 'email';
 	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
-	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
+	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { setupUrl } : {}) });
 });
 app.post('/api/workers', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -503,15 +509,15 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const hourlyRate = Number(request.body.hourlyRate || 0);
 	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, daily rate, and hourly rate are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
-	const password = crypto.randomBytes(9).toString('base64url');
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
-	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nIdentifiant : ${email}\nMot de passe temporaire : ${password}\n\nVous pouvez saisir vos jours de travail et vos rendez-vous/absences.`;
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const setupUrl = createPasswordSetupUrl(data, user.id);
+	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nIdentifiant : ${email}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nVous pourrez ensuite saisir vos jours de travail et vos rendez-vous/absences. Ce lien est valable 7 jours.`;
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - invitation ouvrier', text: credentialsText });
 	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 	data.users.push(user);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
-	response.status(201).json({ ...safeUser, delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { temporaryPassword: password } : {}) });
+	response.status(201).json({ ...safeUser, delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { setupUrl } : {}) });
 });
 app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
