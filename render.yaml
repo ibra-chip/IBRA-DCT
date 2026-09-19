@@ -2,6 +2,7 @@ services:
   - type: web
     name: ibra-ba
     runtime: node
+    branch: main
     plan: free
     buildCommand: npm install --omit=dev --workspaces=false
     startCommand: node server.js

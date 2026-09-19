@@ -1,0 +1,23 @@
+name: Sync Render deploy branch
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync-render-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Keep Render branch aligned with main
+        run: |
+          git fetch origin ibra-chip-turbo-sniffle:refs/remotes/origin/ibra-chip-turbo-sniffle || true
+          git push origin HEAD:ibra-chip-turbo-sniffle --force-with-lease
