@@ -69,15 +69,19 @@
 		<aside class="sidebar">
 			<div class="brand"><span class="brand-mark">I</span><strong>IBRA-BA</strong></div>
 			<nav>
+				<small class="nav-group">Pregled</small>
 				<button class="nav active" data-view="dashboard-view">Dashboard</button>
-				<button class="nav" data-view="devis-view">Devis</button>
-				<button class="nav" data-view="purchases-view">Nabavke</button>
+				<small class="nav-group">Chantier</small>
 				<button class="nav" data-view="chantier-view">Chantier kontrole</button>
-				<button class="nav" data-view="rge-help-view">RGE / QUALIBAT</button>
+				<button class="nav" data-view="devis-view">Devis i chantiers</button>
+				<button class="nav" data-view="purchases-view">Nabavke</button>
+				<small class="nav-group">Dokumenti i AI</small>
 				<button class="nav" data-view="documents-view">Dokumenti i slike</button>
+				<button class="nav" data-view="evidence-summary-view">Dokazni paket</button>
+				<button class="nav" data-view="rge-help-view">RGE / QUALIBAT</button>
+				<small class="nav-group">Ekipa</small>
 				<button class="nav" data-view="tasks-view">Zadaci i komunikacija</button>
 				<button class="nav" data-view="settings-view">Korisnici</button>
-				<button class="nav" data-view="evidence-summary-view">Dokazni paket</button>
 			</nav>
 			<button id="change-password-button" class="secondary" type="button">Promeni password</button>
 			<button id="logout-button" class="secondary">Odjava</button>
@@ -85,7 +89,7 @@
 		<main>
 			<header><div><small id="current-role">Prijavljen korisnik</small><h1 id="page-title">IBRA-BA</h1></div><div class="header-actions"><div class="language-switcher"><button class="language-button active" data-language="sr">SR</button><button class="language-button" data-language="bs">BS</button><button class="language-button" data-language="fr">FR</button></div><span id="api-status" class="status">API</span></div></header>
 			<section id="dashboard-view" class="view active">
-				<div class="hero"><small>LOT A · PAVILLONS 1-4</small><h2>Contrôle de la bonne exécution des travaux</h2><p>Plans, fiches techniques, photographies et validation du Conducteur dans un seul parcours.</p></div><div class="risk-indicator" id="project-risk-card"><small>Risque du chantier</small><strong id="project-risk">-</strong></div>
+				<div class="hero"><small>CHANTIERS · DEVIS · PREUVES</small><h2>Contrôle de la bonne exécution des travaux</h2><p>Plans, fiches techniques, photographies et validation du Conducteur dans un seul parcours clair.</p></div><div class="risk-indicator" id="project-risk-card"><small>Risque du chantier</small><strong id="project-risk">-</strong></div>
 				<div class="cards"><article><small>Avancement</small><strong>76%</strong></article><article><small>Contrôles ouverts</small><strong id="open-controls">-</strong></article><article><small>Temps de travail</small><strong id="total-hours">0 h</strong></article><article id="payroll-card"><small>Coût du travail ce mois-ci</small><strong id="payroll-total">0 EUR</strong></article><article id="budget-card"><small>Budget restant</small><strong id="budget-remaining">Aucun devis</strong></article></div><div class="panel schedule-panel"><div class="section-head"><div><small>PLAN DU CHANTIER</small><h3>Début des travaux et échéance</h3></div><span id="schedule-status">Chargement...</span></div><div id="schedule-summary" class="list"></div></div>
 			</section>
 			<section id="devis-view" class="view"><div class="section-head"><div><small>DEVIS</small><h2>Budget du chantier</h2></div><span>Le devis est créé hors de l’application</span></div><div class="grid-two"><form id="budget-form" class="panel"><h3>Importer le PDF du devis</h3><label>Document PDF<input id="budget-file" type="file" accept="application/pdf,.pdf" required /></label><small id="devis-extraction-status">Les données seront lues automatiquement depuis le PDF.</small><label>Numéro du devis<input name="devisNumber" required /></label><label>Client<input name="client" required /></label><label>Chantier<input name="chantierName" required /></label><label>Chantier concerné<select name="projectId"><option value="__new">+ Nouveau chantier depuis ce Devis</option></select></label><label>Budget total du devis EUR<input name="total" type="number" min="0.01" step="0.01" required /></label><button class="primary">Enregistrer le devis</button><small>Le devis est créé hors de l’application. Si le PDF ne contient pas de texte, vérifiez les valeurs lues automatiquement.</small></form><div><h3>Budget et solde</h3><div id="budget-summary" class="list"><small>Aucun devis importé.</small></div></div></div></section>
