@@ -102,6 +102,6 @@
 		</main>
 	</div>
 	<script src="script.js"></script>
-	<script>if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js');</script>
+	<script>if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister())); if ('caches' in window) caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));</script>
 </body>
 </html>
