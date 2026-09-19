@@ -1,5 +1,6 @@
 .evidence-summary{margin-top:18px}.evidence-summary p{color:var(--muted)}.evidence-summary.complete{border-color:#31d3a466}.evidence-summary.incomplete{border-color:#f4c86f66}.evidence-summary strong{color:var(--yellow)}
 .control-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}.control-action{padding:7px 9px;font-size:.75rem}
+.remove-user{margin-top:10px}
 .audit-history{margin-top:18px}.audit-history small{color:var(--muted)}
 .purchase-groups{display:grid;gap:12px}.purchase-category{padding:14px;border:1px solid #ffffff12;border-radius:12px;background:#ffffff05}.purchase-category h3{margin:0 0 6px}.purchase-category>strong{color:var(--green)}
 .brand-logo{width:40px;height:40px}.header-actions{display:flex;align-items:center;gap:12px}.language-switcher{display:flex;gap:3px;padding:3px;border:1px solid #ffffff18;border-radius:9px}.language-button{border:0;border-radius:6px;padding:6px 8px;background:transparent;color:var(--muted);cursor:pointer;font-weight:700}.language-button.active{background:#72b9ff22;color:var(--text)}

@@ -435,6 +435,20 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
 });
+app.delete('/api/users/:id', auth, manager, async (request, response) => {
+	if (request.params.id === request.user.sub) return response.status(400).json({ error: 'You cannot remove your own active account' });
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.params.id);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (['admin', 'gerant', 'manager'].includes(user.role)) {
+		const remainingManagers = data.users.filter((item) => item.id !== user.id && ['admin', 'gerant', 'manager'].includes(item.role));
+		if (!remainingManagers.length) return response.status(400).json({ error: 'At least one manager/admin account must remain' });
+	}
+	data.users = data.users.filter((item) => item.id !== user.id);
+	data.messages = (data.messages || []).filter((item) => item.senderId !== user.id && item.recipientId !== user.id);
+	await writeData(data);
+	response.json({ removed: true, id: user.id, name: user.name });
+});
 app.get('/api/projects', auth, async (_request, response) => response.json((await readData()).projects));
 app.get('/api/projects/:id/schedule', auth, async (request, response) => {
 	const data = await readData(); const schedule = (data.projectSchedules || []).find((item) => item.projectId === request.params.id);
