@@ -31,7 +31,11 @@ const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } 
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
 app.use(express.json());
-app.use(express.static(root));
+app.use(express.static(root, {
+	setHeaders(response, filePath) {
+		if (/\.(?:html|js|css|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+	}
+}));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
@@ -65,6 +69,16 @@ const writeData = async (data) => {
 	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
+const changedAtSeconds = (value) => { const number = Number(value || 0); return number > 100000000000 ? Math.floor(number / 1000) : Math.floor(number); };
+const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role });
+const issueAuthToken = (user) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
+const tokenIssuedBeforePasswordChange = (payload, user) => { const changedAt = changedAtSeconds(user.passwordChangedAt); return Boolean(changedAt && Number(payload.iat || 0) < changedAt); };
+const configuredMailFrom = () => {
+	const explicit = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || process.env.MAIL_FROM;
+	if (explicit) return explicit;
+	try { const host = new URL(process.env.PUBLIC_URL || '').hostname.replace(/^www\./, ''); if (host) return `noreply@${host}`; } catch {}
+	return '';
+};
 const normalizeQuestion = (question) => question.toLowerCase().replace(/\s+/g, ' ').trim();
 const answerCacheKey = (userId, projectId, question, sourceVersion) => `${userId}:${projectId}:${sourceVersion}:${normalizeQuestion(question)}`;
 const saveCachedAnswer = async (data, entry) => {
@@ -76,7 +90,7 @@ async function auth(request, response, next) {
 		const payload = jwt.verify(tokenFrom(request), secret);
 		const data = await readData();
 		const user = data.users.find((item) => item.id === payload.sub);
-		if (!user || (user.passwordChangedAt && Number(payload.iat || 0) * 1000 < user.passwordChangedAt)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
+		if (!user || tokenIssuedBeforePasswordChange(payload, user)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
 		request.user = payload;
 		next();
 	} catch { response.status(401).json({ error: 'Authentication required' }); }
@@ -94,7 +108,7 @@ function isAllowedWorkDocument(file, evidenceType) {
 }
 
 async function sendMailSafe({ to, subject, text, attachments = [] }) {
-	const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+	const from = configuredMailFrom();
 	if (process.env.BREVO_API_KEY && from) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/smtp/email', {
 			method: 'POST',
@@ -128,16 +142,31 @@ async function sendMailSafe({ to, subject, text, attachments = [] }) {
 async function sendSmsSafe({ to, text }) {
 	const accountSid = process.env.TWILIO_ACCOUNT_SID;
 	const authToken = process.env.TWILIO_AUTH_TOKEN;
-	const from = process.env.TWILIO_FROM;
-	if (!accountSid || !authToken || !from) return { skipped: true };
-	const body = new URLSearchParams({ To: to, From: from, Body: text });
-	const apiResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
-		method: 'POST',
-		headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
-		body
-	});
-	if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
-	return { skipped: false };
+	const twilioFrom = process.env.TWILIO_FROM;
+	if (accountSid && authToken && twilioFrom) {
+		const body = new URLSearchParams({ To: to, From: twilioFrom, Body: text });
+		const apiResponse = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`, {
+			method: 'POST',
+			headers: { Authorization: `Basic ${Buffer.from(`${accountSid}:${authToken}`).toString('base64')}`, 'content-type': 'application/x-www-form-urlencoded' },
+			body
+		});
+		if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
+		return { skipped: false, provider: 'twilio' };
+	}
+	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || 'IBRABA';
+	if (process.env.BREVO_API_KEY && brevoSender) {
+		const apiResponse = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
+			method: 'POST',
+			headers: { accept: 'application/json', 'api-key': process.env.BREVO_API_KEY, 'content-type': 'application/json' },
+			body: JSON.stringify({ sender: brevoSender, recipient: to.replace(/[\s()-]/g, ''), content: text, type: 'transactional', tag: 'ibra-ba-auth' })
+		});
+		if (!apiResponse.ok) {
+			const details = await apiResponse.text();
+			throw new Error(`Brevo SMS returned ${apiResponse.status}: ${details.slice(0, 240)}`);
+		}
+		return { skipped: false, provider: 'brevo-sms' };
+	}
+	return { skipped: true };
 }
 function buildPayoutPdf(item) {
 	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
@@ -180,10 +209,8 @@ app.post('/api/auth/login', async (request, response) => {
 	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
 	const user = data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
 	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
-	const requestedRole = String(request.body.role || '').trim(); const roleMatches = user.role === requestedRole || (requestedRole === 'gerant' && ['admin', 'gerant', 'manager'].includes(user.role));
-	if (!roleMatches) return response.status(403).json({ error: 'Selected profile does not match this account' });
-	const token = jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
-	response.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+	const token = issueAuthToken(user);
+	response.json({ token, user: publicUser(user) });
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
@@ -195,26 +222,40 @@ app.post('/api/auth/register', async (request, response) => {
 	const phone = isEmail ? '' : contact;
 	const siret = String(request.body.siret || '').trim();
 	const company = String(request.body.company || '').trim();
+	const requestedPassword = String(request.body.password || '');
+	const existingUser = data.users.find((user) => (email && user.email && user.email.toLowerCase() === email) || (phone && user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')));
+	if (requestedPassword && existingUser) {
+		if (requestedPassword.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+		existingUser.passwordHash = await bcrypt.hash(requestedPassword, 12);
+		existingUser.passwordChangedAt = Math.floor(Date.now() / 1000);
+		await writeData(data);
+		return response.status(200).json({ message: 'Password updated for existing account', email: existingUser.email || null, phone: existingUser.phone || null, role: existingUser.role, delivery: 'password-set' });
+	}
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
 	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
-	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
-	const password = crypto.randomBytes(9).toString('base64url');
-	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12) };
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	if (existingUser) return response.status(409).json({ error: 'User already exists' });
+	const password = requestedPassword || crypto.randomBytes(9).toString('base64url');
+	if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	if (requestedPassword) {
+		data.users.push(user); await writeData(data);
+		return response.status(201).json({ message: 'Account created with chosen password', email: email || null, phone: phone || null, role, delivery: 'password-set' });
+	}
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est pret.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe apres votre premiere connexion.`;
 	try {
 		if (isEmail) {
-			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
+			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre acces', text: credentialsText });
 			if (mailResult.skipped) return response.status(503).json({ error: 'Email delivery is not configured' });
 		} else {
-			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnički ID: ${phone}.` });
+			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnicki ID: ${phone}.` });
 			if (smsResult.skipped) return response.status(503).json({ error: 'SMS delivery is not configured' });
 		}
 	} catch (error) {
-		console.error('Registration email failed:', error.message);
-		return response.status(502).json({ error: 'Registration email could not be sent' });
+		console.error('Registration delivery failed:', error.message);
+		return response.status(502).json({ error: isEmail ? 'Registration email could not be sent' : 'Registration SMS could not be sent' });
 	}
 	data.users.push(user); await writeData(data);
-	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null });
+	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null, role, delivery: isEmail ? 'email' : 'sms' });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
 	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => (item.email && item.email.trim().toLowerCase() === email) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));
@@ -226,21 +267,21 @@ app.post('/api/auth/request-reset', async (request, response) => {
 		if (user.email) mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - réinitialisation du mot de passe', text: `Ouvrez ce lien pour définir un nouveau mot de passe : ${resetUrl}` });
 		else { const smsResult = await sendSmsSafe({ to: user.phone, text: `IBRA-BA: otvorite reset link ${resetUrl}` }); mailResult = { skipped: smsResult.skipped }; }
 	} catch (error) {
-		console.error('Password reset email failed:', error.message);
-		return response.status(502).json({ error: 'Password reset email could not be sent' });
+		console.error('Password reset delivery failed:', error.message);
+		return response.status(502).json({ error: user.email ? 'Password reset email could not be sent' : 'Password reset SMS could not be sent' });
 	}
-	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Password reset email is not configured' });
+	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: user.email ? 'Password reset email is not configured' : 'Password reset SMS is not configured' });
 	response.json({ message: mailResult.skipped ? 'Reset instructions prepared for local testing.' : 'Reset instructions sent.', ...(mailResult.skipped ? { resetUrl } : {}) });
 });
 app.post('/api/auth/reset-password', async (request, response) => {
-	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); user.passwordChangedAt = Date.now(); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
+	const token = String(request.body.token || ''); const password = String(request.body.password || ''); if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' }); const data = await readData(); const reset = (data.passwordResets || []).find((item) => item.token === token && item.expiresAt > Date.now()); if (!reset) return response.status(400).json({ error: 'Reset link is invalid or expired' }); const user = data.users.find((item) => item.id === reset.userId); user.passwordHash = await bcrypt.hash(password, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); data.passwordResets = (data.passwordResets || []).filter((item) => item.token !== token); await writeData(data); response.json({ message: 'Password updated' });
 });
 app.post('/api/auth/change-password', auth, async (request, response) => {
 	const currentPassword = String(request.body.currentPassword || ''); const newPassword = String(request.body.newPassword || '');
 	if (newPassword.length < 10) return response.status(400).json({ error: 'New password must be at least 10 characters' });
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return response.status(401).json({ error: 'Current password is incorrect' });
-	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Date.now(); await writeData(data); response.json({ message: 'Password changed' });
+	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); response.json({ message: 'Password changed', token: issueAuthToken(user), user: publicUser(user) });
 });
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
@@ -271,7 +312,7 @@ app.post('/api/users', auth, manager, async (request, response) => {
 		const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA : identifiant ${email || phone}, mot de passe temporaire ${password}. Changez-le après connexion.` });
 		if (!smsResult.skipped) delivery = 'sms';
 	}
-	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email or SMS delivery before creating users' });
+	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: deliveryMethod === 'sms' ? 'Configure SMS delivery before creating users' : 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
@@ -612,7 +653,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Conducteur-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData(); const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
-	for (const document of documents) { const buffer = await fs.readFile(path.join(uploadDir, document.storedName)); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); }
+	for (const document of documents) { try { const buffer = await fs.readFile(path.join(uploadDir, document.storedName)); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
 	if (!sources.length) return response.json({ status: 'no_source', steps: [], answer: 'Nije pronađen plan ili fiche technique PDF. Redosled radova ne može biti određen.', sources: [], requiresHumanConfirmation: true });
 	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Conducteur mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Conducteur potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
 });
