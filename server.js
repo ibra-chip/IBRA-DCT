@@ -441,6 +441,45 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
 });
+app.post('/api/workers', auth, manager, async (request, response) => {
+	const data = await readData();
+	const name = String(request.body.name || '').trim();
+	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim();
+	const email = /^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '';
+	const phone = email ? '' : contact;
+	const normalizedPhone = phone.replace(/[\s()-]/g, '');
+	const dailyRate = Number(request.body.dailyRate || 0);
+	const hourlyRate = Number(request.body.hourlyRate || 0);
+	if (!name || (!email && !phone) || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, phone or email, daily rate, and hourly rate are required' });
+	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
+	const password = crypto.randomBytes(9).toString('base64url');
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'manual', role: 'worker', siret: '', company: '', projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(password, 12) };
+	data.users.push(user);
+	await writeData(data);
+	const { passwordHash, ...safeUser } = user;
+	response.status(201).json({ ...safeUser, temporaryPassword: password });
+});
+app.patch('/api/users/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.params.id);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	const name = String(request.body.name ?? user.name).trim();
+	const contact = String(request.body.contact || '').trim();
+	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(request.body.email ?? user.email ?? '').trim().toLowerCase();
+	const phone = contact ? (email ? '' : contact) : String(request.body.phone ?? user.phone ?? '').trim();
+	const normalizedPhone = phone.replace(/[\s()-]/g, '');
+	if (!name || (!email && !phone)) return response.status(400).json({ error: 'Name and phone or email are required' });
+	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	user.name = name;
+	user.email = email;
+	user.phone = phone;
+	if (request.body.dailyRate !== undefined) user.dailyRate = Number(request.body.dailyRate || 0);
+	if (request.body.hourlyRate !== undefined) user.hourlyRate = Number(request.body.hourlyRate || 0);
+	data.timeEntries = (data.timeEntries || []).map((entry) => entry.workerId === user.id ? { ...entry, workerName: user.name } : entry);
+	await writeData(data);
+	const { passwordHash, ...safeUser } = user;
+	response.json(safeUser);
+});
 app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	if (request.params.id === request.user.sub) return response.status(400).json({ error: 'You cannot remove your own active account' });
 	const data = await readData();
@@ -693,10 +732,11 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 app.get('/api/time-entries', auth, async (request, response) => response.json((await readData()).timeEntries.filter((item) => ['admin','gerant','manager','conducteur'].includes(request.user.role) || item.workerId === request.user.sub)));
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
-	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const worker = data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
+	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = ['admin','gerant','manager','conducteur'].includes(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
-	const item = { id: `time-${Date.now()}`, workerId: request.user.sub, workerName: request.user.name, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
+	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {

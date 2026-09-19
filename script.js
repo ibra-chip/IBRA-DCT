@@ -91,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const canSeeFinancials = ['admin', 'gerant', 'manager'].includes(role);
 		document.querySelector('#budget-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#payroll-card')?.toggleAttribute('hidden', !canSeeFinancials);
+		document.querySelector('#quick-worker-form')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); }));
@@ -473,6 +474,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		return true;
 	}
 	let latestOwnTimeEntries = [];
+	let latestTimeWorkers = [];
 	const monthKeyFromDate = (dateValue) => String(dateValue || new Date().toISOString().slice(0, 10)).slice(0, 7);
 	const timePrefsKey = () => `ibra-time-prefs-${currentUser?.id || 'default'}`;
 	const loadTimePrefs = () => {
@@ -480,7 +482,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	const saveTimePrefs = (form) => {
 		if (!form) return;
-		localStorage.setItem(timePrefsKey(), JSON.stringify({ start: form.elements.start?.value || '08:00', end: form.elements.end?.value || '17:00', breakMinutes: form.elements.breakMinutes?.value || '60', rateType: form.elements.rateType?.value || 'daily', rate: form.elements.rate?.value || '' }));
+		localStorage.setItem(timePrefsKey(), JSON.stringify({ workerId: form.elements.workerId?.value || '', start: form.elements.start?.value || '08:00', end: form.elements.end?.value || '17:00', breakMinutes: form.elements.breakMinutes?.value || '60', rateType: form.elements.rateType?.value || 'daily', rate: form.elements.rate?.value || '' }));
 	};
 	const saveTimeEntryFromForm = async (form) => {
 		await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
@@ -513,31 +515,61 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!form) return;
 		if (!form.elements.date.value) form.elements.date.value = new Date().toISOString().slice(0, 10);
 		const prefs = loadTimePrefs();
+		if (form.elements.workerId && prefs.workerId && [...form.elements.workerId.options].some((option) => option.value === prefs.workerId)) form.elements.workerId.value = prefs.workerId;
 		if (!form.elements.start.value) form.elements.start.value = prefs.start || '08:00';
 		if (!form.elements.end.value) form.elements.end.value = prefs.end || '17:00';
 		if (!form.elements.breakMinutes.value) form.elements.breakMinutes.value = prefs.breakMinutes || '60';
 		if (prefs.rateType) form.elements.rateType.value = prefs.rateType;
 		if (prefs.rate && !form.elements.rate.value) form.elements.rate.value = prefs.rate;
+		const selectedWorker = () => latestTimeWorkers.find((worker) => worker.id === form.elements.workerId?.value) || own;
 		const fillDefaultRate = () => {
 			if (Number(form.elements.rate.value || 0) > 0) return;
-			form.elements.rate.value = form.elements.rateType.value === 'hourly' ? Number(own?.hourlyRate || 0) : Number(own?.dailyRate || 0);
+			const worker = selectedWorker();
+			form.elements.rate.value = form.elements.rateType.value === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0);
 		};
 		if (form.dataset.autoCalculation !== 'ready') {
 			form.dataset.autoCalculation = 'ready';
-			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType'].forEach((name) => form.elements[name]?.addEventListener('input', () => { updateTimeLiveCalculation(); saveTimePrefs(form); }));
+			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType', 'workerId'].forEach((name) => form.elements[name]?.addEventListener('input', () => { updateTimeLiveCalculation(); saveTimePrefs(form); }));
 			form.elements.date?.addEventListener('input', () => renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value));
+			form.elements.workerId?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value); updateTimeLiveCalculation(); saveTimePrefs(form); });
 			form.elements.rateType?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); updateTimeLiveCalculation(); });
 		}
 		fillDefaultRate(); updateTimeLiveCalculation();
 	}
+	function renderQuickWorkers() {
+		const target = document.querySelector('#quick-workers');
+		if (!target) return;
+		const canManage = ['admin','gerant','manager','conducteur'].includes(currentUser?.role);
+		target.innerHTML = canManage && latestTimeWorkers.length ? `<h3>Radnici</h3>${latestTimeWorkers.map((worker) => `<div class="list-item"><strong>${escapeHtml(worker.name)}</strong><small>${escapeHtml(worker.email || worker.phone || 'bez kontakta')} · Dnevnica ${formatEUR(worker.dailyRate || 0)} · Satnica ${formatEUR(worker.hourlyRate || 0)}</small><div class="worker-actions"><button class="secondary rename-worker" data-worker="${worker.id}" type="button">Preimenuj</button><button class="secondary delete-worker" data-worker="${worker.id}" type="button">Obriši</button></div></div>`).join('')}` : '';
+		target.querySelectorAll('.rename-worker').forEach((button) => button.addEventListener('click', async () => {
+			const worker = latestTimeWorkers.find((item) => item.id === button.dataset.worker);
+			if (!worker) return;
+			const name = window.prompt('Ime i prezime:', worker.name);
+			if (!name?.trim()) return;
+			const contact = window.prompt('Telefon ili email:', worker.email || worker.phone || '');
+			if (!contact?.trim()) return;
+			const dailyRate = window.prompt('Dnevnica EUR:', worker.dailyRate || 0);
+			const hourlyRate = window.prompt('Satnica EUR:', worker.hourlyRate || 0);
+			try { await request(`/users/${worker.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name: name.trim(), contact: contact.trim(), dailyRate, hourlyRate }) }); await Promise.allSettled([loadTime(), loadUsers(), loadPayroll()]); toast('Radnik je preimenovan.'); }
+			catch { toast('Radnik nije izmijenjen.'); }
+		}));
+		target.querySelectorAll('.delete-worker').forEach((button) => button.addEventListener('click', async () => {
+			const worker = latestTimeWorkers.find((item) => item.id === button.dataset.worker);
+			if (!worker || !window.confirm(`Obrisati radnika ${worker.name}?`)) return;
+			try { await request(`/users/${worker.id}`, { method:'DELETE' }); await Promise.allSettled([loadTime(), loadUsers(), loadPayroll()]); toast('Radnik je obrisan.'); }
+			catch { toast('Radnik nije obrisan.'); }
+		}));
+	}
 	function renderWorkCalendar(entries, selectedDate) {
 		const target = document.querySelector('#work-calendar');
 		if (!target) return;
+		const selectedWorkerId = document.querySelector('#time-form')?.elements.workerId?.value || currentUser?.id;
+		const visibleEntries = (entries || []).filter((entry) => !selectedWorkerId || entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
 		const month = monthKeyFromDate(selectedDate);
 		const [year, monthNumber] = month.split('-').map(Number);
 		const first = new Date(year, monthNumber - 1, 1);
 		const last = new Date(year, monthNumber, 0);
-		const entryByDate = new Map((entries || []).filter((entry) => String(entry.date || '').startsWith(month)).map((entry) => [entry.date, entry]));
+		const entryByDate = new Map(visibleEntries.filter((entry) => String(entry.date || '').startsWith(month)).map((entry) => [entry.date, entry]));
 		let workingDays = 0;
 		let cells = '';
 		for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty"></span>';
@@ -566,19 +598,37 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	async function loadTime() {
 		const entries = await request('/time-entries');
-		const hours = entries.reduce((sum, item) => sum + Number(item.hours || 0), 0);
 		const own = await request('/my-payroll-summary');
-		document.querySelector('#total-hours').textContent = `${hours.toFixed(2)} h`;
+		const managerView = ['admin','gerant','manager','conducteur'].includes(currentUser?.role);
+		latestTimeWorkers = managerView ? (await request('/contacts')).filter((user) => ['worker','conducteur','user'].includes(user.role)) : [{ ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate }];
+		const form = document.querySelector('#time-form');
+		const workerSelect = form?.elements.workerId;
+		if (workerSelect) {
+			const previous = workerSelect.value || loadTimePrefs().workerId || currentUser?.id || '';
+			workerSelect.innerHTML = latestTimeWorkers.map((worker) => `<option value="${worker.id}">${escapeHtml(worker.name)}${worker.dailyRate || worker.hourlyRate ? ` ? ${formatEUR(worker.dailyRate || 0)}/j ? ${formatEUR(worker.hourlyRate || 0)}/h` : ''}</option>`).join('');
+			workerSelect.value = latestTimeWorkers.some((worker) => worker.id === previous) ? previous : (latestTimeWorkers[0]?.id || '');
+			document.querySelector('#time-worker-field')?.toggleAttribute('hidden', !managerView);
+		}
+		renderQuickWorkers();
+		const selectedWorkerId = workerSelect?.value || currentUser?.id;
+		const selectedWorker = latestTimeWorkers.find((worker) => worker.id === selectedWorkerId) || { ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate };
+		const selectedEntries = entries.filter((entry) => entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
+		const selectedMonth = monthKeyFromDate(form?.elements.date?.value);
+		const monthEntries = selectedEntries.filter((entry) => String(entry.date || '').startsWith(selectedMonth));
+		const monthHours = monthEntries.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+		const monthDays = new Set(monthEntries.map((item) => item.date)).size;
+		const monthAmount = monthEntries.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
+		document.querySelector('#total-hours').textContent = `${entries.reduce((sum, item) => sum + Number(item.hours || 0), 0).toFixed(2)} h`;
 		const rates = document.querySelector('#time-rates') || (() => { const element = document.createElement('div'); element.id = 'time-rates'; document.querySelector('#time-summary').before(element); return element; })();
-		rates.textContent = `Taux journalier : ${formatEUR(own.dailyRate)} ? Taux horaire : ${formatEUR(own.hourlyRate)}`;
-		document.querySelector('#time-summary').textContent = `${own.hours.toFixed(2)} h`;
-		document.querySelector('#time-days').textContent = `Jours : ${own.days}`;
-		document.querySelector('#time-money').textContent = `Calcul : ${formatEUR(own.estimatedTotal)}`;
-		latestOwnTimeEntries = own.entries || [];
-		ensureTimeAutoCalculation(own);
-		renderWorkCalendar(latestOwnTimeEntries, document.querySelector('#time-form')?.elements.date?.value);
+		rates.textContent = `${selectedWorker?.name || currentUser?.name} ? Taux journalier : ${formatEUR(selectedWorker?.dailyRate || 0)} ? Taux horaire : ${formatEUR(selectedWorker?.hourlyRate || 0)}`;
+		document.querySelector('#time-summary').textContent = `${monthHours.toFixed(2)} h`;
+		document.querySelector('#time-days').textContent = `Jours : ${monthDays}`;
+		document.querySelector('#time-money').textContent = `Calcul : ${formatEUR(monthAmount)}`;
+		latestOwnTimeEntries = entries;
+		ensureTimeAutoCalculation(selectedWorker);
+		renderWorkCalendar(latestOwnTimeEntries, form?.elements.date?.value);
 		const canApprove = ['admin','gerant','manager','conducteur'].includes(currentUser?.role);
-		document.querySelector('#time-entries').innerHTML = entries.length ? entries.map((item) => `<div class="list-item"><strong>${item.workerName} ? ${Number(item.hours || 0).toFixed(2)} h ? ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} ? ${item.start}-${item.end} ? ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Aucune saisie de temps de travail.</small>';
+		document.querySelector('#time-entries').innerHTML = selectedEntries.length ? selectedEntries.map((item) => `<div class="list-item"><strong>${item.workerName} ? ${Number(item.hours || 0).toFixed(2)} h ? ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} ? ${item.start}-${item.end} ? ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Aucune saisie de temps de travail pour ce travailleur.</small>';
 		document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); }));
 	}
 	async function loadPayroll() { try { const result = await request('/payroll/summary'); document.querySelector('#payroll-total').textContent = `${Number(result.total || 0).toFixed(2)} EUR`; } catch { document.querySelector('#payroll-total').textContent = 'Nedostupno'; } }
@@ -771,6 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#change-password-panel')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId:'lot-a' }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
+	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Ouvrier je dodat.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; } catch {} toast(message); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'conducteur'; companyField.querySelector('input').required = role === 'conducteur'; } rateFields.forEach((field) => { field.hidden = !['conducteur', 'worker'].includes(role); }); }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields();
 		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : created.delivery === 'sms' ? 'SMS' : `lokalno: ${created.temporaryPassword}`; toast(`Korisnik je dodat. Lozinka poslata preko ${delivery}.`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('password')) message = 'Lozinka mora imati najmanje 10 karaktera.'; if (details.error === 'Access denied') message = 'Samo Gérant ili manager mogu dodavati korisnike.'; } catch {} toast(message); } });
 	document.querySelector('#upload-form').addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#file-input').files[0]; if (!file) { toast('S?lectionnez un fichier avant l?enregistrement.'); return; } const body = new FormData(event.currentTarget); body.set('file', file, file.name); body.set('responseLanguage', language); try { const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `${response.status}`); event.currentTarget.reset(); await refreshActiveView(); if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); } toast(result.autoAnalysis ? 'Dokument je sa?uvan i automatski analiziran.' : 'Le document a ?t? enregistr? sur le serveur.'); } catch (error) { toast(`Document non enregistr? : ${error.message || 'erreur inconnue'}`); } });
