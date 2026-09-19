@@ -33,7 +33,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(root, {
 	setHeaders(response, filePath) {
-		if (/\.(?:html|js|css|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 	}
 }));
 

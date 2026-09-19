@@ -1,0 +1,627 @@
+{
+  "title": "RGE / QUALIBAT - ITE aide memoire",
+  "description": "Pomoc za ocuvanje RGE/QUALIBAT kvaliteta kod isolation thermique des murs par l'exterieur (ITE). Sazeto iz dostavljenog ITE/RGE materijala i organizovano za chantier provjeru, ucenje i odgovore.",
+  "warning": "Koristiti kao pomoc. Za prijavu radova i kontrolu uvijek provjeriti vazece Avis Technique/DTA/ETA, CPT/DTU, CEE, ANAH, QUALIBAT i dokumentaciju proizvodjaca.",
+  "modules": [
+    {
+      "title": "RGE kategorija i cilj",
+      "items": [
+        "Kategorija 12 je isolation thermique des murs par l'exterieur.",
+        "Cilj je energetska performansa, kontinuitet izolacije, smanjenje ponts thermiques i kvalitet dokaziv na kontroli.",
+        "RGE/QUALIBAT trazi dokumentaciju, pravilnu izvedbu, kontrolu, prijem i savjet klijentu."
+      ]
+    },
+    {
+      "title": "Osnovna termika",
+      "items": [
+        "Lambda je provodljivost: manja lambda znaci bolji izolator.",
+        "R je toplotni otpor: veci R znaci bolju izolaciju.",
+        "U je prolaz toplote kroz paroi: manji U znaci bolju paroi.",
+        "Chevilles/fixations mogu praviti ponts thermiques i povecati U."
+      ]
+    },
+    {
+      "title": "Izbor izolatora",
+      "items": [
+        "Kod bardage ventile mogu se sresti svi tipovi izolatora ako su odobreni.",
+        "Kod ITE sous enduit koriste se izolatori dopusteni sistemom: PSE, XPS, mousse resolique, laine minerale, fibre de bois, liege expanse.",
+        "Izbor zavisi od supporta, vlage, pozara, akustike, mehanicke otpornosti, finisa i cijene.",
+        "Reflektujuci tanki izolatori nisu zamjena za debeli izolator; koriste se samo kao dopuna gdje je predvidjeno."
+      ]
+    },
+    {
+      "title": "Voda, para i vlaga",
+      "items": [
+        "Sd pokazuje otpor difuziji vodene pare: veci Sd je zatvoreniji.",
+        "Pare-vapeur je Sd >= 18 m; frein-vapeur je Sd < 18 m.",
+        "Pare-vapeur se ne stavlja automatski: odluka zavisi od zida, sistema, izolatora i proracuna.",
+        "Kod bardage bois sa biosourced izolatorima trazi se pare-pluie HPV, Sd < 0,10 m.",
+        "Zid mora moci da se susi; na kamenu je PSE jako nepovoljan ako zatvara vlagu."
+      ]
+    },
+    {
+      "title": "Ventilacija",
+      "items": [
+        "ITE ne obezbjedjuje etancheite a l'air niti ventilaciju objekta.",
+        "Postojece entrees d'air treba sacuvati ili zamijeniti drugim sistemom ventilacije.",
+        "Od 1.1.2018 glavne prostorije obuhvacene radovima moraju imati stalne ulaze svjezeg zraka.",
+        "Modul minimalno: chambre 45, sejour 90; prakticno sejour 2x45 m3/h, chambre 1x45 m3/h."
+      ]
+    },
+    {
+      "title": "RT par elements",
+      "items": [
+        "Obuhvata zidove grijanih prostora vece od 0,5 m2 prema spolja, negrijanom prostoru ili tlu.",
+        "Materijali: brique industrielle, bloc beton, beton banche, bardage metallique.",
+        "Materijali osjetljivi na vlagu mogu biti izuzeti: pierre, terre crue, torchis, bois, briques artisanales.",
+        "Rparoi minimum: 3,2 u H1/H2/H3 iznad 800 m; 2,2 u H3 do 800 m; 2,5 prema local non chauffe."
+      ]
+    },
+    {
+      "title": "Pozar",
+      "items": [
+        "Za fasadu provjeriti regles-feu-facade.fr, tip zgrade i kategoriju zgrade.",
+        "Za PSE sous enduit gledati CPT 3714 i bandes filantes kada su trazene.",
+        "Postivanje regulative pozara je major kontrolna tacka RGE."
+      ]
+    },
+    {
+      "title": "Mise en oeuvre sous enduit",
+      "items": [
+        "Panoe postavljati bord a bord, bez interstice i bez parazitske lame d'air iza izolatora.",
+        "Collage/calage moze biti en plein, par plots ili par boudins/cordons prema supportu i sistemu.",
+        "Kod plots, raditi en plein ili boudins svaka 2 nivoa i u zadnjem redu da se ogranice zracne lamele.",
+        "Mehanicka fiksacija zahtijeva calage za korekciju neravnina supporta."
+      ]
+    },
+    {
+      "title": "Mise en oeuvre bardage ventile",
+      "items": [
+        "Lame d'air mora biti kontinuirana od dna do vrha.",
+        "Minimalna lame d'air je 2 cm izmedju izolatora i zadnje strane revetementa.",
+        "Za bardage vertikalnih dasaka potreban je double tasseautage za ventilaciju."
+      ]
+    },
+    {
+      "title": "Non-conformites BAR-EN-102",
+      "items": [
+        "2023: 59% satisfaisant, 31% non satisfaisant, 10% non qualifiable.",
+        "Najveci razlog: pieces administratives 57%.",
+        "Non-respect regles de l'art 29%, surface 8%, securite occupants 4%, performance technique 2%.",
+        "Tipicno: losa homogenost izolatora, prekidi, lose fiksacije, ostecen parement, dimnjak, appuis de baie, izolator blizu tla, cijevi u ITE sistemu."
+      ]
+    },
+    {
+      "title": "Reception i garancije",
+      "items": [
+        "Reception je obavezna na kraju lota/radova: klijent prihvata ili upisuje reserve.",
+        "Datum reception je pocetak garancija.",
+        "GPA traje 1 godinu, bon fonctionnement 2 godine, decennale 10 godina za solidite ili impropriete a destination.",
+        "Termalna kamera je korisna uz 10-15 C razlike unutra/spolja.",
+        "Klijentu dati uputstvo za fixation, perforation, vegetation, nettoyage i reparation."
+      ]
+    },
+    {
+      "title": "Aides financieres",
+      "items": [
+        "Nacionalno: MaPrimeRenov, CEE BAR-EN-102, Eco-PTZ, TVA 5,5%.",
+        "Od 2026 izolacija zidova nije MPR par geste, ali moze u renovation d'ampleur.",
+        "Renovation d'ampleur: najmanje 2 izolaciona gesta, 2 skoka DPE i tretman ventilacije ako treba.",
+        "R za pomoci se odnosi na dodatni izolator, ne na cijeli zid.",
+        "Uvijek provjeriti ANAH, France Renov, CEE FAQ, RENO REGLO i aktuelne tabele performansi."
+      ]
+    }
+  ],
+  "checklist": [
+    "Potvrditi RGE kategoriju 12 za ITE zidova.",
+    "Sacuvati devis, facture, fiches techniques, ACERMI/performanse izolatora.",
+    "Provjeriti Avis Technique/DTA/ETA/CPT/DTU sistema.",
+    "Ne mijesati komponente razlicitih sistema bez odobrenja.",
+    "Napraviti etat des lieux: support, vlaga, pukotine, planitet, postojeca izolacija.",
+    "Provjeriti zidove osjetljive na vlagu i mogucnost susenja.",
+    "Provjeriti ventilaciju prije zatvaranja fasade.",
+    "Fotografisati podlogu prije radova.",
+    "Fotografisati izolator, etikete i debljinu.",
+    "Fotografisati collage/calage/fixations prije zatvaranja.",
+    "Fotografisati armature/mrezicu, uglove i appuis de baie.",
+    "Fotografisati sokl i razmak od tla.",
+    "Ne ugradjivati cijevi kisnice/otpadne vode u ITE sistem.",
+    "Provjeriti detalje oko prozora, vrata, krovnih prepusta i ventilation.",
+    "Za bardage ventile sacuvati lame d'air 2 cm kontinuirano.",
+    "Na kraju uraditi reception/PV i dati uputstva klijentu."
+  ],
+  "questions": [
+    {
+      "question": "Sta je ITE?",
+      "answer": "Isolation thermique des murs par l'exterieur - izolacija zidova sa spoljne strane."
+    },
+    {
+      "question": "Koja je RGE kategorija za ITE?",
+      "answer": "Kategorija 12."
+    },
+    {
+      "question": "Sta je kategorija 11?",
+      "answer": "Isolation thermique par l'interieur des murs, rampants i plafonds de combles."
+    },
+    {
+      "question": "Sta je kategorija 13?",
+      "answer": "Isolation thermique des toitures-terrasses et toitures par l'exterieur."
+    },
+    {
+      "question": "Sta je kategorija 14?",
+      "answer": "Isolation thermique des planchers de combles perdus."
+    },
+    {
+      "question": "Sta je kategorija 15?",
+      "answer": "Isolation thermique des planchers bas."
+    },
+    {
+      "question": "Sta znaci X u vjezbi parois eligibles?",
+      "answer": "Ta paroi nije eligible aux aides financieres."
+    },
+    {
+      "question": "Sta je lambda?",
+      "answer": "Toplotna provodljivost materijala."
+    },
+    {
+      "question": "Je li bolja veca ili manja lambda?",
+      "answer": "Manja lambda je bolja."
+    },
+    {
+      "question": "Sta je R?",
+      "answer": "Toplotni otpor izolatora ili paroi."
+    },
+    {
+      "question": "Je li bolji veci ili manji R?",
+      "answer": "Veci R je bolji."
+    },
+    {
+      "question": "Sta je U?",
+      "answer": "Koeficijent prolaza toplote kroz paroi."
+    },
+    {
+      "question": "Je li bolji veci ili manji U?",
+      "answer": "Manji U je bolji."
+    },
+    {
+      "question": "Sta je Delta U?",
+      "answer": "Kazna/gubitak zbog fiksacija i toplotnih mostova u sistemu."
+    },
+    {
+      "question": "Sta su ponts thermiques?",
+      "answer": "Mjesta gdje toplota lakse prolazi zbog prekida izolacije ili konstrukcije."
+    },
+    {
+      "question": "Kako chevilles uticu na ITE?",
+      "answer": "Mogu stvoriti ponts thermiques i smanjiti performanse."
+    },
+    {
+      "question": "Kako ograniciti uticaj chevilles?",
+      "answer": "Birati fiksacije sa malim termickim uticajem, sinteticki materijal/rondelle isolante prema sistemu."
+    },
+    {
+      "question": "Koji izolatori idu kod bardage ventile?",
+      "answer": "Mogu se sresti svi tipovi izolatora ako su odobreni sistemom."
+    },
+    {
+      "question": "Koji izolatori idu kod ITE sous enduit?",
+      "answer": "PSE, XPS, mousse resolique, laine minerale, fibre de bois, liege expanse prema odobrenju."
+    },
+    {
+      "question": "Da li postoji najbolji izolator za sve?",
+      "answer": "Ne, izbor zavisi od supporta, vlage, pozara, akustike, cijene i sistema."
+    },
+    {
+      "question": "Jesu li tanki reflektujuci izolatori glavna ITE izolacija?",
+      "answer": "Ne, samo dopuna kada je predvidjeno."
+    },
+    {
+      "question": "Sta je Sd?",
+      "answer": "Otpor difuziji vodene pare izrazen kao ekvivalentna debljina zraka."
+    },
+    {
+      "question": "Sta znaci veliki Sd?",
+      "answer": "Materijal je zatvoreniji za vodenu paru."
+    },
+    {
+      "question": "Sta je pare-vapeur?",
+      "answer": "Parna brana, obicno Sd >= 18 m."
+    },
+    {
+      "question": "Sta je frein-vapeur?",
+      "answer": "Parna kocnica, Sd < 18 m."
+    },
+    {
+      "question": "Da li se pare-vapeur stavlja uvijek?",
+      "answer": "Ne, samo kada analiza zida/sistema to zahtijeva."
+    },
+    {
+      "question": "Sta je pare-pluie HPV?",
+      "answer": "Membrana jako propusna za paru, Sd < 0,10 m, korisna kod bardage bois/biosourced."
+    },
+    {
+      "question": "Sta je pravilo 1/3 - 2/3?",
+      "answer": "Raspored izolacije radi ogranicenja kondenzacije, veci otpor na hladnoj strani."
+    },
+    {
+      "question": "Da li ITE osigurava etancheite a l'air?",
+      "answer": "Ne, treba kontrolisati parement interieur i zaptivenost posebno."
+    },
+    {
+      "question": "Sta je rizik ako zid ne moze da se susi?",
+      "answer": "Kondenzacija, degradacija izolatora i razvoj gljivica."
+    },
+    {
+      "question": "Da li je PSE dobar na kamenom zidu?",
+      "answer": "U PDF-u je jako nepovoljan/deconseille zbog susenja i planiteta supporta."
+    },
+    {
+      "question": "Sta provjeriti prije ITE?",
+      "answer": "Support, vlaga, pukotine, planitet, postojece izolacije, ventilacija i interfejsi."
+    },
+    {
+      "question": "Smije li se raditi na mokroj/losoj podlozi?",
+      "answer": "Ne, support mora biti zdrav, nosiv, pripremljen i kompatibilan."
+    },
+    {
+      "question": "Sta je RT par elements?",
+      "answer": "Regulativa termicke obnove po elementima zgrade."
+    },
+    {
+      "question": "Koji zidovi ulaze u RT par elements?",
+      "answer": "Zidovi grijanih prostora >0,5 m2 prema spolja, negrijanom prostoru ili tlu."
+    },
+    {
+      "question": "Koji materijali zidova su navedeni?",
+      "answer": "Brique industrielle, bloc beton, beton banche, bardage metallique."
+    },
+    {
+      "question": "Koje fasade mogu biti izuzete zbog vlage?",
+      "answer": "Pierre, terre crue, torchis, bois, materijali zanatske proizvodnje."
+    },
+    {
+      "question": "Minimalni R prema spolja u H1/H2/H3 >800m?",
+      "answer": "Rparoi 3,2 m2.K/W."
+    },
+    {
+      "question": "Minimalni R prema spolja u H3 <=800m?",
+      "answer": "Rparoi 2,2 m2.K/W."
+    },
+    {
+      "question": "Minimalni R prema local non chauffe?",
+      "answer": "Rparoi 2,5 m2.K/W."
+    },
+    {
+      "question": "Da li aides financieres traze veci R?",
+      "answer": "Cesto da, treba provjeriti aktuelne kriterije."
+    },
+    {
+      "question": "Sta mora biti sa ventilacijom?",
+      "answer": "Postojece ulaze zraka sacuvati ili obezbijediti drugi sistem."
+    },
+    {
+      "question": "Od kada se traze stalni ulazi svjezeg zraka?",
+      "answer": "Od 1. januara 2018 za glavne prostorije obuhvacene radovima."
+    },
+    {
+      "question": "Modul za chambre?",
+      "answer": "Najmanje 45."
+    },
+    {
+      "question": "Modul za sejour?",
+      "answer": "Najmanje 90."
+    },
+    {
+      "question": "Prakticno za sejour?",
+      "answer": "Dvije resetke od 45 m3/h."
+    },
+    {
+      "question": "Prakticno za chambre/bureau?",
+      "answer": "Jedna resetka od 45 m3/h."
+    },
+    {
+      "question": "Ako nema vidljivih ulaza zraka sta se radi?",
+      "answer": "Provjeriti postoji li drugi sistem, npr. double flux."
+    },
+    {
+      "question": "Koji alat za pozar fasade?",
+      "answer": "regles-feu-facade.fr."
+    },
+    {
+      "question": "Koja pitanja daje alat za pozar?",
+      "answer": "Tip zgrade, kategorija zgrade i parametri sistema/fasade."
+    },
+    {
+      "question": "Koji CPT za PSE i bandes filantes incendie?",
+      "answer": "CPT 3714_V2."
+    },
+    {
+      "question": "Koji CPT za ITE enduit sur PSE?",
+      "answer": "CPT 3035_V3."
+    },
+    {
+      "question": "Koji CPT za ITE oko baies/prozora?",
+      "answer": "CPT 3709_V2."
+    },
+    {
+      "question": "Koji CPT za ossature bois?",
+      "answer": "CPT 3729_V2."
+    },
+    {
+      "question": "Koji DTU za bardage bois?",
+      "answer": "NF DTU 41.2."
+    },
+    {
+      "question": "Koji DTU za bardage rapporte lame d'air ventilee?",
+      "answer": "NF DTU 45.4."
+    },
+    {
+      "question": "Koji CPT za ossature metallique bardage?",
+      "answer": "CPT 3194_V2."
+    },
+    {
+      "question": "Koji CPT za ossature bois bardage?",
+      "answer": "CPT 3316_V3."
+    },
+    {
+      "question": "Kako se postavljaju paneli sous enduit?",
+      "answer": "Bord a bord, bez interstice i bez parazitske lame d'air."
+    },
+    {
+      "question": "Nacini collage/calage?",
+      "answer": "En plein, par plots, par boudins/cordons."
+    },
+    {
+      "question": "Kod plots koliko se navodi?",
+      "answer": "6 do 9 prema dimenziji panela."
+    },
+    {
+      "question": "Kada ide collage?",
+      "answer": "Na novim supportima ili poslije decapage."
+    },
+    {
+      "question": "Kada ide fixation mecanique?",
+      "answer": "Na postojecim supportima bez obaveznog decapage."
+    },
+    {
+      "question": "Zasto se radi calage kod fixation mecanique?",
+      "answer": "Za ispravljanje neravnina supporta."
+    },
+    {
+      "question": "Kod plots, sta raditi svaka 2 nivoa?",
+      "answer": "Collage en plein ili par boudins, plus zadnji red panela."
+    },
+    {
+      "question": "Zasto ograniciti lame d'air iza panela?",
+      "answer": "Jer degradira termicke performanse."
+    },
+    {
+      "question": "Minimalna lame d'air kod bardage ventile?",
+      "answer": "2 cm."
+    },
+    {
+      "question": "Da li lame d'air mora biti kontinuirana?",
+      "answer": "Da, od dna do vrha."
+    },
+    {
+      "question": "Kod bardage vertikalnih dasaka sta je pravilo?",
+      "answer": "Double tasseautage."
+    },
+    {
+      "question": "Da li su cijevi u ITE sistemu dozvoljene?",
+      "answer": "Ne, to je cesto non-conformite."
+    },
+    {
+      "question": "Sta sa appuis de baie?",
+      "answer": "Izolator mora biti zasticen i detalj vodonepropusan."
+    },
+    {
+      "question": "Sta sa razmakom izolatora od tla?",
+      "answer": "Mora biti dovoljan prema sistemu, inace non-conformite."
+    },
+    {
+      "question": "Rezultati BAR-EN-102 2023?",
+      "answer": "59% satisfaisant, 31% non satisfaisant, 10% non qualifiable."
+    },
+    {
+      "question": "Najveci razlog non-conformite?",
+      "answer": "Pieces administratives 57%."
+    },
+    {
+      "question": "Non-respect regles de l'art procenat?",
+      "answer": "29%."
+    },
+    {
+      "question": "Probleme de surface procenat?",
+      "answer": "8%."
+    },
+    {
+      "question": "Securite occupants procenat?",
+      "answer": "4%."
+    },
+    {
+      "question": "Performance technique procenat?",
+      "answer": "2%."
+    },
+    {
+      "question": "Homogeneite isolant procenat?",
+      "answer": "5%."
+    },
+    {
+      "question": "Continuite de pose procenat?",
+      "answer": "9%."
+    },
+    {
+      "question": "Anomalies fixations/protection procenat?",
+      "answer": "14%."
+    },
+    {
+      "question": "Degradation parement protection procenat?",
+      "answer": "24%."
+    },
+    {
+      "question": "Conduit de fumees procenat?",
+      "answer": "5%."
+    },
+    {
+      "question": "Appuis de baie procenat?",
+      "answer": "10%."
+    },
+    {
+      "question": "Espace sol/isolant procenat?",
+      "answer": "14%."
+    },
+    {
+      "question": "Canalisations u sistemu procenat?",
+      "answer": "19%."
+    },
+    {
+      "question": "Sta je non-conformite majeure?",
+      "answer": "Rizik za sigurnost ili ozbiljan kvalitet/performansu."
+    },
+    {
+      "question": "Sta je non-conformite mineure?",
+      "answer": "Odstupanje bez direktnog rizika, ali mora se otkloniti."
+    },
+    {
+      "question": "Sta ako minor bude otklonjena u roku?",
+      "answer": "Klasira se sans suite."
+    },
+    {
+      "question": "Sta ako major ostane?",
+      "answer": "Moze izazvati komisiju, povlacenje ili suspenziju RGE."
+    },
+    {
+      "question": "Sta je reception?",
+      "answer": "Formalni prijem radova: klijent prihvata ili upisuje reserve."
+    },
+    {
+      "question": "Od kada pocinju garancije?",
+      "answer": "Od datuma reception."
+    },
+    {
+      "question": "Koliko traje GPA?",
+      "answer": "1 godina."
+    },
+    {
+      "question": "Koliko traje bon fonctionnement?",
+      "answer": "2 godine."
+    },
+    {
+      "question": "Koliko traje decennale?",
+      "answer": "10 godina."
+    },
+    {
+      "question": "Kada vrijedi decennale?",
+      "answer": "Kad je ugrozena solidite ili objekat postane impropre a destination."
+    },
+    {
+      "question": "Da li estetski defekti spadaju u decennale?",
+      "answer": "Ne sami po sebi."
+    },
+    {
+      "question": "Za sta sluzi termalna kamera?",
+      "answer": "Detekcija anomalija, hladnih tacaka i ponts thermiques."
+    },
+    {
+      "question": "Koja delta temperature za termogram?",
+      "answer": "10 do 15 C unutra/spolja."
+    },
+    {
+      "question": "Sta dati klijentu na kraju?",
+      "answer": "Consignes d'usage i entretien: fixations, perforation, vegetation, nettoyage, reparation."
+    },
+    {
+      "question": "Kako dokazati da su consignes date?",
+      "answer": "Upisati u PV reception ili dati pisani dokument."
+    },
+    {
+      "question": "Koje pomoci se navode?",
+      "answer": "MaPrimeRenov, CEE BAR-EN-102, Eco-PTZ, TVA 5,5%."
+    },
+    {
+      "question": "Od 2026 MPR par geste za zidove?",
+      "answer": "Izolacija zidova nije eligible par geste, ali moze u renovation d'ampleur."
+    },
+    {
+      "question": "Sta je renovation d'ampleur?",
+      "answer": "Najmanje 2 izolaciona gesta, 2 skoka DPE, ventilacija ako treba."
+    },
+    {
+      "question": "Na sta se odnosi R za pomoci?",
+      "answer": "Na dodatni izolator, isolant additionnel uniquement."
+    },
+    {
+      "question": "Norme za R non-reflechissants?",
+      "answer": "NF EN 12664, NF EN 12667, NF EN 12939 ili ekvivalent."
+    },
+    {
+      "question": "Norma za reflechissants za Eco-PTZ?",
+      "answer": "NF EN 16012."
+    },
+    {
+      "question": "Norma za reflechissants za MPR/TVA?",
+      "answer": "NF EN ISO 22097 ili ekvivalent."
+    },
+    {
+      "question": "Kriterij od 2020?",
+      "answer": "Zastita izolatora od transfera vlage pare-vapeur ili ekvivalentom kada treba."
+    },
+    {
+      "question": "Kriterij od 2021?",
+      "answer": "Cijeli sistem zastite od degradacija po regles de l'art."
+    },
+    {
+      "question": "Gdje provjeriti derogacije MPR?",
+      "answer": "FAQ ANAH, odgovor B.07 page 9."
+    },
+    {
+      "question": "Gdje provjeriti derogacije CEE?",
+      "answer": "FAQ CEE, Q II.c.BT.22."
+    },
+    {
+      "question": "Koji izvori za aides?",
+      "answer": "ANAH, France Renov, CEE, tabele performansi, RENO REGLO."
+    },
+    {
+      "question": "Sta je RENO REGLO?",
+      "answer": "Online pomoc za RGE firme za klijente, devis, facture i uslove pomoci."
+    },
+    {
+      "question": "Koliko traje RENO REGLO?",
+      "answer": "Oko 3h30."
+    },
+    {
+      "question": "Koji lotovi su u interakciji sa ventilacijom?",
+      "answer": "Menuiseries, ITE, soufflage comble, isolation des rampants."
+    },
+    {
+      "question": "Sta menuiseries moraju predvidjeti za VMC?",
+      "answer": "Mortaises i entrees d'air uskladjene sa VMC."
+    },
+    {
+      "question": "Sta uraditi sa starim ulazima zraka u zidovima kod ITE?",
+      "answer": "Ukloniti ih samo ako ventilacija bude rijesena drugim ispravnim putem."
+    },
+    {
+      "question": "Sta s gaines kod soufflage comble?",
+      "answer": "Postaviti prije soufflage; caisson van domasaja izolacije."
+    },
+    {
+      "question": "Koji lotovi su u interakciji sa ITE?",
+      "answer": "Menuiseries, porte d'entree, isolation des rampants, ventilation."
+    },
+    {
+      "question": "Sta kod prozora i vrata?",
+      "answer": "Nu exterieur ili retour d'isolant oko tableaux/cadre renovation."
+    },
+    {
+      "question": "Sta sa debords de toit?",
+      "answer": "Radove uraditi prije ITE."
+    },
+    {
+      "question": "Najvazniji odgovor za RGE/QUALIBAT?",
+      "answer": "Odobren sistem, pravilan support, kontinuitet izolacije, vlaga/para, pozar, ventilacija, detalji, reception i dokazi."
+    }
+  ]
+}
