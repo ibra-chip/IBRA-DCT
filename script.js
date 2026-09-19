@@ -56,6 +56,26 @@ document.addEventListener('DOMContentLoaded', () => {
 	new MutationObserver(translateRuntimeText).observe(document.body, { childList: true, subtree: true });
 	const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 	const request = async (path, options = {}) => { const response = await fetch(`${api}${path}`, { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
+	const ensureSystemStatus = () => {
+		if (document.querySelector('#system-status-bar')) return;
+		const header = document.querySelector('main > header');
+		if (!header) return;
+		const bar = document.createElement('div');
+		bar.id = 'system-status-bar';
+		bar.className = 'system-status-bar';
+		bar.innerHTML = '<span id="online-state"></span><span>Cloud memory: Supabase</span><span>AI: Gemini free tier</span><span>Mode: production</span>';
+		header.after(bar);
+		const sync = () => {
+			const online = navigator.onLine;
+			const target = bar.querySelector('#online-state');
+			target.textContent = online ? 'Online' : 'Offline';
+			target.className = online ? 'system-pill online' : 'system-pill offline';
+		};
+		window.addEventListener('online', sync);
+		window.addEventListener('offline', sync);
+		sync();
+	};
+	ensureSystemStatus();
 	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.textContent || 'IBRA-BA'; };
 	const applyRole = (role) => {
 		const access = {
