@@ -223,15 +223,21 @@ app.post('/api/auth/register', async (request, response) => {
 	const allowedRoles = ['gerant', 'conducteur', 'user'];
 	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
 	if (data.users.some((user) => user.email && user.email.toLowerCase() === email) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')))) return response.status(409).json({ error: 'User already exists' });
-	const password = crypto.randomBytes(9).toString('base64url');
-	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12) };
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	const requestedPassword = String(request.body.password || '');
+	const password = requestedPassword || crypto.randomBytes(9).toString('base64url');
+	if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	if (requestedPassword) {
+		data.users.push(user); await writeData(data);
+		return response.status(201).json({ message: 'Account created with chosen password', email: email || null, phone: phone || null, delivery: 'password-set' });
+	}
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est pret.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe apres votre premiere connexion.`;
 	try {
 		if (isEmail) {
-			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
+			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre acces', text: credentialsText });
 			if (mailResult.skipped) return response.status(503).json({ error: 'Email delivery is not configured' });
 		} else {
-			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnički ID: ${phone}.` });
+			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnicki ID: ${phone}.` });
 			if (smsResult.skipped) return response.status(503).json({ error: 'SMS delivery is not configured' });
 		}
 	} catch (error) {
@@ -239,7 +245,7 @@ app.post('/api/auth/register', async (request, response) => {
 		return response.status(502).json({ error: isEmail ? 'Registration email could not be sent' : 'Registration SMS could not be sent' });
 	}
 	data.users.push(user); await writeData(data);
-	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null });
+	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null, delivery: isEmail ? 'email' : 'sms' });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
 	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => (item.email && item.email.trim().toLowerCase() === email) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));

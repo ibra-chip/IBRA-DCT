@@ -22,21 +22,23 @@
 			<form id="registration-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<h1>Créer votre accès</h1>
-			<p>Choisissez votre rôle et recevez votre mot de passe par e-mail ou SMS.</p>
+			<p>Choisissez votre rôle, e-mail ou téléphone, puis créez votre mot de passe.</p>
 			<label>Profil<select name="role" id="registration-role" required><option value="gerant">Gérant / Manager</option><option value="user">Utilisateur</option><option value="conducteur">Conducteur de travaux</option></select></label>
 			<label id="registration-siret">SIRET de l’entreprise<input name="siret" inputmode="numeric" pattern="[0-9 ]{9,20}" /></label>
 			<label id="registration-company" hidden>Entreprise employeuse<input name="company" /></label>
-			<label id="registration-contact">E-mail ou téléphone pour recevoir le mot de passe<input name="contact" type="text" autocomplete="email tel" placeholder="email@example.com ou +33 6 00 00 00 00" required /></label>
-			<button class="primary" id="send-registration-password" type="submit">SUIVANT / SLEDEĆI KORAK</button>
-			<small>Klikom na SUIVANT prelazite na slanje privremene lozinke na email.</small>
-				<button class="secondary" id="show-login" type="button">Već imam nalog · Prijava</button>
+			<label id="registration-contact">E-mail ou téléphone pour la connexion<input name="contact" type="text" autocomplete="email tel" placeholder="email@example.com ou +33 6 00 00 00 00" required /></label>
+			<label>Izaberi password<input name="password" type="password" minlength="10" autocomplete="new-password" required /></label>
+			<label>Potvrdi password<input name="confirmPassword" type="password" minlength="10" autocomplete="new-password" required /></label>
+			<button class="primary" id="send-registration-password" type="submit">Kreiraj pristup</button>
+			<small>Password mora imati najmanje 10 karaktera. Email/SMS se koristi samo za obaveštenje ili reset.</small>
+			<button class="secondary" id="show-login" type="button">Već imam nalog · Prijava</button>
 			<p id="registration-message" class="error"></p>
 		</form>
 		<section id="registration-success" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
-			<h1>Email je poslat</h1>
-			<p id="registration-success-message">Privremena lozinka je poslata na vašu email adresu.</p>
-			<button class="primary" id="continue-to-password" type="button">SUIVANT / UNESI PASSWORD</button>
+			<h1>Pristup je kreiran</h1>
+			<p id="registration-success-message">Nalog je spreman. Možete se prijaviti svojim passwordom.</p>
+			<button class="primary" id="continue-to-password" type="button">Idi na prijavu</button>
 		</section>
 		<form id="login-form" class="login-card" hidden>
 			<div class="brand"><img class="brand-logo" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
