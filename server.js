@@ -9,7 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { analyzeConstructionDocument, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
+import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 
 const require = createRequire(import.meta.url);
@@ -86,6 +86,38 @@ const saveCachedAnswer = async (data, entry) => {
 	data.aiAnswers = [...(data.aiAnswers || []).filter((item) => item.key !== entry.key), entry].slice(-200);
 	await writeData(data);
 };
+async function analyzePhotoWithVision({ buffer, mimeType, fileName, evidenceType, language }) {
+	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
+	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
+	if (!aiApiKey) return { status: 'not_configured', vision: null };
+	const french = language === 'fr';
+	const image = `data:${mimeType};base64,${buffer.toString('base64')}`;
+	const prompt = `${french ? 'Analyse cette photo de chantier façade/ITE/bardage' : 'Analiziraj ovu fotografiju chantier fasade/ITE/bardage'}.
+Réponds uniquement en JSON avec: workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1.
+Ne devine jamais les mesures, marques ou performances non visibles. Si un élément n'est pas clairement visible, écris qu'il faut confirmer par plan/fiche technique/DTA.
+File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.`;
+	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+			temperature: 0,
+			response_format: { type: 'json_object' },
+			messages: [
+				{ role: 'system', content: 'Tu es un assistant chantier RGE/QUALIBAT. Tu analyses les photos prudemment, sans inventer, et tu demandes confirmation humaine.' },
+				{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image, detail: 'high' } }] }
+			]
+		})
+	});
+	if (!aiResponse.ok) {
+		const details = await aiResponse.text();
+		console.error('Vision AI rejected document photo analysis', aiResponse.status, details.slice(0, 500));
+		return { status: 'provider_unavailable', vision: null };
+	}
+	const result = await aiResponse.json();
+	try { return { status: 'ai_analyzed', vision: JSON.parse(result.choices?.[0]?.message?.content || '{}') }; }
+	catch { return { status: 'invalid_ai_response', vision: null }; }
+}
 async function auth(request, response, next) {
 	try {
 		const payload = jwt.verify(tokenFrom(request), secret);
@@ -566,6 +598,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		const parsed = await parsePdf(buffer);
 		autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language: request.body.responseLanguage || 'sr' });
 		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, request.body.responseLanguage || 'sr');
+	} else if (request.file.mimetype.startsWith('image/')) {
+		const language = request.body.responseLanguage || 'sr';
+		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
+		const visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language });
+		autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
+		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 	}
 	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
