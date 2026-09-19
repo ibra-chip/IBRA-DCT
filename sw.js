@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ibra-ba-v4';
+const CACHE_NAME = 'ibra-ba-v5';
 const APP_SHELL = ['/', '/index.html', '/script.js', '/styles.css', '/logo.svg', '/manifest.webmanifest'];
 
 self.addEventListener('install', (event) => {
@@ -15,5 +15,15 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/uploads/')) return;
-  event.respondWith(fetch(event.request).catch(() => caches.match(event.request).then((response) => response || caches.match('/index.html'))));
+  event.respondWith((async () => {
+    try {
+      const response = await fetch(event.request, { cache: 'no-store' });
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(event.request, response.clone());
+      return response;
+    } catch {
+      const cached = await caches.match(event.request);
+      return cached || caches.match('/index.html');
+    }
+  })());
 });

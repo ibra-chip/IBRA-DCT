@@ -31,7 +31,11 @@ const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } 
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 app.use(cors());
 app.use(express.json());
-app.use(express.static(root));
+app.use(express.static(root, {
+	setHeaders(response, filePath) {
+		if (/\.(?:html|js|css|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+	}
+}));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
