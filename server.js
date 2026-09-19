@@ -604,6 +604,7 @@ app.get('/api/work-reports', auth, async (request, response) => {
 app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
 	if (!request.file || !request.file.mimetype.startsWith('image/')) return response.status(400).json({ error: 'A work photo is required' });
 	const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2';
+	const projectId = String(request.body.projectId || 'lot-a');
 	const base64Image = request.file.buffer.toString('base64');
 	const parseEstimate = (text) => {
 		try { return JSON.parse(String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return {}; }
@@ -623,10 +624,22 @@ app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (req
 		};
 	};
 	const unitLabel = quantityUnit === 'ml' ? 'linear meters / mètres linéaires / ml' : 'square meters / mètres carrés / m²';
+	const data = await readData();
+	const sourceDocuments = [];
+	for (const document of (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType?.includes('pdf')).slice(-4)) {
+		try {
+			const buffer = await fs.readFile(path.join(uploadDir, document.storedName));
+			const parsed = await parsePdf(buffer);
+			if (parsed.text?.trim()) sourceDocuments.push(`File: ${document.originalName}\nType: ${document.evidenceType}\nText:\n${parsed.text.slice(0, 6000)}`);
+		} catch (error) {
+			if (error.code !== 'ENOENT') console.error('Quantity estimate source document read failed:', error.message);
+		}
+	}
+	const documentContext = sourceDocuments.length ? `\n\nProject documents already uploaded in the app. Use these as dimensional references when they match the photo. Do not use a dimension from the documents unless the photographed façade/zone/detail can be matched to it.\n${sourceDocuments.join('\n\n---\n\n')}` : '\n\nNo plan/fiche technique text is available for this project. If the photo has no visible or known reference, return null.';
 	const prompt = `Analyze the work photo and estimate the executed quantity in ${unitLabel}.
 Return only JSON with: estimatedQuantity number or null, confidence number 0-1, reason string.
-Never invent dimensions. Estimate only if the photo has a reliable scale/reference, visible measuring tool, known module size, plan reference, or clearly countable repeated elements. If scale is missing, estimatedQuantity must be null and reason must say what measurement/photo is required.
-For m² use visible height x width of executed work. For ml use visible linear length of executed work such as joints, rails, profiles, flashing, bands, base rails, edge trims or linear façade elements.`;
+Never invent dimensions. Estimate if the photo can be matched to uploaded project documents with dimensions, a known façade zone/detail, a visible measuring tool, known module size, or clearly countable repeated elements. If there is no visible reference and no matching plan/document dimension, estimatedQuantity must be null and reason must say which plan dimension or photo angle is required.
+For m² use visible height x width of executed work. For ml use visible linear length of executed work such as joints, rails, profiles, flashing, bands, base rails, edge trims or linear façade elements.${documentContext}`;
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (geminiApiKey) {
 		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');

@@ -123,15 +123,15 @@
 		if (!panel) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
-		section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L'IA propose m? ou ml, puis l'utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail realise<input name="photo" type="file" accept="image/*" required /></label><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><button class="secondary" id="estimate-area" type="button">Estimer avec l?IA</button><small id="area-estimate-status">L'IA calcule seulement si la photo montre une echelle fiable, une mesure ou une reference.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite determinee par l?IA</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gerant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`;
+		section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L'IA propose m2 ou ml avec les plans du chantier si disponibles, puis l'utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail realise<input name="photo" type="file" accept="image/*" required /></label><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><small id="area-estimate-status">L'IA utilise les plans/fiches deja ajoutes au chantier. Sans plan ni reference fiable, elle demande confirmation au lieu d'inventer.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite determinee par l'IA</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gerant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`;
 		panel.after(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
 		const updateUnitLabels = () => {
 			const unit = form.elements.quantityUnit.value;
-			section.querySelector('[data-quantity-label]').textContent = unit === 'ml' ? 'Longueur determinee par l?IA (ml)' : 'Surface determinee par l?IA (m2)';
+			section.querySelector('[data-quantity-label]').textContent = unit === 'ml' ? 'Longueur determinee par l’IA (ml)' : 'Surface determinee par l’IA (m2)';
 			section.querySelector('[data-rate-label]').textContent = unit === 'ml' ? 'Prix par ml EUR' : 'Prix par m2 EUR';
-			section.querySelector('#estimate-area').textContent = unit === 'ml' ? 'Estimer les ml avec l?IA' : 'Estimer les m? avec l?IA';
+			section.querySelector('#estimate-area').textContent = unit === 'ml' ? 'Estimer les ml avec l’IA' : 'Estimer les m2 avec l’IA';
 		};
 		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); });
 		updateUnitLabels();
@@ -143,7 +143,8 @@
 			const body = new FormData();
 			body.append('photo', file, file.name);
 			body.append('quantityUnit', unit);
-			status.textContent = unit === 'ml' ? 'Analyse de la longueur visible...' : 'Analyse de la surface visible...';
+			body.append('projectId', 'lot-a');
+			status.textContent = unit === 'ml' ? 'Analyse de la longueur visible avec plans du chantier...' : 'Analyse de la surface visible avec plans du chantier...';
 			try {
 				const result = await fetch(`${api}/ai/estimate-area`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }).then(async (response) => { if (!response.ok) throw new Error(await response.text()); return response.json(); });
 				if (result.estimatedQuantity === null || result.estimatedQuantity === undefined) { status.textContent = result.answer; return; }
