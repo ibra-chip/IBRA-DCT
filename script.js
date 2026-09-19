@@ -63,12 +63,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		const bar = document.createElement('div');
 		bar.id = 'system-status-bar';
 		bar.className = 'system-status-bar';
-		bar.innerHTML = '<span id="online-state"></span><span>Cloud memory: Supabase</span><span>AI: Gemini free tier</span><span>Mode: production</span>';
+		bar.innerHTML = '<span id="online-state"></span><span>Memorija: Supabase cloud</span><span>AI gratis: Gemini</span><span>Server: produkcija</span>';
 		header.after(bar);
 		const sync = () => {
 			const online = navigator.onLine;
 			const target = bar.querySelector('#online-state');
-			target.textContent = online ? 'Online' : 'Offline';
+			target.textContent = online ? 'Status: online' : 'Status: offline';
 			target.className = online ? 'system-pill online' : 'system-pill offline';
 		};
 		window.addEventListener('online', sync);
