@@ -9,6 +9,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { analyzeConstructionDocument, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 
 const require = createRequire(import.meta.url);
@@ -99,12 +100,12 @@ function manager(request, response, next) {
 	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	next();
 }
-const allowedWorkEvidenceTypes = ['plan', 'photo-before', 'photo-during', 'photo-after'];
+const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
 	const isImage = file.mimetype.startsWith('image/');
-	return (type === 'plan' && isPdf) || (allowedWorkEvidenceTypes.includes(type) && type !== 'plan' && isImage);
+	return (['plan', 'fiche-technique'].includes(type) && isPdf) || (allowedWorkEvidenceTypes.includes(type) && !['plan', 'fiche-technique'].includes(type) && isImage);
 }
 
 async function sendMailSafe({ to, subject, text, attachments = [] }) {
@@ -558,8 +559,16 @@ app.get('/api/projects/:id/situation-summary', auth, async (request, response) =
 app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });
 	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
-	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType: request.body.evidenceType || 'other', phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
-	data.documents.push(item); await writeData(data); response.status(201).json(item);
+	const evidenceType = request.body.evidenceType || 'other';
+	let autoAnalysis = null;
+	if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
+		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
+		const parsed = await parsePdf(buffer);
+		autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language: request.body.responseLanguage || 'sr' });
+		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, request.body.responseLanguage || 'sr');
+	}
+	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
