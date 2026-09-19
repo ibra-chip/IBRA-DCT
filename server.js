@@ -77,8 +77,13 @@ const writeData = async (data) => {
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
 const changedAtSeconds = (value) => { const number = Number(value || 0); return number > 100000000000 ? Math.floor(number / 1000) : Math.floor(number); };
-const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role });
-const issueAuthToken = (user) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
+const ownerRoles = ['admin', 'gerant', 'manager'];
+const workerRoles = ['user', 'worker'];
+const isOwnerRole = (role) => ownerRoles.includes(role);
+const isWorkerRole = (role) => workerRoles.includes(role);
+const cleanSiret = (value) => String(value || '').replace(/\D/g, '');
+const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '' });
+const issueAuthToken = (user) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
 const tokenIssuedBeforePasswordChange = (payload, user) => { const changedAt = changedAtSeconds(user.passwordChangedAt); return Boolean(changedAt && Number(payload.iat || 0) < changedAt); };
 const configuredMailFrom = () => {
 	const explicit = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || process.env.MAIL_FROM;
@@ -220,7 +225,7 @@ async function auth(request, response, next) {
 	} catch { response.status(401).json({ error: 'Authentication required' }); }
 }
 function manager(request, response, next) {
-	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	next();
 }
 const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
@@ -292,6 +297,42 @@ async function sendSmsSafe({ to, text }) {
 	}
 	return { skipped: true };
 }
+async function resolveCompanyFromSiret(value) {
+	const digits = cleanSiret(value);
+	if (![9, 14].includes(digits.length)) {
+		const error = new Error('SIRET/SIREN must contain 9 or 14 digits');
+		error.status = 400;
+		throw error;
+	}
+	const response = await fetch(`https://recherche-entreprises.api.gouv.fr/search?q=${encodeURIComponent(digits)}&per_page=1`);
+	if (!response.ok) {
+		const error = new Error('Company registry is unavailable');
+		error.status = 502;
+		throw error;
+	}
+	const payload = await response.json();
+	const company = payload.results?.[0];
+	if (!company) {
+		const error = new Error('No company found for this SIRET/SIREN');
+		error.status = 404;
+		throw error;
+	}
+	const establishment = digits.length === 14
+		? (company.matching_etablissements || []).find((item) => item.siret === digits) || (company.siege?.siret === digits ? company.siege : null)
+		: company.siege;
+	if (digits.length === 14 && !establishment) {
+		const error = new Error('No establishment found for this SIRET');
+		error.status = 404;
+		throw error;
+	}
+	return {
+		name: company.nom_raison_sociale || company.nom_complet || establishment?.nom_commercial || `SIRET ${digits}`,
+		siren: company.siren || digits.slice(0, 9),
+		siret: establishment?.siret || company.siege?.siret || digits,
+		address: establishment?.adresse || company.siege?.adresse || '',
+		active: (establishment?.etat_administratif || company.etat_administratif) === 'A'
+	};
+}
 function buildPayoutPdf(item) {
 	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 	const lines = [
@@ -327,59 +368,60 @@ function buildHoursPdf({ workerName, month, entries, total }) {
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
+app.get('/api/siret/:siret', async (request, response) => {
+	try {
+		response.json(await resolveCompanyFromSiret(request.params.siret));
+	} catch (error) {
+		response.status(error.status || 500).json({ error: error.message || 'Company lookup failed' });
+	}
+});
 app.post('/api/auth/login', async (request, response) => {
 	const data = await readData();
 	const identifier = String(request.body.phone || request.body.email || '').trim();
 	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
 	const user = data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
 	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
+	const requestedRole = String(request.body.role || user.role || 'user');
+	if (requestedRole === 'gerant') {
+		if (!isOwnerRole(user.role)) return response.status(403).json({ error: 'SIRET owner access only' });
+		if (user.siret && cleanSiret(user.siret) !== cleanSiret(request.body.siret)) return response.status(403).json({ error: 'Invalid SIRET for this owner account' });
+	} else if (isWorkerRole(requestedRole) && !isWorkerRole(user.role)) {
+		return response.status(403).json({ error: 'Selected profile does not match this account' });
+	}
 	const token = issueAuthToken(user);
 	response.json({ token, user: publicUser(user) });
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
-	const role = String(request.body.role || 'user').trim();
+	const role = 'gerant';
 	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim();
 	const isEmail = /^\S+@\S+\.\S+$/.test(contact);
 	const email = isEmail ? contact.toLowerCase() : '';
 	const name = String(request.body.name || '').trim() || (isEmail ? email.split('@')[0] : contact);
 	const phone = isEmail ? '' : contact;
 	const siret = String(request.body.siret || '').trim();
-	const company = String(request.body.company || '').trim();
+	const manualCompany = String(request.body.company || '').trim();
 	const requestedPassword = String(request.body.password || '');
 	const existingUser = data.users.find((user) => (email && user.email && user.email.toLowerCase() === email) || (phone && user.phone && user.phone.replace(/[\s()-]/g, '') === phone.replace(/[\s()-]/g, '')));
 	if (requestedPassword && existingUser) {
 		if (requestedPassword.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+		if (!isOwnerRole(existingUser.role)) return response.status(403).json({ error: 'Only invited users can reset worker access' });
+		if (cleanSiret(existingUser.siret) !== cleanSiret(siret)) return response.status(403).json({ error: 'SIRET does not match this owner account' });
 		existingUser.passwordHash = await bcrypt.hash(requestedPassword, 12);
 		existingUser.passwordChangedAt = Math.floor(Date.now() / 1000);
 		await writeData(data);
 		return response.status(200).json({ message: 'Password updated for existing account', email: existingUser.email || null, phone: existingUser.phone || null, role: existingUser.role, delivery: 'password-set' });
 	}
-	const allowedRoles = ['gerant', 'conducteur', 'user'];
-	if (!contact || (!isEmail && !phone) || !allowedRoles.includes(role) || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Valid email or phone, role, and role-specific company details are required' });
+	if (!contact || (!isEmail && !phone) || !siret || !manualCompany) return response.status(400).json({ error: 'Email or phone, SIRET, and company name are required for owner registration' });
+	let companyInfo;
+	try { companyInfo = await resolveCompanyFromSiret(siret); }
+	catch { companyInfo = { name: manualCompany, siren: cleanSiret(siret).slice(0, 9), siret: cleanSiret(siret), address: '', active: null }; }
+	if (data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
 	if (existingUser) return response.status(409).json({ error: 'User already exists' });
-	const password = requestedPassword || crypto.randomBytes(9).toString('base64url');
-	if (password.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
-	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: ['gerant', 'conducteur'].includes(role) ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
-	if (requestedPassword) {
-		data.users.push(user); await writeData(data);
-		return response.status(201).json({ message: 'Account created with chosen password', email: email || null, phone: phone || null, role, delivery: 'password-set' });
-	}
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est pret.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe apres votre premiere connexion.`;
-	try {
-		if (isEmail) {
-			const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre acces', text: credentialsText });
-			if (mailResult.skipped) return response.status(503).json({ error: 'Email delivery is not configured' });
-		} else {
-			const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA: privremena lozinka ${password}. Korisnicki ID: ${phone}.` });
-			if (smsResult.skipped) return response.status(503).json({ error: 'SMS delivery is not configured' });
-		}
-	} catch (error) {
-		console.error('Registration delivery failed:', error.message);
-		return response.status(502).json({ error: isEmail ? 'Registration email could not be sent' : 'Registration SMS could not be sent' });
-	}
+	if (requestedPassword.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
+	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: companyInfo.siret, siren: companyInfo.siren, company: manualCompany || companyInfo.name, companyRegistryName: companyInfo.name, companyAddress: companyInfo.address, projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(requestedPassword, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
 	data.users.push(user); await writeData(data);
-	response.status(201).json({ message: isEmail ? 'Password sent by email' : 'Password sent by SMS', email: email || null, phone: phone || null, role, delivery: isEmail ? 'email' : 'sms' });
+	response.status(201).json({ message: 'Owner account created with chosen password', email: email || null, phone: phone || null, role, delivery: 'password-set' });
 });
 app.post('/api/auth/request-reset', async (request, response) => {
 	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim(); const email = contact.toLowerCase(); const normalizedPhone = contact.replace(/[\s()-]/g, ''); const data = await readData(); const user = data.users.find((item) => (item.email && item.email.trim().toLowerCase() === email) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));
@@ -410,54 +452,62 @@ app.post('/api/auth/change-password', auth, async (request, response) => {
 app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
 app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
 app.get('/api/contacts', auth, async (request, response) => {
-	const data = await readData(); const financialView = ['admin', 'gerant', 'manager'].includes(request.user.role);
+	const data = await readData(); const financialView = isOwnerRole(request.user.role);
 	response.json(data.users.map(({ passwordHash, dailyRate, hourlyRate, ...user }) => ({ ...user, ...(financialView ? { dailyRate, hourlyRate } : {}) })));
 });
 app.post('/api/users', auth, manager, async (request, response) => {
 	const data = await readData();
+	const owner = data.users.find((item) => item.id === request.user.sub);
+	const ownerCompany = owner?.company || request.user.company || request.user.name;
+	const ownerSiret = owner?.siret || request.user.siret || '';
 	const name = String(request.body.name || '').trim();
 	const email = String(request.body.email || '').trim().toLowerCase();
-	const deliveryMethod = String(request.body.deliveryMethod || '').trim();
-	const role = String(request.body.role || 'user').trim();
+	const deliveryMethod = 'email';
+	const role = String(request.body.role || 'user').trim() === 'gerant' ? 'gerant' : 'user';
 	const password = String(request.body.password || '') || crypto.randomBytes(9).toString('base64url');
-	const allowedRoles = ['gerant', 'conducteur', 'worker', 'user'];
-	const siret = String(request.body.siret || '').trim(); const company = String(request.body.company || '').trim(); const phone = String(request.body.phone || '').trim();
+	const siret = String(request.body.siret || '').trim(); const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
-	if (!name || !['email', 'sms'].includes(deliveryMethod) || (deliveryMethod === 'email' && !/^\S+@\S+\.\S+$/.test(email)) || (deliveryMethod === 'sms' && !phone) || !allowedRoles.includes(role) || password.length < 10 || (role === 'gerant' && !siret) || (role === 'conducteur' && !company)) return response.status(400).json({ error: 'Name, delivery method, matching email or phone, role, and role-specific company details are required' });
+	const company = String(request.body.company || '').trim();
+	if (!name || !/^\S+@\S+\.\S+$/.test(email) || password.length < 10 || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany))) return response.status(400).json({ error: 'Name, email, company/SIRET details, and a valid password are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? siret : '', company: role === 'conducteur' ? company : '', projectIds: ['lot-a'], dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt.\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
+	if (role === 'gerant' && data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
+	let companyInfo = null;
+	if (role === 'gerant') {
+		try { companyInfo = await resolveCompanyFromSiret(siret); }
+		catch { companyInfo = { name: company, siren: cleanSiret(siret).slice(0, 9), siret: cleanSiret(siret), address: '' }; }
+	}
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? companyInfo.siret : '', siren: role === 'gerant' ? companyInfo.siren : '', company: role === 'gerant' ? company : ownerCompany, companyRegistryName: role === 'gerant' ? companyInfo.name : '', companyAddress: role === 'gerant' ? companyInfo.address : '', employerSiret: role === 'user' ? ownerSiret : '', employerCompany: role === 'user' ? ownerCompany : '', invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(password, 12) };
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt pour ${user.employerCompany || user.company}.\nSIRET: ${user.employerSiret || user.siret || 'N/A'}\nIdentifiant : ${email || phone}\nMot de passe temporaire : ${password}\n\nChangez ce mot de passe après votre première connexion.`;
 	let delivery = 'manual';
-	if (deliveryMethod === 'email') {
-		const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
-		if (!mailResult.skipped) delivery = 'email';
-	}
-	if (deliveryMethod === 'sms') {
-		const smsResult = await sendSmsSafe({ to: phone, text: `IBRA-BA : identifiant ${email || phone}, mot de passe temporaire ${password}. Changez-le après connexion.` });
-		if (!smsResult.skipped) delivery = 'sms';
-	}
-	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: deliveryMethod === 'sms' ? 'Configure SMS delivery before creating users' : 'Configure email delivery before creating users' });
+	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
+	if (!mailResult.skipped) delivery = 'email';
+	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { temporaryPassword: password } : {}) });
 });
 app.post('/api/workers', auth, manager, async (request, response) => {
 	const data = await readData();
+	const owner = data.users.find((item) => item.id === request.user.sub);
+	const ownerCompany = owner?.company || request.user.company || request.user.name;
+	const ownerSiret = owner?.siret || request.user.siret || '';
 	const name = String(request.body.name || '').trim();
-	const contact = String(request.body.contact || request.body.email || request.body.phone || '').trim();
-	const email = /^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '';
-	const phone = email ? '' : contact;
+	const email = String(request.body.email || request.body.contact || '').trim().toLowerCase();
+	const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const dailyRate = Number(request.body.dailyRate || 0);
 	const hourlyRate = Number(request.body.hourlyRate || 0);
-	if (!name || (!email && !phone) || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, phone or email, daily rate, and hourly rate are required' });
+	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, daily rate, and hourly rate are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
 	const password = crypto.randomBytes(9).toString('base64url');
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'manual', role: 'worker', siret: '', company: '', projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(password, 12) };
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(password, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nIdentifiant : ${email}\nMot de passe temporaire : ${password}\n\nVous pouvez saisir vos jours de travail et vos rendez-vous/absences.`;
+	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - invitation ouvrier', text: credentialsText });
+	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 	data.users.push(user);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
-	response.status(201).json({ ...safeUser, temporaryPassword: password });
+	response.status(201).json({ ...safeUser, delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { temporaryPassword: password } : {}) });
 });
 app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -485,8 +535,8 @@ app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
-	if (['admin', 'gerant', 'manager'].includes(user.role)) {
-		const remainingManagers = data.users.filter((item) => item.id !== user.id && ['admin', 'gerant', 'manager'].includes(item.role));
+	if (isOwnerRole(user.role)) {
+		const remainingManagers = data.users.filter((item) => item.id !== user.id && isOwnerRole(item.role));
 		if (!remainingManagers.length) return response.status(400).json({ error: 'At least one manager/admin account must remain' });
 	}
 	data.users = data.users.filter((item) => item.id !== user.id);
@@ -499,10 +549,10 @@ const slugifyProjectId = (value) => {
 	return base;
 };
 const defaultControlsForProject = (projectId) => [
-	{ id: `${projectId}-execution-quality`, projectId, name: 'Radovi izvedeni prema projektu i pravilima struke', status: 'review', owner: 'Conducteur' },
-	{ id: `${projectId}-site-safety`, projectId, name: 'Bezbednost na gradilištu i zaštitna oprema', status: 'review', owner: 'Conducteur' },
-	{ id: `${projectId}-material-traceability`, projectId, name: 'Materijali, ugradnja i sledljivost', status: 'review', owner: 'Conducteur' },
-	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Conducteur' }
+	{ id: `${projectId}-execution-quality`, projectId, name: 'Radovi izvedeni prema projektu i pravilima struke', status: 'review', owner: 'Gérant' },
+	{ id: `${projectId}-site-safety`, projectId, name: 'Bezbednost na gradilištu i zaštitna oprema', status: 'review', owner: 'Gérant' },
+	{ id: `${projectId}-material-traceability`, projectId, name: 'Materijali, ugradnja i sledljivost', status: 'review', owner: 'Gérant' },
+	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Gérant' }
 ];
 app.get('/api/projects', auth, async (_request, response) => response.json((await readData()).projects));
 app.post('/api/projects', auth, manager, async (request, response) => {
@@ -514,7 +564,7 @@ app.post('/api/projects', auth, manager, async (request, response) => {
 	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, createdAt: new Date().toISOString() };
 	data.projects = [...(data.projects || []), project];
 	data.chantierControls = [...(data.chantierControls || []), ...defaultControlsForProject(id)];
-	data.users = (data.users || []).map((user) => ['admin', 'gerant', 'manager'].includes(user.role) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
+	data.users = (data.users || []).map((user) => isOwnerRole(user.role) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
 	await writeData(data);
 	response.status(201).json(project);
 });
@@ -680,11 +730,11 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), async (reque
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
-	if (!['admin','gerant','manager'].includes(request.user.role) && !(request.user.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Access denied' });
 	response.json((await readData()).chantierControls.filter((item) => item.projectId === request.params.id));
 });
 app.patch('/api/chantier-controls/:id', auth, async (request, response) => {
-	if (!['admin', 'gerant', 'manager', 'conducteur', 'quality'].includes(request.user.role)) return response.status(403).json({ error: 'Only supervisors can update controls' });
+	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can update controls' });
 	const data = await readData(); const control = data.chantierControls.find((item) => item.id === request.params.id);
 	if (!control) return response.status(404).json({ error: 'Control not found' });
 	const status = String(request.body.status || '');
@@ -715,24 +765,34 @@ app.post('/api/messages', auth, async (request, response) => {
 	response.status(201).json({ ...message, emailStatus: mailResult.skipped ? 'not-sent' : 'sent' });
 });
 app.get('/api/rendezvous', auth, async (request, response) => {
-	const data = await readData(); const canSeeAll = ['admin', 'gerant', 'manager'].includes(request.user.role); const projectIds = request.user.projectIds || [];
+	const data = await readData(); const canSeeAll = isOwnerRole(request.user.role); const projectIds = request.user.projectIds || [];
 	response.json((data.rendezvous || []).filter((item) => canSeeAll || projectIds.includes(item.projectId)));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
-	const date = String(request.body.date || ''); const absenceDate = String(request.body.absenceDate || ''); const days = Math.ceil((new Date(`${date}T00:00:00`) - new Date()) / 86400000);
-	if (!request.body.projectId || !request.body.time || !request.body.reason || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}$/.test(absenceDate) || days < 2 || days > 7) return response.status(400).json({ error: 'Rendez-vous, date d’absence, motif, and a date between 2 and 7 days ahead are required' });
-	if (!['admin', 'gerant', 'manager'].includes(request.user.role) && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const absenceDate = String(request.body.absenceDate || request.body.date || '');
+	const date = String(request.body.date || absenceDate);
+	const days = Math.ceil((new Date(`${absenceDate}T00:00:00`) - new Date()) / 86400000);
+	if (!request.body.projectId || !request.body.time || !request.body.reason || !/^\d{4}-\d{2}-\d{2}$/.test(absenceDate) || days < 3) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
+	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const data = await readData(); const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, workerId: request.user.sub, workerName: request.user.name, date, time: request.body.time, absenceDate, reason: request.body.reason, createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
 	const recipients = data.users.filter((user) => (user.projectIds || []).includes(request.body.projectId));
-	const notificationText = `Rendez-vous chantier ${date} à ${request.body.time} | Absence le ${absenceDate} | ${request.body.reason}`;
+	const notificationText = `Absence/RDV ${absenceDate} à ${request.body.time} | ${request.body.reason}`;
 	data.messages = [...(data.messages || []), ...recipients.map((recipient) => ({ id: `notification-${Date.now()}-${recipient.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }))];
-	await writeData(data); response.status(201).json(item);
+	await writeData(data);
+	const project = (data.projects || []).find((entry) => entry.id === request.body.projectId);
+	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email);
+	const mailResults = await Promise.allSettled(managers.map((owner) => sendMailSafe({
+		to: owner.email,
+		subject: `IBRA-BA - absence/RDV ${request.user.name}`,
+		text: `Bonjour ${owner.name},\n\n${request.user.name} a déclaré qu'il ne viendra pas travailler.\nChantier: ${project?.name || request.body.projectId}\nAbsence/RDV: ${absenceDate} à ${request.body.time}\nPréavis: ${days} jour(s)\nMotif: ${request.body.reason}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'https://ibra-ba.net'} pour vérifier.`
+	})));
+	response.status(201).json({ ...item, emailStatus: mailResults.some((result) => result.status === 'fulfilled' && !result.value.skipped) ? 'sent' : 'not-sent' });
 });
-app.get('/api/time-entries', auth, async (request, response) => response.json((await readData()).timeEntries.filter((item) => ['admin','gerant','manager','conducteur'].includes(request.user.role) || item.workerId === request.user.sub)));
+app.get('/api/time-entries', auth, async (request, response) => response.json((await readData()).timeEntries.filter((item) => isOwnerRole(request.user.role) || item.workerId === request.user.sub)));
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
-	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = ['admin','gerant','manager','conducteur'].includes(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
+	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = isOwnerRole(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
@@ -742,14 +802,14 @@ app.post('/api/time-entries', auth, async (request, response) => {
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	const month = String(request.body.month || new Date().toISOString().slice(0, 7)); const data = await readData(); const entries = data.timeEntries.filter((entry) => entry.workerId === request.user.sub && entry.date.startsWith(month));
 	if (!entries.length) return response.status(400).json({ error: 'No work entries found for this month' });
-	const managers = data.users.filter((user) => ['admin', 'gerant', 'manager'].includes(user.role) && user.email);
+	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email);
 	if (!managers.length) return response.status(503).json({ error: 'No manager email is configured' });
 	const worker = data.users.find((user) => user.id === request.user.sub); const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) })); const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0); const pdf = buildHoursPdf({ workerName: request.user.name, month, entries: detailedEntries, total });
 	const results = await Promise.all(managers.map((managerUser) => sendMailSafe({ to: managerUser.email, subject: `IBRA-BA - sati rada ${request.user.name} - ${month}`, text: `U prilogu je PDF evidencije radnih sati za ${request.user.name}, ${month}.`, attachments: [{ filename: `ibra-hours-${month}-${request.user.sub}.pdf`, content: pdf }] })));
 	if (results.every((result) => result.skipped)) return response.status(503).json({ error: 'Email delivery is not configured' }); response.json({ message: 'Hours PDF sent to manager', recipients: managers.map((user) => user.email) });
 });
 app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
-	if (!['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role)) return response.status(403).json({ error: 'Only supervisors can approve time' });
+	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can approve time' });
 	const data = await readData(); const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid time status' });
@@ -780,7 +840,7 @@ app.get('/api/my-payroll-summary', auth, async (request, response) => {
 	response.json({ month, days, hours, dailyRate: user?.dailyRate || 0, hourlyRate: user?.hourlyRate || 0, estimatedTotal, entries: entries.map((entry) => ({ date: entry.date, projectId: entry.projectId, rateType: entry.rateType || 'daily', rate: entry.rate || 0, workAmount: entry.workAmount || 0 })) });
 });
 app.get('/api/payout-requests', auth, async (request, response) => {
-	const data = await readData(); const managerView = ['admin', 'gerant', 'manager'].includes(request.user.role); response.json((data.payoutRequests || []).filter((item) => managerView || item.userId === request.user.sub));
+	const data = await readData(); const managerView = isOwnerRole(request.user.role); response.json((data.payoutRequests || []).filter((item) => managerView || item.userId === request.user.sub));
 });
 app.post('/api/payout-requests', auth, async (request, response) => {
 	const month = String(request.body.month || ''); const days = Number(request.body.days || 0); if (!/^\d{4}-\d{2}$/.test(month) || !Number.isInteger(days) || days < 0) return response.status(400).json({ error: 'Month and a non-negative integer number of days are required' });
@@ -788,15 +848,15 @@ app.post('/api/payout-requests', auth, async (request, response) => {
 });
 app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
 	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
-	if (!item || (!['admin', 'gerant', 'manager'].includes(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
+	if (!item || (!isOwnerRole(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
 	response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Disposition', `attachment; filename="ibra-payout-${item.month}-${item.userId}.pdf"`); response.send(buildPayoutPdf(item));
 });
 app.patch('/api/payout-requests/:id/status', auth, manager, async (request, response) => {
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
 });
 app.get('/api/work-reports', auth, async (request, response) => {
-	const data = await readData(); const managerView = ['admin', 'gerant', 'manager', 'conducteur'].includes(request.user.role); const projectIds = request.user.projectIds || [];
-	const reports = (data.workReports || []).filter((item) => managerView ? projectIds.includes(item.projectId) || ['admin', 'gerant', 'manager'].includes(request.user.role) : item.workerId === request.user.sub && projectIds.includes(item.projectId)); const financialView = ['admin', 'gerant', 'manager'].includes(request.user.role);
+	const data = await readData(); const managerView = isOwnerRole(request.user.role); const projectIds = request.user.projectIds || [];
+	const reports = (data.workReports || []).filter((item) => managerView ? projectIds.includes(item.projectId) || isOwnerRole(request.user.role) : item.workerId === request.user.sub && projectIds.includes(item.projectId)); const financialView = isOwnerRole(request.user.role);
 	response.json(financialView ? reports : reports.map(({ unitRate: _unitRate, calculatedAmount: _calculatedAmount, ...report }) => report));
 });
 app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
@@ -872,7 +932,7 @@ app.patch('/api/work-reports/:id/status', auth, manager, async (request, respons
 	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
 });
 app.get('/api/projects/:id/situation-summary', auth, async (request, response) => {
-	const data = await readData(); const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = ['admin', 'gerant', 'manager'].includes(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
+	const data = await readData(); const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
 app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });
@@ -991,11 +1051,11 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
-	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Conducteur-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
+	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Gerant-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
 	const data = await readData(); const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
 	for (const document of documents) { try { const buffer = await fs.readFile(path.join(uploadDir, document.storedName)); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
 	if (!sources.length) return response.json({ status: 'no_source', steps: [], answer: 'Nije pronađen plan ili fiche technique PDF. Redosled radova ne može biti određen.', sources: [], requiresHumanConfirmation: true });
-	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Conducteur mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Conducteur potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
+	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
 });
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
