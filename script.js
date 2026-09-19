@@ -189,13 +189,102 @@
 			status.textContent = `AR metar nije pokrenut: ${error.message || 'browser nije dozvolio AR'}.`;
 		}
 	}
+	function startPhotoMeter(form, status) {
+		const file = form.elements.photo.files[0];
+		const unit = form.elements.quantityUnit.value;
+		if (!file) { status.textContent = 'Prvo izaberite ili uploadujte sliku koju hocete mjeriti.'; form.elements.photo.click(); return; }
+		const image = new Image();
+		const url = URL.createObjectURL(file);
+		const overlay = document.createElement('div');
+		overlay.className = 'photo-meter-overlay';
+		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>Mjerenje iz uploadovane slike - ${unit}</strong><small>1) Upišite poznatu mjeru sa plana ili elementa. 2) Kliknite dvije tačke te poznate mjere. 3) Kliknite ${unit === 'ml' ? 'tačke linije/profila' : 'uglove površine'}.</small><label>Poznata mjera u metrima<input id="photo-meter-reference" type="number" min="0.01" step="0.01" placeholder="npr. 2.50" /></label><span id="photo-meter-status">Referenca: 0/2 tacke</span><button class="secondary" id="photo-meter-reset" type="button">Ponovi tacke</button><button class="primary" id="photo-meter-finish" type="button">Koristi mjeru</button><button class="secondary" id="photo-meter-cancel" type="button">Zatvori</button></div>`;
+		document.body.append(overlay);
+		const canvas = overlay.querySelector('canvas');
+		const context = canvas.getContext('2d');
+		const referencePoints = [];
+		const measurePoints = [];
+		const meterStatus = overlay.querySelector('#photo-meter-status');
+		const close = () => { URL.revokeObjectURL(url); overlay.remove(); };
+		const fit = () => {
+			if (canvas.width !== window.innerWidth) canvas.width = window.innerWidth;
+			if (canvas.height !== window.innerHeight) canvas.height = window.innerHeight;
+			const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
+			return { scale, x: (canvas.width - image.width * scale) / 2, y: (canvas.height - image.height * scale) / 2 };
+		};
+		const imagePoint = (event) => {
+			const rect = canvas.getBoundingClientRect();
+			const fitData = fit();
+			return { x: (event.clientX - rect.left - fitData.x) / fitData.scale, y: (event.clientY - rect.top - fitData.y) / fitData.scale };
+		};
+		const distance2d = (first, second) => Math.hypot(first.x - second.x, first.y - second.y);
+		const polygonArea2d = (points) => Math.abs(points.reduce((sum, point, index) => {
+			const next = points[(index + 1) % points.length];
+			return sum + point.x * next.y - next.x * point.y;
+		}, 0)) / 2;
+		const drawPoint = (point, color) => {
+			const fitData = fit();
+			context.beginPath();
+			context.arc(fitData.x + point.x * fitData.scale, fitData.y + point.y * fitData.scale, 5, 0, Math.PI * 2);
+			context.fillStyle = color;
+			context.fill();
+		};
+		const drawLine = (points, color, closePath = false) => {
+			if (points.length < 2) return;
+			const fitData = fit();
+			context.beginPath();
+			points.forEach((point, index) => {
+				const x = fitData.x + point.x * fitData.scale;
+				const y = fitData.y + point.y * fitData.scale;
+				if (index === 0) context.moveTo(x, y); else context.lineTo(x, y);
+			});
+			if (closePath) context.closePath();
+			context.strokeStyle = color;
+			context.lineWidth = 3;
+			context.stroke();
+		};
+		const render = () => {
+			const fitData = fit();
+			context.clearRect(0, 0, canvas.width, canvas.height);
+			context.drawImage(image, fitData.x, fitData.y, image.width * fitData.scale, image.height * fitData.scale);
+			drawLine(referencePoints, '#f4c86f');
+			drawLine(measurePoints, '#31d3a4', unit === 'm2' && measurePoints.length > 2);
+			referencePoints.forEach((point) => drawPoint(point, '#f4c86f'));
+			measurePoints.forEach((point) => drawPoint(point, '#31d3a4'));
+			meterStatus.textContent = referencePoints.length < 2 ? `Referenca: ${referencePoints.length}/2 tacke` : `Mjerenje: ${measurePoints.length} tacki`;
+		};
+		canvas.addEventListener('pointerdown', (event) => {
+			if (event.target.closest('button,label,input')) return;
+			const point = imagePoint(event);
+			if (point.x < 0 || point.y < 0 || point.x > image.width || point.y > image.height) return;
+			if (referencePoints.length < 2) referencePoints.push(point); else measurePoints.push(point);
+			render();
+		});
+		overlay.querySelector('#photo-meter-reset').addEventListener('click', () => { referencePoints.length = 0; measurePoints.length = 0; render(); });
+		overlay.querySelector('#photo-meter-cancel').addEventListener('click', close);
+		overlay.querySelector('#photo-meter-finish').addEventListener('click', () => {
+			const referenceLength = Number(overlay.querySelector('#photo-meter-reference').value);
+			if (!Number.isFinite(referenceLength) || referenceLength <= 0) { meterStatus.textContent = 'Upisite poznatu mjeru u metrima.'; return; }
+			if (referencePoints.length < 2) { meterStatus.textContent = 'Kliknite dvije tacke poznate mjere.'; return; }
+			if ((unit === 'ml' && measurePoints.length < 2) || (unit === 'm2' && measurePoints.length < 3)) { meterStatus.textContent = unit === 'ml' ? 'Za ml kliknite najmanje 2 tacke.' : 'Za m2 kliknite najmanje 3 ugla.'; return; }
+			const scale = referenceLength / distance2d(referencePoints[0], referencePoints[1]);
+			const value = unit === 'ml' ? measurePoints.slice(1).reduce((sum, point, index) => sum + distance2d(measurePoints[index], point), 0) * scale : polygonArea2d(measurePoints) * scale * scale;
+			form.elements.quantity.value = value.toFixed(2);
+			form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
+			form.elements.m2Source.value = `photo-calibrated-${unit}`;
+			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Sacuvajte izvjestaj ako je tacno.`;
+			close();
+		});
+		window.addEventListener('resize', render, { once: true });
+		image.onload = render;
+		image.src = url;
+	}
 	function ensureProductionPanel() {
 		if (document.querySelector('#production-form')) return;
 		const panel = document.querySelector('#tasks-view .panel');
 		if (!panel) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
-		section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L'IA propose m2 ou ml avec les plans du chantier si disponibles, puis l'utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail realise<input name="photo" type="file" accept="image/*" capture="environment" required /></label><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec camera AR</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure la quantite, puis l'appareil ouvre la camera pour garder la photo preuve.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gerant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`;
+		section.innerHTML = `<div class="section-head"><div><h2>Production et situations</h2><small>Chaque utilisateur peut envoyer une photo. L'IA propose m2 ou ml avec les plans du chantier si disponibles, puis l'utilisateur confirme.</small></div></div><form id="production-form"><label>Photo du travail realise<input name="photo" type="file" accept="image/*" required /></label><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec camera AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small><label>Date<input name="date" type="date" required /></label><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Conducteur ou du Gerant reste obligatoire avant la Situation.</small><button class="primary" type="submit">Enregistrer la production</button></form><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div>`;
 		panel.after(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
@@ -208,6 +297,7 @@
 		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); });
 		updateUnitLabels();
 		section.querySelector('#ar-meter').addEventListener('click', () => startArMeter(form, section.querySelector('#area-estimate-status')));
+		section.querySelector('#photo-meter').addEventListener('click', () => startPhotoMeter(form, section.querySelector('#area-estimate-status')));
 		section.querySelector('#estimate-area').addEventListener('click', async () => {
 			const file = form.elements.photo.files[0];
 			const unit = form.elements.quantityUnit.value;
