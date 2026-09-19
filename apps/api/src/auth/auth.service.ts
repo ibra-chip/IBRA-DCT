@@ -1,8 +1,11 @@
 import { Injectable, Logger, OnModuleInit, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 import { PrismaService } from '../prisma/prisma.service';
+
+type UserWithRoleAndCompany = Prisma.UserGetPayload<{ include: { role: true; company: true } }>;
 
 @Injectable()
 export class AuthService implements OnModuleInit {
@@ -84,7 +87,7 @@ export class AuthService implements OnModuleInit {
     return this.login({ email: user.email, password: data.password });
   }
 
-  private sanitizeUser(user: any) {
+  private sanitizeUser(user: UserWithRoleAndCompany) {
     return {
       id: user.id,
       name: user.name,
