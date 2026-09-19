@@ -60,11 +60,13 @@ input,select,textarea{min-height:44px;border-radius:11px;background:#061421}
 .work-calendar-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
 .calendar-weekdays,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .calendar-weekdays span{color:var(--muted);font-size:.72rem;font-weight:900;text-align:center;text-transform:uppercase}
-.calendar-cell{min-height:52px;padding:7px;border:1px solid #ffffff12;border-radius:10px;background:#071522;display:grid;place-items:center;text-align:center}
+.calendar-hint{margin:8px 0 10px;color:var(--muted);font-size:.82rem}
+.calendar-cell{min-height:52px;padding:7px;border:1px solid #ffffff12;border-radius:10px;background:#071522;color:var(--text);display:grid;place-items:center;text-align:center;cursor:pointer;font:inherit}
+.calendar-cell:hover{border-color:#72b9ff66;transform:translateY(-1px)}
 .calendar-cell small{font-size:.68rem;color:var(--green)}
 .calendar-cell.weekend{opacity:.5;background:#ffffff05}
 .calendar-cell.worked{border-color:#31d3a466;background:#31d3a418;color:#dffcf4}
-.calendar-cell.empty{border:0;background:transparent}
+.calendar-cell.empty{border:0;background:transparent;pointer-events:none}
 .document-actions,.control-actions{align-items:center}
 .rge-modules{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
 .production-panel,.ai-panel,.schedule-panel,.audit-history,.rge-modules-panel{margin-top:18px}

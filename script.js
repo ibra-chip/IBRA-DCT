@@ -474,6 +474,18 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	let latestOwnTimeEntries = [];
 	const monthKeyFromDate = (dateValue) => String(dateValue || new Date().toISOString().slice(0, 10)).slice(0, 7);
+	const timePrefsKey = () => `ibra-time-prefs-${currentUser?.id || 'default'}`;
+	const loadTimePrefs = () => {
+		try { return JSON.parse(localStorage.getItem(timePrefsKey()) || '{}'); } catch { return {}; }
+	};
+	const saveTimePrefs = (form) => {
+		if (!form) return;
+		localStorage.setItem(timePrefsKey(), JSON.stringify({ start: form.elements.start?.value || '08:00', end: form.elements.end?.value || '17:00', breakMinutes: form.elements.breakMinutes?.value || '60', rateType: form.elements.rateType?.value || 'daily', rate: form.elements.rate?.value || '' }));
+	};
+	const saveTimeEntryFromForm = async (form) => {
+		await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
+		saveTimePrefs(form);
+	};
 	const calculateTimeDraft = () => {
 		const form = document.querySelector('#time-form');
 		if (!form) return { hours: 0, amount: 0, valid: false };
@@ -500,13 +512,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		const form = document.querySelector('#time-form');
 		if (!form) return;
 		if (!form.elements.date.value) form.elements.date.value = new Date().toISOString().slice(0, 10);
+		const prefs = loadTimePrefs();
+		if (!form.elements.start.value) form.elements.start.value = prefs.start || '08:00';
+		if (!form.elements.end.value) form.elements.end.value = prefs.end || '17:00';
+		if (!form.elements.breakMinutes.value) form.elements.breakMinutes.value = prefs.breakMinutes || '60';
+		if (prefs.rateType) form.elements.rateType.value = prefs.rateType;
+		if (prefs.rate && !form.elements.rate.value) form.elements.rate.value = prefs.rate;
 		const fillDefaultRate = () => {
 			if (Number(form.elements.rate.value || 0) > 0) return;
 			form.elements.rate.value = form.elements.rateType.value === 'hourly' ? Number(own?.hourlyRate || 0) : Number(own?.dailyRate || 0);
 		};
 		if (form.dataset.autoCalculation !== 'ready') {
 			form.dataset.autoCalculation = 'ready';
-			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType'].forEach((name) => form.elements[name]?.addEventListener('input', updateTimeLiveCalculation));
+			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType'].forEach((name) => form.elements[name]?.addEventListener('input', () => { updateTimeLiveCalculation(); saveTimePrefs(form); }));
 			form.elements.date?.addEventListener('input', () => renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value));
 			form.elements.rateType?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); updateTimeLiveCalculation(); });
 		}
@@ -529,12 +547,22 @@ document.addEventListener('DOMContentLoaded', () => {
 			const weekend = weekday === 0 || weekday === 6;
 			if (!weekend) workingDays += 1;
 			const entry = entryByDate.get(date);
-			cells += `<span class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}" title="${entry ? `${Number(entry.hours || 0).toFixed(2)} h ? ${formatEUR(entry.workAmount || 0)}` : date}"><strong>${day}</strong>${entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : ''}</span>`;
+			cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}" data-work-date="${date}" title="${entry ? `${Number(entry.hours || 0).toFixed(2)} h ? ${formatEUR(entry.workAmount || 0)}` : `Oznaci sate za ${date}`}"><strong>${day}</strong>${entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '<small>+</small>'}</button>`;
 		}
 		const workedDays = entryByDate.size;
 		const monthHours = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 		const monthAmount = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.workAmount || 0), 0);
-		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana ? ${month}</strong><small>Radnih dana: ${workingDays} ? Uneseno: ${workedDays} ? ${monthHours.toFixed(2)} h ? ${formatEUR(monthAmount)}</small></div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
+		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana ? ${month}</strong><small>Radnih dana: ${workingDays} ? Uneseno: ${workedDays} ? ${monthHours.toFixed(2)} h ? ${formatEUR(monthAmount)}</small></div><div class="calendar-hint">Klikni dan da oznacis sate direktno iz kalendara.</div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
+		target.querySelectorAll('[data-work-date]').forEach((button) => button.addEventListener('click', async () => {
+			const form = document.querySelector('#time-form');
+			if (!form) return;
+			form.elements.date.value = button.dataset.workDate;
+			updateTimeLiveCalculation();
+			const draft = calculateTimeDraft();
+			if (!draft.valid) { form.elements.start?.focus(); toast('Unesi pocetak, kraj, pauzu i cijenu pa opet klikni dan.'); return; }
+			if (!window.confirm(`Sacuvati ${button.dataset.workDate}: ${draft.hours.toFixed(2)} h ? ${formatEUR(draft.amount)}?`)) return;
+			try { await saveTimeEntryFromForm(form); await refreshActiveView(); toast('Radni dan je oznacen u kalendaru.'); } catch { toast('Radni dan nije sacuvan.'); }
+		}));
 	}
 	async function loadTime() {
 		const entries = await request('/time-entries');
@@ -742,7 +770,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
 	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#change-password-panel')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId:'lot-a' }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
-	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await refreshActiveView(); toast('Radno vreme je sačuvano.'); } catch { toast('Radno vreme nije sačuvano.'); } });
+	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'conducteur'; companyField.querySelector('input').required = role === 'conducteur'; } rateFields.forEach((field) => { field.hidden = !['conducteur', 'worker'].includes(role); }); }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields();
 		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : created.delivery === 'sms' ? 'SMS' : `lokalno: ${created.temporaryPassword}`; toast(`Korisnik je dodat. Lozinka poslata preko ${delivery}.`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('password')) message = 'Lozinka mora imati najmanje 10 karaktera.'; if (details.error === 'Access denied') message = 'Samo Gérant ili manager mogu dodavati korisnike.'; } catch {} toast(message); } });
 	document.querySelector('#upload-form').addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#file-input').files[0]; if (!file) { toast('S?lectionnez un fichier avant l?enregistrement.'); return; } const body = new FormData(event.currentTarget); body.set('file', file, file.name); body.set('responseLanguage', language); try { const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `${response.status}`); event.currentTarget.reset(); await refreshActiveView(); if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); } toast(result.autoAnalysis ? 'Dokument je sa?uvan i automatski analiziran.' : 'Le document a ?t? enregistr? sur le serveur.'); } catch (error) { toast(`Document non enregistr? : ${error.message || 'erreur inconnue'}`); } });
