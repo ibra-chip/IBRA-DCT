@@ -38,9 +38,9 @@ services:
       - key: GOOGLE_AI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-1.5-flash
+        value: gemini-3.6-flash
       - key: GEMINI_VISION_MODEL
-        value: gemini-1.5-flash
+        value: gemini-3.6-flash
       - key: BREVO_API_KEY
         sync: false
       - key: BREVO_SMS_SENDER

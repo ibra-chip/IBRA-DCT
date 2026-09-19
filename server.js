@@ -103,7 +103,7 @@ File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 
 		return JSON.parse(clean);
 	};
 	if (geminiApiKey) {
-		const model = process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-1.5-flash';
+		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
 		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
