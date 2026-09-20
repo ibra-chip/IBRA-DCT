@@ -2,6 +2,8 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@n
 import { AuthGuard } from '@nestjs/passport';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 
+import { CurrentUser } from '../common/current-user.decorator';
+import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { CreateProjectDto, UpdateProjectDto } from './dto';
 import { ProjectsService } from './projects.service';
 
@@ -14,31 +16,31 @@ export class ProjectsController {
 
   @Get()
   @ApiOperation({ summary: 'List projects for the current company' })
-  findAll() {
-    return this.projectsService.findAll();
+  findAll(@CurrentUser() user: AuthenticatedUser) {
+    return this.projectsService.findAll(user);
   }
 
   @Get(':id')
-  @ApiOperation({ summary: 'Get a single project' })
-  findOne(@Param('id') id: string) {
-    return this.projectsService.findOne(id);
+  @ApiOperation({ summary: 'Get a single project in the current company' })
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.projectsService.findOne(id, user);
   }
 
   @Post()
-  @ApiOperation({ summary: 'Create a project' })
-  create(@Body() dto: CreateProjectDto) {
-    return this.projectsService.create(dto);
+  @ApiOperation({ summary: 'Create a project for the current company' })
+  create(@Body() dto: CreateProjectDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.projectsService.create(dto, user);
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update the project' })
-  update(@Param('id') id: string, @Body() dto: UpdateProjectDto) {
-    return this.projectsService.update(id, dto);
+  @ApiOperation({ summary: 'Update a project in the current company' })
+  update(@Param('id') id: string, @Body() dto: UpdateProjectDto, @CurrentUser() user: AuthenticatedUser) {
+    return this.projectsService.update(id, dto, user);
   }
 
   @Delete(':id')
-  @ApiOperation({ summary: 'Delete a project' })
-  remove(@Param('id') id: string) {
-    return this.projectsService.remove(id);
+  @ApiOperation({ summary: 'Delete a project in the current company' })
+  remove(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.projectsService.remove(id, user);
   }
 }

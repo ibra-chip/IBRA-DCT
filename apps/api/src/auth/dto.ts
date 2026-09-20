@@ -1,8 +1,17 @@
-import { IsEmail, IsNotEmpty, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator';
 
 export class LoginDto {
+  @IsOptional()
   @IsEmail()
-  email!: string;
+  email?: string;
+
+  @IsOptional()
+  @IsString()
+  phone?: string;
+
+  @IsOptional()
+  @IsString()
+  identifier?: string;
 
   @IsNotEmpty()
   @MinLength(6)
@@ -17,8 +26,10 @@ export class RegisterDto {
   email!: string;
 
   @IsNotEmpty()
-  @MinLength(6)
+  @MinLength(10)
   password!: string;
 
+  @IsOptional()
+  @IsString()
   companyName?: string;
 }

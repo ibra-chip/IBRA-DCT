@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, ValidateNested } from 'class-validator';
 
 export class ChecklistItemDto {
   @IsNotEmpty()
@@ -24,6 +24,7 @@ export class CreateChecklistDto {
   @IsOptional()
   createdBy?: string;
 
+  @IsArray()
   @ValidateNested({ each: true })
   items!: ChecklistItemDto[];
 }

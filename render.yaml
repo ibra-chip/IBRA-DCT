@@ -1,6 +1,7 @@
 services:
+  # Rollback target. Keep this service running until the Next/Nest cutover is reconciled.
   - type: web
-    name: ibra-ba
+    name: ibra-ba-legacy
     runtime: node
     branch: main
     plan: free
@@ -64,3 +65,79 @@ services:
         sync: false
       - key: TWILIO_FROM
         sync: false
+
+  # New relational API. Use a staging hostname first; do not attach the custom domain here yet.
+  - type: web
+    name: ibra-ba-api
+    runtime: node
+    branch: main
+    plan: free
+    buildCommand: npm ci; npx prisma generate; npm run build --workspace @ibra-ba/api
+    startCommand: npm run start --workspace @ibra-ba/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3001
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: IBRA_JWT_SECRET
+        sync: false
+      - key: WEB_ORIGIN
+        value: https://ibra-ba-web.onrender.com
+      - key: PUBLIC_URL
+        value: https://ibra-ba-web.onrender.com
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: OPENAI_VISION_MODEL
+        value: gpt-4o-mini
+      - key: AI_BASE_URL
+        value: https://api.openai.com/v1
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.6-flash
+      - key: SMTP_FROM
+        sync: false
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        sync: false
+      - key: SMTP_SECURE
+        sync: false
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASS
+        sync: false
+      - key: BREVO_API_KEY
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
+
+  # New Next.js frontend. Attach ibra-ba.net only after staging/canary checks pass.
+  - type: web
+    name: ibra-ba-web
+    runtime: node
+    branch: main
+    plan: free
+    buildCommand: npm ci; npm run build --workspace @ibra-ba/web
+    startCommand: npm run start --workspace @ibra-ba/web
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: API_ORIGIN
+        value: https://ibra-ba-api.onrender.com

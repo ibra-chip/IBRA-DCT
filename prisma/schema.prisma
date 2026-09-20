@@ -3,86 +3,108 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
 model Company {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String
   siret     String?
   address   String?
-  status    String   @default("active")
-  createdAt DateTime @default(now())
+  status    String    @default("active")
+  createdAt DateTime  @default(now())
   users     User[]
   projects  Project[]
 }
 
 model Role {
-  id          String        @id @default(cuid())
-  name        String        @unique
+  id          String          @id @default(cuid())
+  name        String          @unique
   description String?
   users       User[]
   projectMems ProjectMember[]
 }
 
 model User {
-  id           String        @id @default(cuid())
-  companyId    String?
-  roleId       String?
-  name         String
-  email        String        @unique
-  phone        String?
-  passwordHash String
-  status       String        @default("active")
-  company      Company?      @relation(fields: [companyId], references: [id])
-  role         Role?         @relation(fields: [roleId], references: [id])
-  projectMems  ProjectMember[]
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  id                String          @id @default(cuid())
+  companyId         String?
+  roleId            String?
+  name              String
+  email             String          @unique
+  phone             String?
+  passwordHash      String
+  passwordChangedAt DateTime?
+  dailyRate         Float           @default(0)
+  hourlyRate        Float           @default(0)
+  status            String          @default("active")
+  company           Company?        @relation(fields: [companyId], references: [id])
+  role              Role?           @relation(fields: [roleId], references: [id])
+  projectMems       ProjectMember[]
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
 }
 
 model Project {
-  id          String        @id @default(cuid())
-  companyId   String
-  name        String
-  location    String?
-  status      String        @default("planning")
-  startDate   DateTime?
-  endDate     DateTime?
-  managerId   String?
-  createdAt   DateTime      @default(now())
-  company     Company       @relation(fields: [companyId], references: [id])
-  members     ProjectMember[]
-  documents   Document[]
-  evidence    EvidenceItem[]
-  checklists  Checklist[]
-  workReports WorkReport[]
-  aiQuestions AIQuestion[]
+  id             String            @id @default(cuid())
+  companyId      String
+  name           String
+  location       String?
+  status         String            @default("planning")
+  progress       Int               @default(0)
+  startDate      DateTime?
+  endDate        DateTime?
+  managerId      String?
+  createdAt      DateTime          @default(now())
+  company        Company           @relation(fields: [companyId], references: [id])
+  members        ProjectMember[]
+  documents      Document[]
+  evidence       EvidenceItem[]
+  checklists     Checklist[]
+  workReports    WorkReport[]
+  aiQuestions    AIQuestion[]
+  budget         ProjectBudget?
+  schedule       ProjectSchedule?
+  delays         ProjectDelay[]
+  purchases      Purchase[]
+  controls       ChantierControl[]
+  controlHistory ControlHistory[]
+  messages       Message[]
+  rendezvous     Rendezvous[]
+  timeEntries    TimeEntry[]
 }
 
 model ProjectMember {
-  id        String   @id @default(cuid())
+  id        String  @id @default(cuid())
   projectId String
   userId    String
   roleId    String?
-  status    String   @default("active")
-  project   Project  @relation(fields: [projectId], references: [id])
-  user      User     @relation(fields: [userId], references: [id])
-  role      Role?    @relation(fields: [roleId], references: [id])
+  status    String  @default("active")
+  project   Project @relation(fields: [projectId], references: [id])
+  user      User    @relation(fields: [userId], references: [id])
+  role      Role?   @relation(fields: [roleId], references: [id])
+
+  @@unique([projectId, userId])
 }
 
 model Document {
-  id          String   @id @default(cuid())
-  projectId   String
-  uploadedBy  String
-  title       String
-  fileName    String
-  storageKey  String
-  mimeType    String
-  category    String?
-  createdAt   DateTime @default(now())
-  project     Project  @relation(fields: [projectId], references: [id])
+  id           String   @id @default(cuid())
+  projectId    String
+  uploadedBy   String
+  title        String
+  fileName     String
+  originalName String?
+  storageKey   String
+  mimeType     String
+  size         Int?
+  category     String?
+  evidenceType String?
+  phase        String?
+  status       String   @default("pending")
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, createdAt])
 }
 
 model EvidenceItem {
@@ -100,17 +122,21 @@ model EvidenceItem {
   status      String   @default("pending")
   createdAt   DateTime @default(now())
   project     Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, status])
 }
 
 model Checklist {
-  id        String         @id @default(cuid())
+  id        String          @id @default(cuid())
   projectId String
   type      String
   title     String
   createdBy String
-  createdAt DateTime       @default(now())
-  project   Project        @relation(fields: [projectId], references: [id])
+  createdAt DateTime        @default(now())
+  project   Project         @relation(fields: [projectId], references: [id])
   items     ChecklistItem[]
+
+  @@index([projectId, createdAt])
 }
 
 model ChecklistItem {
@@ -125,6 +151,8 @@ model ChecklistItem {
   comment     String?
   createdAt   DateTime  @default(now())
   checklist   Checklist @relation(fields: [checklistId], references: [id])
+
+  @@index([checklistId, status])
 }
 
 model WorkReport {
@@ -140,24 +168,179 @@ model WorkReport {
 }
 
 model AIQuestion {
-  id        String    @id @default(cuid())
+  id        String     @id @default(cuid())
   projectId String
   userId    String
   question  String
-  status    String    @default("pending")
-  createdAt DateTime  @default(now())
-  project   Project   @relation(fields: [projectId], references: [id])
+  status    String     @default("pending")
+  createdAt DateTime   @default(now())
+  project   Project    @relation(fields: [projectId], references: [id])
   answers   AIAnswer[]
 }
 
 model AIAnswer {
-  id               String     @id @default(cuid())
-  questionId       String
-  answer           String
+  id                String     @id @default(cuid())
+  questionId        String
+  answer            String
   sourceDocumentIds String?
-  confidence       Float?
-  createdAt        DateTime   @default(now())
-  question         AIQuestion @relation(fields: [questionId], references: [id])
+  confidence        Float?
+  createdAt         DateTime   @default(now())
+  question          AIQuestion @relation(fields: [questionId], references: [id])
+}
+
+model ProjectBudget {
+  id           String   @id @default(cuid())
+  projectId    String   @unique
+  chantierName String?
+  devisNumber  String?
+  client       String?
+  total        Float    @default(0)
+  spent        Float    @default(0)
+  remaining    Float    @default(0)
+  sourceFile   String?
+  sourceName   String?
+  status       String   @default("draft")
+  uploadedBy   String?
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id])
+}
+
+model ProjectSchedule {
+  id              String    @id @default(cuid())
+  projectId       String    @unique
+  startDate       DateTime?
+  plannedEndDate  DateTime?
+  adjustedEndDate DateTime?
+  updatedBy       String?
+  updatedAt       DateTime  @updatedAt
+  project         Project   @relation(fields: [projectId], references: [id])
+}
+
+model ProjectDelay {
+  id        String   @id @default(cuid())
+  projectId String
+  days      Int
+  reason    String?
+  createdBy String?
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, createdAt])
+}
+
+model Purchase {
+  id           String   @id @default(cuid())
+  projectId    String
+  createdBy    String
+  category     String
+  supplier     String
+  description  String
+  amount       Float
+  purchaseDate DateTime
+  invoiceKey   String?
+  invoiceName  String?
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, purchaseDate])
+}
+
+model ChantierControl {
+  id        String   @id @default(cuid())
+  projectId String
+  name      String
+  status    String   @default("review")
+  owner     String?
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, status])
+}
+
+model ControlHistory {
+  id        String   @id @default(cuid())
+  projectId String
+  controlId String
+  from      String
+  to        String
+  changedBy String
+  changedAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, changedAt])
+}
+
+model Message {
+  id          String    @id @default(cuid())
+  projectId   String
+  senderId    String
+  recipientId String
+  text        String
+  readAt      DateTime?
+  createdAt   DateTime  @default(now())
+  project     Project   @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, createdAt])
+}
+
+model Rendezvous {
+  id          String   @id @default(cuid())
+  projectId   String
+  workerId    String
+  ownerId     String?
+  absenceDate DateTime
+  time        String
+  reason      String
+  status      String   @default("pending")
+  createdAt   DateTime @default(now())
+  project     Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, absenceDate])
+}
+
+model TimeEntry {
+  id           String   @id @default(cuid())
+  projectId    String
+  workerId     String
+  date         DateTime
+  start        String
+  end          String
+  breakMinutes Int      @default(0)
+  hours        Float
+  rateType     String
+  rate         Float
+  workAmount   Float
+  status       String   @default("pending")
+  approvedBy   String?
+  createdAt    DateTime @default(now())
+  project      Project  @relation(fields: [projectId], references: [id])
+
+  @@index([projectId, date])
+}
+
+model PayoutRequest {
+  id         String   @id @default(cuid())
+  userId     String
+  month      String
+  amount     Float
+  status     String   @default("pending")
+  reviewedBy String?
+  createdAt  DateTime @default(now())
+
+  @@index([userId, month])
+}
+
+model PasswordReset {
+  id        String   @id @default(cuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId, expiresAt])
 }
 
 model AuditLog {
@@ -168,4 +351,6 @@ model AuditLog {
   userId     String?
   metadata   String?
   createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
 }

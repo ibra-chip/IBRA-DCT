@@ -1,6 +1,9 @@
-import { Controller, Get } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { AuthGuard } from '@nestjs/passport';
+import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 
+import { CurrentUser } from './common/current-user.decorator';
+import type { AuthenticatedUser } from './auth/jwt.strategy';
 import { AppService } from './app.service';
 
 @ApiTags('health')
@@ -13,5 +16,13 @@ export class AppController {
   @ApiResponse({ status: 200, description: 'API is healthy' })
   getHealth() {
     return this.appService.getHealth();
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(AuthGuard('jwt'))
+  @ApiOperation({ summary: 'Return the current authenticated user' })
+  getMe(@CurrentUser() user: AuthenticatedUser) {
+    return { user };
   }
 }

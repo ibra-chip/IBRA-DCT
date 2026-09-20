@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 
+import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateChecklistDto } from './dto';
 
@@ -7,7 +8,20 @@ import { CreateChecklistDto } from './dto';
 export class ChecklistsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  findByProject(projectId: string) {
+  private companyScope(user: AuthenticatedUser) {
+    return user.companyId ?? '__missing_company__';
+  }
+
+  private async getProject(projectId: string, user: AuthenticatedUser) {
+    const project = await this.prisma.project.findFirst({
+      where: { id: projectId, companyId: this.companyScope(user) },
+    });
+    if (!project) throw new NotFoundException(`Project ${projectId} not found`);
+    return project;
+  }
+
+  async findByProject(projectId: string, user: AuthenticatedUser) {
+    await this.getProject(projectId, user);
     return this.prisma.checklist.findMany({
       where: { projectId },
       include: { items: true },
@@ -15,18 +29,14 @@ export class ChecklistsService {
     });
   }
 
-  async create(projectId: string, data: CreateChecklistDto) {
-    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-    if (!project) {
-      throw new NotFoundException(`Project ${projectId} not found`);
-    }
-
+  async create(projectId: string, data: CreateChecklistDto, user: AuthenticatedUser) {
+    await this.getProject(projectId, user);
     return this.prisma.checklist.create({
       data: {
         projectId,
         type: data.type,
         title: data.title,
-        createdBy: data.createdBy ?? 'system',
+        createdBy: user.userId,
         items: {
           create: data.items.map((item) => ({
             title: item.title,

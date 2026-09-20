@@ -6,10 +6,19 @@
   "workspaces": ["apps/*"],
   "scripts": {
     "start": "node server.js",
-    "dev": "concurrently \"node --watch server.js\" \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web\"",
+    "start:legacy": "node server.js",
+    "start:api": "npm run start --workspace @ibra-ba/api",
+    "start:web": "npm run start --workspace @ibra-ba/web",
+    "dev": "concurrently \"node --watch server.js\" \"npm run dev --workspace @ibra-ba/api\" \"npm run dev --workspace @ibra-ba/web -- --port 3002\"",
     "build": "npm run build --workspace @ibra-ba/api && npm run build --workspace @ibra-ba/web",
     "lint": "npm run lint --workspace @ibra-ba/api && npm run lint --workspace @ibra-ba/web",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "migrate:data": "node scripts/migrate-data-json-to-prisma.js",
+    "db:validate": "npx prisma validate --schema prisma/schema.prisma",
+    "db:generate": "npx prisma generate --schema prisma/schema.prisma",
+    "db:migrate:dev": "npx prisma migrate dev --schema prisma/schema.prisma",
+    "db:migrate:deploy": "npx prisma migrate deploy --schema prisma/schema.prisma",
+    "smoke:api": "node scripts/smoke-api.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

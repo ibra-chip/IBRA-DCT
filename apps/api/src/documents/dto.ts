@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 
 export class CreateDocumentDto {
   @IsNotEmpty()
@@ -17,5 +17,14 @@ export class CreateDocumentDto {
   category?: string;
 
   @IsOptional()
-  uploadedBy?: string;
+  @IsString()
+  evidenceType?: string;
+
+  @IsOptional()
+  @IsString()
+  phase?: string;
+
+  @IsOptional()
+  @IsString()
+  status?: string;
 }
