@@ -1336,18 +1336,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		}));
 	}
 	async function loadPurchases() { const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], workers: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); }); const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join('') : '<small>Nema troškova.</small>'; }; render([...groups.material, ...groups.tools, ...groups.machines], 'purchase-material-tools', 'purchase-total-material-tools'); render(groups.workers, 'purchase-workers', 'purchase-total-workers'); render(groups.subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting'); }
-	function ensurePayoutPdfPanel() {
-		ensureHoursPdfButton();
-		if (document.querySelector('#payout-pdf-panel')) return;
-		const panel = document.querySelector('#tasks-view .panel'); if (!panel) return;
-		const section = document.createElement('section'); section.id = 'payout-pdf-panel'; section.className = 'panel';
-		section.innerHTML = '<h3>PDF zahteva za platu</h3><small>Na kraju meseca preuzmite zahtev i pošaljite ga Gérant-u.</small><label>Mesec<input id="payout-pdf-month" type="month" required /></label><button class="secondary" id="download-payout-pdf" type="button">Preuzmi PDF zahteva</button><p id="payout-pdf-message" class="error"></p>';
-		panel.after(section); section.querySelector('#payout-pdf-month').value = new Date().toISOString().slice(0, 7);
-		section.querySelector('#download-payout-pdf').addEventListener('click', async () => {
-			const month = section.querySelector('#payout-pdf-month').value; const message = section.querySelector('#payout-pdf-message');
-			try { const items = await request('/payout-requests'); const item = items.filter((entry) => entry.month === month && (isOwner() || entry.userId === currentUser?.id)).at(-1); if (!item) throw new Error('Za izabrani mesec prvo pošaljite zahtev za platu.'); const response = await fetch(`${api}/payout-requests/${item.id}/pdf`, { headers: { Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error('PDF nije moguće napraviti.'); const blob = await response.blob(); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = `ibra-payout-${month}.pdf`; link.click(); URL.revokeObjectURL(link.href); message.textContent = 'PDF je preuzet.'; } catch (error) { message.textContent = error.message || 'PDF nije moguće preuzeti.'; }
-		});
-	}
 	function ensureHoursPdfButton() {
 		if (document.querySelector('#send-hours-pdf')) return;
 		const form = document.querySelector('#time-form'); if (!form) return;
@@ -1411,7 +1399,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts(), loadCompanyProfile()];
 		const results = await Promise.allSettled(loads);
 		results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('Initial load failed', result.reason));
-		ensurePayoutPdfPanel();
+		ensureHoursPdfButton();
 	};
 	const refreshActiveView = async () => {
 		const active = document.querySelector('.view.active')?.id;
