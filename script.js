@@ -1,7 +1,21 @@
 document.addEventListener('DOMContentLoaded', () => {
 	const api = window.location.protocol === 'file:' ? 'http://localhost:3000/api' : `${window.location.origin}/api`;
 	const loginModal = document.querySelector('#login-modal');
+	const appShell = document.querySelector('.app-shell');
+	const mobileNavToggle = document.querySelector('#mobile-nav-toggle');
+	const mobileNavBackdrop = document.querySelector('#mobile-nav-backdrop');
 	const token = () => localStorage.getItem('ibra-auth-token');
+	const setMobileNav = (open) => {
+		appShell?.classList.toggle('mobile-nav-open', open);
+		mobileNavToggle?.setAttribute('aria-expanded', String(open));
+		if (mobileNavBackdrop) mobileNavBackdrop.hidden = !open;
+	};
+	mobileNavToggle?.addEventListener('click', () => setMobileNav(!appShell?.classList.contains('mobile-nav-open')));
+	mobileNavBackdrop?.addEventListener('click', () => setMobileNav(false));
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape') setMobileNav(false); });
+	const syncAuthModalState = () => { const hidden = loginModal.classList.contains('hidden'); loginModal.setAttribute('aria-hidden', String(hidden)); appShell?.setAttribute('aria-hidden', String(!hidden)); };
+	new MutationObserver(syncAuthModalState).observe(loginModal, { attributes: true, attributeFilter: ['class'] });
+	syncAuthModalState();
 	const ownerRoles = ['admin', 'gerant', 'manager'];
 	const isOwner = (role = currentUser?.role) => ownerRoles.includes(role);
 	const toast = (message) => { const french = { 'Korisnik je dodat.': 'Utilisateur enregistré.', 'Poruka je sačuvana.': 'Message enregistré.', 'Radno vreme je sačuvano.': 'Temps de travail enregistré.', 'Radno vreme nije sačuvano.': 'Temps de travail non enregistré.', 'Korisnik nije dodat.': 'Utilisateur non enregistré.', 'Trošak nije sačuvan.': 'Dépense non enregistrée.', 'Devis nije sačuvan.': 'Devis non enregistré.', 'Devis i budžet su sačuvani.': 'Devis et budget enregistrés.' }; const translated = french[message] || String(message).replace('Dokument je obrisan.', 'Document supprimé.').replace('Dokument je preimenovan.', 'Document renommé.').replace('Kopija dokumenta je dodata.', 'Copie du document ajoutée.'); const el = document.querySelector('#toast'); el.textContent = translated; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
@@ -26,6 +40,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		'Čitanje PDF-a...': 'Lecture du PDF...', 'Sačuvaj': 'Enregistrer', 'Dodaj': 'Ajouter', 'Pošalji': 'Envoyer', 'Prijava nije uspela.': 'Échec de la connexion.', 'Prijavljen korisnik': 'Utilisateur connecté', 'Dnevnica:': 'Taux journalier :', 'Nema unosa radnog vremena.': 'Aucune saisie de temps de travail.', 'user': 'Utilisateur', 'worker': 'Ouvrier / artisan', 'manager': 'Manager'
 	};
 	const translateRuntimeText = () => { if (language !== 'fr') return; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => { let text = node.nodeValue; Object.entries(runtimeFrench).forEach(([source, target]) => { text = text.split(source).join(target); }); if (text !== node.nodeValue) node.nodeValue = text; }); };
+	const encodingRepairs = [['Cat?gorie','Catégorie'],['cat?gorie','catégorie'],['ext?rieur','extérieur'],['?nerg?tique','énergétique'],['continuit?','continuité'],['r?duction','réduction'],['qualit?','qualité'],['contr?le','contrôle'],['contr?les','contrôles'],['?uvre','œuvre'],['r?ception','réception'],['conductivit?','conductivité'],['r?sistance','résistance'],['?lev?','élevé'],['cr?er','créer'],['ventil?','ventilé'],['diff?rents','différents'],['?tre','être'],['r?solique','résolique'],['min?rale','minérale'],['li?ge','liège'],['d?pend','dépend'],['humidit?','humidité'],['r?fl?chissants','réfléchissants'],['?pais','épais'],['compl?ment','complément'],['ferm?','fermé'],['?tanch?it?','étanchéité'],['entr?es','entrées'],['pi?ces','pièces'],['concern?es','concernées'],['s?jour','séjour'],['?l?ments','éléments'],['chauff?s','chauffés'],['D?but','Début'],['d?but','début'],['?ch?ance','Échéance'],['renseign?e','renseignée'],['renseign?','renseigné'],['ajust?e','ajustée'],['ajust?','ajusté'],['calcul?e','calculée'],['calcul?','calculé'],['D?clarer','Déclarer'],['Cat?gorie','Catégorie'],['M?t?o','Météo'],['enregistr?','enregistré'],['sa?uvan','sačuvan'],['s?uvan','sačuvan'],['potro?eno','potrošeno'],['Obri?i','Obriši'],['S?lectionnez','Sélectionnez'],['l?enregistrement','l’enregistrement'],['Tra?im','Tražim'],['prona?ena','pronađena'],['ru?no','ručno'],['? l\'','à l\''],['m?t?','mété'],['m?tallique','métallique'],['m?tal','métal'],['n?cessaire','nécessaire'],['r?glementation','réglementation'],['r?gles','règles'],['s?curit?','sécurité'],['v?rifier','vérifier'],['v?rifi?','vérifié'],['d?grad?','dégradé'],['d?tails','détails'],['? cause','à cause'],['? partir','À partir'],['?ligible','éligible'],['R?novation','Rénovation'],['R?ception','Réception'],['probl?me','problème'],['obligatoire','obligatoire']];
+	const repairEncoding = () => { const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => { let text = node.nodeValue; encodingRepairs.forEach(([source, target]) => { text = text.split(source).join(target); }); if (text !== node.nodeValue) node.nodeValue = text; }); };
 	let language = localStorage.getItem('ibra-language') || 'sr';
 	let rgeQualibatKnowledge;
 	const originalText = new Map();
@@ -33,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const setLanguage = (next) => { language = next; localStorage.setItem('ibra-language', next); originalText.forEach((text, element) => { element.textContent = next === 'fr' ? (translations[text] || text) : text; }); document.querySelectorAll('.language-button').forEach((button) => button.classList.toggle('active', button.dataset.language === next)); if (rgeQualibatKnowledge) loadRgeQualibat(); };
 	document.querySelectorAll('.language-button').forEach((button) => button.addEventListener('click', () => setLanguage(button.dataset.language)));
 	setLanguage(language);
+	repairEncoding();
 	const userForm = document.querySelector('#user-form');
 	if (userForm?.elements.email) userForm.elements.email.required = true;
 	if (userForm?.elements.phone) userForm.elements.phone.required = false;
@@ -42,8 +59,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (document.querySelector('#user-role')?.value === 'user') userRateFields.forEach((field) => { field.hidden = false; });
 	});
 	userRateFields.forEach((field) => userRateObserver.observe(field, { attributes: true, attributeFilter: ['hidden'] }));
-	new MutationObserver(translateRuntimeText).observe(document.body, { childList: true, subtree: true });
+	new MutationObserver(() => { translateRuntimeText(); repairEncoding(); }).observe(document.body, { childList: true, subtree: true });
 	const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+	const formValues = (form) => {
+		const values = Object.fromEntries(new FormData(form).entries());
+		if (form.elements.projectIds) values.projectIds = [...form.elements.projectIds.selectedOptions].map((option) => option.value).filter(Boolean);
+		return values;
+	};
 	const request = async (path, options = {}) => { const response = await fetch(`${api}${path}`, { cache: 'no-store', ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
 
 	const wireSiretLookup = (input, preview, companyInput) => {
@@ -53,13 +75,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			const digits = String(input.value || '').replace(/\D/g, '');
 			if (digits === lastValue || ![9, 14].includes(digits.length)) return;
 			lastValue = digits;
-			preview.textContent = 'Tra?im firmu po SIRET/SIREN...';
+			preview.textContent = 'Tražim firmu po SIRET/SIREN...';
 			try {
 				const company = await request(`/siret/${digits}`);
 				if (companyInput && !companyInput.value.trim()) companyInput.value = company.name || '';
-				preview.textContent = `${company.name} ? SIRET ${company.siret}${company.address ? ` ? ${company.address}` : ''}`;
+				preview.textContent = `${company.name} · SIRET ${company.siret}${company.address ? ` · ${company.address}` : ''}`;
 			} catch {
-				preview.textContent = 'Firma nije prona?ena automatski; unesite ime firme ru?no.';
+				preview.textContent = 'Firma nije pronađena automatski; unesite ime firme ručno.';
 			}
 		};
 		input.addEventListener('blur', lookup);
@@ -85,7 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		sync();
 	};
 	ensureSystemStatus();
-	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.textContent || 'IBRA-BA'; };
+	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; };
 	const applyRole = (role) => {
 		const access = {
 			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
@@ -102,11 +124,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#quick-worker-form')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
-	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); }));
+	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); }));
 
 	let projectsCache = [];
 	let activeProjectId = localStorage.getItem('ibra-active-project') || '';
-	const visibleProjects = () => projectsCache.filter((project) => project.id !== 'lot-a').sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' }));
+	const assignedProjectNames = (worker) => (worker?.projectIds || []).map((projectId) => projectsCache.find((project) => project.id === projectId)?.name || projectId).filter(Boolean).join(', ');
+	const visibleProjects = () => {
+		const assigned = isOwner() ? projectsCache : projectsCache.filter((project) => (currentUser?.projectIds || []).includes(project.id));
+		return assigned.filter((project) => isOwner() ? project.id !== 'lot-a' : true).sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' }));
+	};
 	const currentProjectId = () => {
 		const projects = visibleProjects();
 		if (!projects.some((project) => project.id === activeProjectId)) activeProjectId = projects[0]?.id || '';
@@ -137,7 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			select.onchange = async () => {
 				activeProjectId = select.value;
 				localStorage.setItem('ibra-active-project', activeProjectId);
-				await Promise.allSettled([loadDashboard(), loadControlHistory(), loadEvidenceSummary(), loadFinancialSummary(), loadSchedule()]);
+				await Promise.allSettled([loadDashboard(), loadControlHistory(), loadEvidenceSummary(), loadFinancialSummary(), loadSchedule(), loadTime()]);
 			};
 		});
 	}
@@ -153,23 +179,33 @@ document.addEventListener('DOMContentLoaded', () => {
 			select.value = projects.some((project) => project.id === current) ? current : (isBudgetSelect ? '__new' : (currentProjectId() || ''));
 			select.disabled = !isBudgetSelect && !projects.length;
 		});
+		const assignmentOptions = projectsCache.slice().sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' })).map((project) => `<option value="${project.id}">${escapeHtml(project.name)}</option>`).join('');
+		document.querySelectorAll('select[data-project-assignment]').forEach((select) => {
+			const selected = new Set([...select.selectedOptions].map((option) => option.value));
+			select.innerHTML = assignmentOptions || '<option value="">Nema registrovanih chantier-a</option>';
+			[...select.options].forEach((option) => { option.selected = selected.has(option.value); });
+			select.disabled = !projectsCache.length;
+		});
 	}
 	async function loadDashboard() {
 		await loadProjectOptions();
 		const projectId = currentProjectId();
 		const project = currentProject();
 		if (!projectId) {
+			document.querySelector('#progress-value').textContent = '0%';
 			document.querySelector('#open-controls').textContent = '0';
 			document.querySelector('#controls').innerHTML = '<small>Prvo registruj chantier u Devis sekciji.</small>';
 			document.querySelector('#project-risk').textContent = 'NEMA CHANTIER';
+			document.querySelector('#project-risk-detail').textContent = 'Izaberite aktivni chantier da biste videli rizik.';
 			return;
 		}
 		const controls = await request(`/projects/${projectId}/chantier-controls`);
 		const completedControls = controls.filter((item) => item.status === 'complete').length;
 		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : Number(project?.progress || 0);
+		document.querySelector('#progress-value').textContent = `${progress}%`;
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
 		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${progress}% AVANCEMENT`;
-		const schedule = await request(`/projects/${projectId}/schedule`); const financial = await request(`/projects/${projectId}/financial-summary`); const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length; const openControls = controls.filter((item) => item.status !== 'complete').length; const red = openControls >= 3 || missingEvidence >= 4 || (financial.budgetStatus === 'available' && financial.remaining < 0); const orange = !red && (openControls > 0 || missingEvidence > 0 || schedule.delayDays > 0); const risk = document.querySelector('#project-risk-card'); risk.classList.remove('risk-red','risk-orange','risk-green'); risk.classList.add(red ? 'risk-red' : orange ? 'risk-orange' : 'risk-green'); document.querySelector('#project-risk').textContent = `${red ? 'KRITIČAN' : orange ? 'PAŽNJA' : 'STABILAN'} · ${progress}%`;
+		const schedule = await request(`/projects/${projectId}/schedule`); const financial = await request(`/projects/${projectId}/financial-summary`); const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length; const openControls = controls.filter((item) => item.status !== 'complete').length; const red = openControls >= 3 || missingEvidence >= 4 || (financial.budgetStatus === 'available' && financial.remaining < 0); const orange = !red && (openControls > 0 || missingEvidence > 0 || schedule.delayDays > 0); const risk = document.querySelector('#project-risk-card'); risk.classList.remove('risk-red','risk-orange','risk-green'); risk.classList.add(red ? 'risk-red' : orange ? 'risk-orange' : 'risk-green'); document.querySelector('#project-risk').textContent = `${red ? 'KRITIČAN' : orange ? 'PAŽNJA' : 'STABILAN'} · ${progress}%`; document.querySelector('#project-risk-detail').textContent = `${openControls} otvorene kontrole · ${missingEvidence} nedostajućih dokaza${schedule.delayDays ? ` · ${schedule.delayDays} dana kašnjenja` : ''}`;
 		const canUpdate = isOwner();
 		document.querySelector('#controls').innerHTML = `<div class="list-item chantier-progress"><strong>${escapeHtml(project?.name || 'Chantier')} · ${progress}% zavrseno</strong><small>${completedControls}/${controls.length} kontrola zavrseno</small></div>${controls.map((item) => `<div class="list-item ${item.status === 'complete' ? 'ok' : item.status === 'incomplete' ? 'bad' : 'warn'}"><strong>${item.name}</strong><small>${item.owner} · ${item.status}</small>${canUpdate ? `<div class="control-actions"><button class="secondary control-action" data-control="${item.id}" data-status="complete">Završi</button><button class="secondary control-action" data-control="${item.id}" data-status="incomplete">Vrati na ispravku</button></div>` : ''}</div>`).join('')}`;
 		document.querySelectorAll('.control-action').forEach((button) => button.addEventListener('click', async () => { try { await request(`/chantier-controls/${button.dataset.control}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status: button.dataset.status }) }); await Promise.allSettled([loadDashboard(), loadEvidenceSummary(), loadControlHistory()]); toast('Kontrola je ažurirana.'); } catch (error) { try { const details = JSON.parse(error.message); toast(details.missing ? `Nedostaje dokaz: ${details.missing.join(', ')}` : 'Kontrola nije ažurirana.'); } catch { toast('Kontrola nije ažurirana.'); } } }));
@@ -205,9 +241,55 @@ document.addEventListener('DOMContentLoaded', () => {
 		modulesTarget.innerHTML = (rgeQualibatKnowledge.modules || []).map((module) => { const items = french ? (module.itemsFr || module.items) : module.items; return `<article class="rge-module"><h3>${escapeHtml(localized(module, 'title'))}</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`; }).join('');
 	}
 	async function loadControlHistory() { await loadProjectOptions(); const projectId = currentProjectId(); const history = projectId ? await request(`/projects/${projectId}/control-history`) : []; const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena za izabrani chantier.</small>'; }
-	async function loadUsers() { const users = await request('/contacts'); const managerView = isOwner(); const currentUserId = currentUser?.id || currentUser?.sub; const canRemoveUsers = Boolean(managerView && currentUserId); const removeUserLabel = language === 'fr' ? "Supprimer l'utilisateur" : 'Ukloni korisnika'; document.querySelector('#users').innerHTML = users.map((user) => `<div class="list-item"><strong>${user.name}</strong><small>${user.role} · ${user.email || 'bez e-maila'} · ${user.phone || 'bez telefona'}${user.siret ? ` · SIRET: ${user.siret}` : ''}${user.company ? ` · Firma: ${user.company}` : ''}${user.employerSiret ? ` · Radi za: ${user.employerCompany || user.company} · SIRET: ${user.employerSiret}` : ''}${managerView && (user.dailyRate || user.hourlyRate) ? ` · Dnevno: ${formatEUR(user.dailyRate)} · Satnica: ${formatEUR(user.hourlyRate)}` : ''}</small>${canRemoveUsers && user.id !== currentUserId ? `<button class="secondary remove-user" data-user="${user.id}" data-name="${escapeHtml(user.name)}" type="button">${removeUserLabel}</button>` : ''}</div>`).join(''); document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } })); const recipient = document.querySelector('#recipient'); recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${user.id}">${user.name} · ${user.role}</option>`).join(''); }
-	function ensureRendezvousForm() { if (document.querySelector('#rendezvous-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const form = document.createElement('form'); form.id = 'rendezvous-form'; form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije; 5 dana je takodje prihvatljivo. Gazda vidi u aplikaciji i dobija email.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Posalji gazdi</button>`; panel.append(form); form.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(form).entries()); values.date = values.absenceDate; values.projectId = 'lot-a'; try { await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); form.reset(); await refreshActiveView(); toast('Odsustvo/RDV je poslato gazdi.'); } catch (error) { toast(`RDV nije poslat: ${error.message || 'greska'}`); } }); }
-	async function loadRendezvous() { const items = await request('/rendezvous'); const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const target = document.querySelector('#rendezvous-list') || (() => { const element = document.createElement('div'); element.id = 'rendezvous-list'; element.className = 'list'; panel.append(element); return element; })(); target.innerHTML = items.length ? `<h3>RDV / odsustva</h3>${items.slice().sort((first, second) => `${first.absenceDate} ${first.time}`.localeCompare(`${second.absenceDate} ${second.time}`)).map((item) => `<div class="list-item"><strong>${item.absenceDate} · ${item.time}</strong><small>${item.workerName} · chantier ${item.projectId}</small><div>${item.reason}</div></div>`).join('')}` : '<small>Nema RDV/odsustva.</small>'; }
+	async function loadUsers() {
+		await loadProjectOptions();
+		const users = await request('/contacts');
+		const projectNames = new Map(projectsCache.map((project) => [project.id, project.name]));
+		const managerView = isOwner();
+		const currentUserId = currentUser?.id || currentUser?.sub;
+		const canRemoveUsers = Boolean(managerView && currentUserId);
+		const removeUserLabel = language === 'fr' ? "Supprimer l'utilisateur" : 'Ukloni korisnika';
+		document.querySelector('#users').innerHTML = users.map((user) => {
+			const assignedProjects = (user.projectIds || []).map((projectId) => projectNames.get(projectId) || projectId).filter(Boolean);
+			return `<div class="list-item"><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)} · ${escapeHtml(user.email || 'bez e-maila')} · ${escapeHtml(user.phone || 'bez telefona')}${user.siret ? ` · SIRET: ${escapeHtml(user.siret)}` : ''}${user.company ? ` · Firma: ${escapeHtml(user.company)}` : ''}${user.employerSiret ? ` · Radi za: ${escapeHtml(user.employerCompany || user.company)} · SIRET: ${escapeHtml(user.employerSiret)}` : ''}${assignedProjects.length ? ` · Chantier: ${escapeHtml(assignedProjects.join(', '))}` : ''}${managerView && (user.dailyRate || user.hourlyRate) ? ` · Dnevno: ${formatEUR(user.dailyRate)} · Satnica: ${formatEUR(user.hourlyRate)}` : ''}</small>${canRemoveUsers && user.id !== currentUserId ? `<button class="secondary remove-user" data-user="${user.id}" data-name="${escapeHtml(user.name)}" type="button">${removeUserLabel}</button>` : ''}</div>`;
+		}).join('');
+		document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } }));
+		const recipient = document.querySelector('#recipient');
+		recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${user.id}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join('');
+	}
+	function ensureRendezvousForm() {
+		if (document.querySelector('#rendezvous-form')) return;
+		const panel = document.querySelector('#tasks-view .panel');
+		if (!panel) return;
+		const form = document.createElement('form');
+		form.id = 'rendezvous-form';
+		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru i dobija email.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Posalji gazdi</button>`;
+		panel.append(form);
+		const minimumDate = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
+		form.elements.absenceDate.min = minimumDate;
+		form.addEventListener('submit', async (event) => {
+			event.preventDefault();
+			const values = Object.fromEntries(new FormData(form).entries());
+			values.date = values.absenceDate;
+			values.projectId = currentProjectId() || 'lot-a';
+			try {
+				await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
+				form.reset();
+				form.elements.absenceDate.min = minimumDate;
+				await refreshActiveView();
+				toast('Odsustvo/RDV je poslato gazdi.');
+			} catch (error) { toast(`RDV nije poslat: ${error.message || 'greska'}`); }
+		});
+	}
+	async function loadRendezvous(items) {
+		latestRendezvous = items || await request('/rendezvous');
+		const panel = document.querySelector('#tasks-view .panel');
+		if (!panel) return;
+		const target = document.querySelector('#rendezvous-list') || (() => { const element = document.createElement('div'); element.id = 'rendezvous-list'; element.className = 'list'; panel.append(element); return element; })();
+		const french = language === 'fr';
+		const sorted = latestRendezvous.slice().sort((first, second) => `${first.absenceDate} ${first.time}`.localeCompare(`${second.absenceDate} ${second.time}`));
+		target.innerHTML = sorted.length ? `<h3>${french ? 'RDV / absences' : 'RDV / odsustva'}</h3>${sorted.map((item) => `<div class="list-item rendezvous-list-item"><strong>${escapeHtml(item.absenceDate)} · ${escapeHtml(item.time)}</strong><small>${escapeHtml(item.workerName || '')} · chantier ${escapeHtml(item.projectId || '')}</small><div>${escapeHtml(item.reason || '')}</div></div>`).join('')}` : `<small>${french ? 'Aucun RDV/absence.' : 'Nema RDV/odsustva.'}</small>`;
+	}
 	async function loadMessages() { ensureRendezvousForm(); const messages = await request('/messages'); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
 	function ensurePayoutPanel() { if (!isOwner()) return; if (document.querySelector('#payout-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const section = document.createElement('section'); section.className = 'panel payout-panel'; section.innerHTML = `<div class="section-head"><div><h2>Demandes de paiement</h2><small>Les jours sont envoyés le 1er du mois. Le paiement est prévu le 15.</small></div></div><form id="payout-form"><label>Mois à payer<input name="month" type="month" required /></label><label>Nombre de jours à payer<input name="days" type="number" min="0" step="1" required /></label><button class="primary" type="submit">Envoyer la demande au Gérant</button></form><div id="payout-list" class="list"></div></section>`; section.querySelector('#payout-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/payout-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await loadPayouts(); toast('La demande du 1er a été envoyée au Gérant. Paiement prévu le 15.'); } catch (error) { toast(`Demande non enregistrée : ${error.message || 'erreur inconnue'}`); } }); panel.after(section); }
 	async function loadPayouts() { if (!isOwner()) { document.querySelector('.payout-panel')?.remove(); return; } ensurePayoutPanel(); const items = await request('/payout-requests'); const target = document.querySelector('#payout-list'); if (!target) return; const managerView = isOwner(); target.innerHTML = items.length ? `<h3>${managerView ? 'Demandes reçues' : 'Mes demandes'}</h3>${items.slice().reverse().map((item) => `<div class="list-item"><strong>${item.month} · ${item.userName} · ${item.days} jours</strong><small>${managerView ? `${formatEUR(item.amount)} · ` : ''}Demande le ${item.submissionDate} · Paiement le ${item.paymentDate} · ${item.status}</small>${managerView && item.status === 'pending' ? `<button class="secondary payout-status" data-payout="${item.id}" data-status="approved">Approuver</button><button class="secondary payout-status" data-payout="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucune demande de paiement.</small>'; document.querySelectorAll('.payout-status').forEach((button) => button.addEventListener('click', async () => { await request(`/payout-requests/${button.dataset.payout}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadPayouts(); })); }
@@ -483,8 +565,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		return true;
 	}
 	let latestOwnTimeEntries = [];
+	let latestRendezvous = [];
 	let latestTimeWorkers = [];
 	const monthKeyFromDate = (dateValue) => String(dateValue || new Date().toISOString().slice(0, 10)).slice(0, 7);
+	const formatMonthLabel = (month) => {
+		const [year, monthNumber] = String(month || '').split('-').map(Number);
+		if (!year || !monthNumber) return month;
+		return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
+	};
 	const timePrefsKey = () => `ibra-time-prefs-${currentUser?.id || 'default'}`;
 	const loadTimePrefs = () => {
 		try { return JSON.parse(localStorage.getItem(timePrefsKey()) || '{}'); } catch { return {}; }
@@ -539,8 +627,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (form.dataset.autoCalculation !== 'ready') {
 			form.dataset.autoCalculation = 'ready';
 			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType', 'workerId'].forEach((name) => form.elements[name]?.addEventListener('input', () => { updateTimeLiveCalculation(); saveTimePrefs(form); }));
-			form.elements.date?.addEventListener('input', () => renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value));
-			form.elements.workerId?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value); updateTimeLiveCalculation(); saveTimePrefs(form); });
+			form.elements.date?.addEventListener('input', () => { const month = monthKeyFromDate(form.elements.date.value); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value, latestRendezvous); renderWorkerMonthSummary(month); });
+			form.elements.workerId?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); const month = monthKeyFromDate(form.elements.date.value); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value, latestRendezvous); renderWorkerMonthSummary(month); updateTimeLiveCalculation(); saveTimePrefs(form); });
 			form.elements.rateType?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); updateTimeLiveCalculation(); });
 		}
 		fillDefaultRate(); updateTimeLiveCalculation();
@@ -549,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const target = document.querySelector('#quick-workers');
 		if (!target) return;
 		const canManage = isOwner();
-		target.innerHTML = canManage && latestTimeWorkers.length ? `<h3>Radnici</h3>${latestTimeWorkers.map((worker) => `<div class="list-item"><strong>${escapeHtml(worker.name)}</strong><small>${escapeHtml(worker.email || worker.phone || 'bez kontakta')} · Dnevnica ${formatEUR(worker.dailyRate || 0)} · Satnica ${formatEUR(worker.hourlyRate || 0)}</small><div class="worker-actions"><button class="secondary rename-worker" data-worker="${worker.id}" type="button">Preimenuj</button><button class="secondary delete-worker" data-worker="${worker.id}" type="button">Obriši</button></div></div>`).join('')}` : '';
+		target.innerHTML = canManage && latestTimeWorkers.length ? `<h3>Radnici</h3>${latestTimeWorkers.map((worker) => `<div class="list-item"><strong>${escapeHtml(worker.name)}</strong><small>${escapeHtml(worker.email || worker.phone || 'bez kontakta')} · Chantier: ${escapeHtml(assignedProjectNames(worker) || 'nije izabran')} · Dnevnica ${formatEUR(worker.dailyRate || 0)} · Satnica ${formatEUR(worker.hourlyRate || 0)}</small><div class="worker-actions"><button class="secondary rename-worker" data-worker="${worker.id}" type="button">Preimenuj</button><button class="secondary delete-worker" data-worker="${worker.id}" type="button">Obriši</button></div></div>`).join('')}` : '';
 		target.querySelectorAll('.rename-worker').forEach((button) => button.addEventListener('click', async () => {
 			const worker = latestTimeWorkers.find((item) => item.id === button.dataset.worker);
 			if (!worker) return;
@@ -569,31 +657,47 @@ document.addEventListener('DOMContentLoaded', () => {
 			catch { toast('Radnik nije obrisan.'); }
 		}));
 	}
-	function renderWorkCalendar(entries, selectedDate) {
+	function renderWorkCalendar(entries, selectedDate, rendezvous = latestRendezvous) {
 		const target = document.querySelector('#work-calendar');
 		if (!target) return;
 		const selectedWorkerId = document.querySelector('#time-form')?.elements.workerId?.value || currentUser?.id;
+		const activeProject = currentProjectId();
 		const visibleEntries = (entries || []).filter((entry) => !selectedWorkerId || entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
+		const visibleRendezvous = (rendezvous || []).filter((item) => (!selectedWorkerId || item.workerId === selectedWorkerId) && (!activeProject || item.projectId === activeProject));
 		const month = monthKeyFromDate(selectedDate);
 		const [year, monthNumber] = month.split('-').map(Number);
 		const first = new Date(year, monthNumber - 1, 1);
 		const last = new Date(year, monthNumber, 0);
-		const entryByDate = new Map(visibleEntries.filter((entry) => String(entry.date || '').startsWith(month)).map((entry) => [entry.date, entry]));
+		const monthEntries = visibleEntries.filter((entry) => String(entry.date || '').startsWith(month));
+		const entryByDate = new Map(monthEntries.map((entry) => [entry.date, entry]));
+		const rendezvousByDate = new Map();
+		visibleRendezvous.filter((item) => String(item.absenceDate || item.date || '').startsWith(month)).forEach((item) => {
+			const date = item.absenceDate || item.date;
+			const items = rendezvousByDate.get(date) || [];
+			items.push(item);
+			rendezvousByDate.set(date, items);
+		});
 		let workingDays = 0;
 		let cells = '';
-		for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty"></span>';
+		for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty" aria-hidden="true"></span>';
 		for (let day = 1; day <= last.getDate(); day += 1) {
 			const date = `${month}-${String(day).padStart(2, '0')}`;
 			const weekday = new Date(year, monthNumber - 1, day).getDay();
 			const weekend = weekday === 0 || weekday === 6;
 			if (!weekend) workingDays += 1;
 			const entry = entryByDate.get(date);
-			cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}" data-work-date="${date}" title="${entry ? `${Number(entry.hours || 0).toFixed(2)} h ? ${formatEUR(entry.workAmount || 0)}` : `Oznaci sate za ${date}`}"><strong>${day}</strong>${entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '<small>+</small>'}</button>`;
+			const dayRendezvous = rendezvousByDate.get(date) || [];
+			const rendezvousLabel = dayRendezvous.map((item) => `RDV ${item.time || ''}${item.reason ? ` · ${item.reason}` : ''}`).join(' | ');
+			const title = [entry ? `${Number(entry.hours || 0).toFixed(2)} h · ${formatEUR(entry.workAmount || 0)}` : '', rendezvousLabel, entry || dayRendezvous.length ? '' : `Oznaci sate za ${date}`].filter(Boolean).join(' · ');
+			const marker = [entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '', ...dayRendezvous.map((item) => `<span class="calendar-rendezvous" title="${escapeHtml(item.reason || '')}">RDV ${escapeHtml(item.time || '')}</span>`)].join('') || '<small>+</small>';
+			cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${dayRendezvous.length ? ' has-rendezvous' : ''}" data-work-date="${date}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</button>`;
 		}
-		const workedDays = entryByDate.size;
-		const monthHours = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
-		const monthAmount = [...entryByDate.values()].reduce((sum, entry) => sum + Number(entry.workAmount || 0), 0);
-		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana ? ${month}</strong><small>Radnih dana: ${workingDays} ? Uneseno: ${workedDays} ? ${monthHours.toFixed(2)} h ? ${formatEUR(monthAmount)}</small></div><div class="calendar-hint">Klikni dan da oznacis sate direktno iz kalendara.</div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
+		const workedDays = new Set(monthEntries.map((entry) => entry.date)).size;
+		const monthHours = monthEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
+		const monthAmount = monthEntries.reduce((sum, entry) => sum + Number(entry.workAmount || 0), 0);
+		const rendezvousDays = rendezvousByDate.size;
+		const monthLabel = formatMonthLabel(month);
+		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana · ${escapeHtml(monthLabel)}</strong><small>Radnih dana: ${workingDays} · Uneseno: ${workedDays} · ${monthHours.toFixed(2)} h · ${formatEUR(monthAmount)} · RDV: ${rendezvousDays}</small></div><div class="calendar-hint">Klikni dan da oznacis sate direktno iz kalendara. <span class="calendar-legend"><span class="legend-work">Rad</span> · <span class="legend-rendezvous">RDV / odsustvo</span></span></div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
 		target.querySelectorAll('[data-work-date]').forEach((button) => button.addEventListener('click', async () => {
 			const form = document.querySelector('#time-form');
 			if (!form) return;
@@ -605,10 +709,51 @@ document.addEventListener('DOMContentLoaded', () => {
 			try { await saveTimeEntryFromForm(form); await refreshActiveView(); toast('Radni dan je oznacen u kalendaru.'); } catch { toast('Radni dan nije sacuvan.'); }
 		}));
 	}
+	function ensureWorkerMonthSummaryPanel() {
+		if (!isOwner()) { document.querySelector('#worker-month-summary')?.remove(); return null; }
+		const existing = document.querySelector('#worker-month-summary');
+		if (existing) return existing;
+		const panel = document.querySelector('#time-form')?.closest('.panel') || document.querySelector('#tasks-view .panel');
+		if (!panel) return null;
+		const section = document.createElement('section');
+		section.id = 'worker-month-summary';
+		section.className = 'worker-month-summary';
+		section.innerHTML = '<div class="section-head"><div><h3>Sažetak korisnika</h3><small id="worker-month-summary-label"></small></div></div><div id="worker-month-summary-content" aria-live="polite"></div>';
+		panel.insertBefore(section, panel.querySelector('#time-form') || null);
+		return section;
+	}
+	function summarizeWorkerMonth(workerId, month) {
+		const workerEntries = latestOwnTimeEntries.filter((entry) => entry.workerId === workerId && String(entry.date || '').startsWith(month));
+		const workerRendezvous = latestRendezvous.filter((item) => item.workerId === workerId && String(item.absenceDate || item.date || '').startsWith(month));
+		return {
+			workDays: new Set(workerEntries.map((entry) => entry.date)).size,
+			hours: workerEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0),
+			rendezvousDays: new Set(workerRendezvous.map((item) => item.absenceDate || item.date)).size,
+			rendezvousCount: workerRendezvous.length
+		};
+	}
+	function renderWorkerMonthSummary(month) {
+		const section = ensureWorkerMonthSummaryPanel();
+		if (!section) return;
+		const target = section.querySelector('#worker-month-summary-content');
+		const label = section.querySelector('#worker-month-summary-label');
+		const french = language === 'fr';
+		label.textContent = `${french ? 'Mois sélectionné' : 'Izabrani mjesec'}: ${formatMonthLabel(month)}`;
+		const workers = latestTimeWorkers.filter((worker) => ['user', 'worker'].includes(worker.role));
+		if (!workers.length) {
+			target.innerHTML = `<small>${french ? 'Aucun utilisateur travailleur.' : 'Nema dodatih korisnika.'}</small>`;
+			return;
+		}
+		const labels = french ? { worker: 'Utilisateur', workDays: 'Jours travaillés', hours: 'Heures', rendezvous: 'RDV / absences' } : { worker: 'Korisnik', workDays: 'Radni dani', hours: 'Sati', rendezvous: 'RDV / odsustva' };
+		target.innerHTML = `<div class="worker-month-summary-table-wrap"><table class="worker-month-summary-table"><caption class="visually-hidden">${escapeHtml(`${french ? 'Résumé des utilisateurs pour' : 'Sažetak korisnika za'} ${formatMonthLabel(month)}`)}</caption><thead><tr><th scope="col">${labels.worker}</th><th scope="col">${labels.workDays}</th><th scope="col">${labels.hours}</th><th scope="col">${labels.rendezvous}</th></tr></thead><tbody>${workers.map((worker) => { const summary = summarizeWorkerMonth(worker.id, month); return `<tr><th scope="row">${escapeHtml(worker.name)}</th><td>${summary.workDays}</td><td>${summary.hours.toFixed(2)}</td><td>${summary.rendezvousDays}${summary.rendezvousCount > summary.rendezvousDays ? ` <small>(${summary.rendezvousCount} ${french ? 'termin.' : 'termina'})</small>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
+	}
 	async function loadTime() {
+		await loadProjectOptions();
 		const entries = await request('/time-entries');
 		const own = await request('/my-payroll-summary');
+		const rendezvous = await request('/rendezvous');
 		const managerView = isOwner();
+		latestRendezvous = rendezvous;
 		latestTimeWorkers = managerView ? (await request('/contacts')).filter((user) => ['worker','user'].includes(user.role)) : [{ ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate }];
 		const form = document.querySelector('#time-form');
 		const workerSelect = form?.elements.workerId;
@@ -621,8 +766,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		renderQuickWorkers();
 		const selectedWorkerId = workerSelect?.value || currentUser?.id;
 		const selectedWorker = latestTimeWorkers.find((worker) => worker.id === selectedWorkerId) || { ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate };
+		const selectedDate = form?.elements.date?.value || new Date().toISOString().slice(0, 10);
+		if (form?.elements.date && !form.elements.date.value) form.elements.date.value = selectedDate;
 		const selectedEntries = entries.filter((entry) => entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
-		const selectedMonth = monthKeyFromDate(form?.elements.date?.value);
+		const selectedMonth = monthKeyFromDate(selectedDate);
 		const monthEntries = selectedEntries.filter((entry) => String(entry.date || '').startsWith(selectedMonth));
 		const monthHours = monthEntries.reduce((sum, item) => sum + Number(item.hours || 0), 0);
 		const monthDays = new Set(monthEntries.map((item) => item.date)).size;
@@ -635,7 +782,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#time-money').textContent = `Calcul : ${formatEUR(monthAmount)}`;
 		latestOwnTimeEntries = entries;
 		ensureTimeAutoCalculation(selectedWorker);
-		renderWorkCalendar(latestOwnTimeEntries, form?.elements.date?.value);
+		renderWorkCalendar(latestOwnTimeEntries, selectedDate, latestRendezvous);
+		renderWorkerMonthSummary(selectedMonth);
 		const canApprove = isOwner();
 		document.querySelector('#time-entries').innerHTML = selectedEntries.length ? selectedEntries.map((item) => `<div class="list-item"><strong>${item.workerName} ? ${Number(item.hours || 0).toFixed(2)} h ? ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} ? ${item.start}-${item.end} ? ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Aucune saisie de temps de travail pour ce travailleur.</small>';
 		document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); }));
@@ -774,7 +922,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!localStorage.getItem('ibra-auth-token')) return;
 		try {
 			const result = await request('/me');
-			currentUser = result.user; applyRole(currentUser.role); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
+			currentUser = result.user; applyRole(currentUser.role); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
 			await loadInitialData();
 		} catch { localStorage.removeItem('ibra-auth-token'); }
 	};
@@ -802,7 +950,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (loginForm.elements.role && data.role) loginForm.elements.role.value = data.role;
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
-		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} · ${currentUser.role}`; await loadInitialData(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } });
+		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
 	document.querySelector('#forgot-password')?.addEventListener('click', () => { document.querySelector('#reset-request-panel')?.removeAttribute('hidden'); document.querySelector('#reset-contact')?.focus(); });
 	document.querySelector('#send-reset')?.addEventListener('click', async () => {
 			const contact = String(document.querySelector('#reset-contact')?.value || '').trim();
@@ -825,9 +973,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId:'lot-a' }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
-	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = Object.fromEntries(new FormData(event.currentTarget).entries()); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
-	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'gerant'; companyField.querySelector('input').required = role === 'gerant'; } rateFields.forEach((field) => { field.hidden = role !== 'user'; }); }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields(); wireSiretLookup(document.querySelector('#user-form')?.elements.siret, document.querySelector('#user-company-preview'), document.querySelector('#user-form')?.elements.company);
-		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
+	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = formValues(event.currentTarget); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
+	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); const projectField = document.querySelector('#user-project-field'); const projectSelect = document.querySelector('#user-project-field select'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'gerant'; companyField.querySelector('input').required = role === 'gerant'; } rateFields.forEach((field) => { field.hidden = role !== 'user'; }); if (projectField) projectField.hidden = role !== 'user'; if (projectSelect) projectSelect.required = role === 'user'; }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields(); wireSiretLookup(document.querySelector('#user-form')?.elements.siret, document.querySelector('#user-company-preview'), document.querySelector('#user-form')?.elements.company);
+		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(formValues(event.currentTarget)) }); event.currentTarget.reset(); updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
 	document.querySelector('#upload-form').addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#file-input').files[0]; if (!file) { toast('S?lectionnez un fichier avant l?enregistrement.'); return; } const body = new FormData(event.currentTarget); body.set('file', file, file.name); body.set('responseLanguage', language); try { const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `${response.status}`); event.currentTarget.reset(); await refreshActiveView(); if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); } toast(result.autoAnalysis ? 'Dokument je sa?uvan i automatski analiziran.' : 'Le document a ?t? enregistr? sur le serveur.'); } catch (error) { toast(`Document non enregistr? : ${error.message || 'erreur inconnue'}`); } });
 	document.querySelector('#budget-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#budget-file').files[0]; const form = event.currentTarget; const ensureProjectId = async () => { const select = form.querySelector('[name="projectId"]'); if (select.value !== '__new') return select.value; const chantierName = form.querySelector('[name="chantierName"]').value.trim() || form.querySelector('[name="client"]').value.trim() || 'Nouveau chantier'; const project = await request('/projects', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name: chantierName, chantierName }) }); await loadProjectOptions(); select.value = project.id; return project.id; }; const sendBudget = async (replaceExisting = false) => { const projectId = await ensureProjectId(); const body = new FormData(form); body.set('projectId', projectId); if (file) body.set('file', file, file.name); if (replaceExisting) body.set('replaceExisting', 'true'); return fetch(`${api}/projects/${projectId}/budget`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); }; try { let response = await sendBudget(false); if (response.status === 409 && window.confirm('Un Devis existe deja pour ce chantier. Remplacer par le nouveau PDF ?')) response = await sendBudget(true); if (!response.ok) { const details = await response.text(); throw new Error(`${response.status}: ${details}`); } form.reset(); await refreshActiveView(); toast('Devis et chantier enregistres.'); } catch (error) { toast(`Devis non enregistre : ${error.message || 'erreur inconnue'}`); } });
 	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Čitanje PDF-a...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'PDF je pročitan delimično. Proveri označena polja pre čuvanja.' : `Automatski pročitano iz: ${result.source}`; } catch { status.textContent = 'PDF nije moguće automatski pročitati. Unesi vrednosti ručno.'; } });
