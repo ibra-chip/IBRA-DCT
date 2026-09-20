@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
+import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
@@ -21,8 +22,6 @@ const app = express();
 const root = process.env.IBRA_APP_ROOT ? path.resolve(process.env.IBRA_APP_ROOT) : process.cwd();
 const persistentRoot = process.env.IBRA_DATA_DIR || root;
 const dataPath = path.join(persistentRoot, 'data.json');
-const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uploads');
-const identityUploadDir = process.env.IBRA_IDENTITY_UPLOAD_DIR || path.join(uploadDir, 'identity');
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -36,10 +35,18 @@ if (!supabaseConfigured) {
 	if (strictSupabaseRequired) throw new Error(`${message} Set both variables on the main Render service.`);
 	console.warn(message);
 }
-const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
+const storageKeyFor = (originalName) => `${Date.now()}-${String(originalName || 'file').replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
-const identityUpload = multer({ dest: identityUploadDir, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(isAllowedIdentityAsset(file) ? null : new Error('Choisissez un fichier JPG ou PNG de 5 Mo maximum.'), true) });
-const identityUploadMiddleware = (field) => (request, response, next) => identityUpload.single(field)(request, response, (error) => error ? response.status(400).json({ error: 'Choisissez un fichier JPG ou PNG de 5 Mo maximum.' }) : next());
+const identityUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(isAllowedIdentityAsset(file) ? null : new Error('Choisissez un fichier JPG ou PNG de 5 Mo maximum.'), true) });
+const identityUploadMiddleware = (field) => (request, response, next) => identityUpload.single(field)(request, response, async (error) => {
+	if (error) return response.status(400).json({ error: 'Choisissez un fichier JPG ou PNG de 5 Mo maximum.' });
+	if (request.file) {
+		request.file.filename = storageKeyFor(request.file.originalname);
+		try { await uploadFile(IDENTITY_BUCKET, request.file.filename, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
+	}
+	next();
+});
 app.use(cors());
 app.use(express.json());
 app.use(express.static(root, {
@@ -47,7 +54,7 @@ app.use(express.static(root, {
 		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 	}
 }));
-app.use('/identity-assets', express.static(identityUploadDir, { index: false, fallthrough: false }));
+app.get('/identity-assets/:filename', (request, response) => response.redirect(publicUrl(request.params.filename)));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
@@ -535,8 +542,8 @@ app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'
 	const name = String(request.body.name ?? existing.name ?? owner?.company ?? '').trim();
 	if (!name) return response.status(400).json({ error: 'Company name is required' });
 	const removeLogo = String(request.body.removeLogo || '').toLowerCase() === 'true';
-	if (removeLogo && existing.logoFile) await fs.unlink(path.join(identityUploadDir, existing.logoFile)).catch(() => {});
-	if (request.file && existing.logoFile && existing.logoFile !== request.file.filename) await fs.unlink(path.join(identityUploadDir, existing.logoFile)).catch(() => {});
+	if (removeLogo && existing.logoFile) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
+	if (request.file && existing.logoFile && existing.logoFile !== request.file.filename) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
 	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.companyProfiles = [...(data.companyProfiles || []).filter((item) => item.key !== profile.key), profile];
 	data.users = data.users.map((user) => {
@@ -552,7 +559,7 @@ app.post('/api/users/:id/avatar', auth, workerSelf, identityUploadMiddleware('av
 	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
 	if (request.user.role !== 'admin' && companyKeyForUser(companyOwnerForUser(data, target) || target) !== companyKeyForUser(companyOwnerForUser(data, request.userRecord) || request.userRecord)) return response.status(403).json({ error: 'Access denied for this worker' });
 	if (!request.file) return response.status(400).json({ error: 'Photo du travailleur requise' });
-	if (target.avatarFile) await fs.unlink(path.join(identityUploadDir, target.avatarFile)).catch(() => {});
+	if (target.avatarFile) await deleteFile(IDENTITY_BUCKET, target.avatarFile);
 	target.avatarFile = request.file.filename;
 	target.avatarUrl = identityFileUrl(target.avatarFile);
 	await writeData(data);
@@ -563,7 +570,7 @@ app.delete('/api/users/:id/avatar', auth, workerSelf, async (request, response) 
 	const target = data.users.find((user) => user.id === request.params.id);
 	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
 	if (request.user.role !== 'admin' && companyKeyForUser(companyOwnerForUser(data, target) || target) !== companyKeyForUser(companyOwnerForUser(data, request.userRecord) || request.userRecord)) return response.status(403).json({ error: 'Access denied for this worker' });
-	if (target.avatarFile) await fs.unlink(path.join(identityUploadDir, target.avatarFile)).catch(() => {});
+	if (target.avatarFile) await deleteFile(IDENTITY_BUCKET, target.avatarFile);
 	target.avatarFile = '';
 	target.avatarUrl = '';
 	await writeData(data);
@@ -574,7 +581,7 @@ app.post('/api/me/avatar', auth, workerSelf, identityUploadMiddleware('avatar'),
 	const worker = data.users.find((user) => user.id === request.user.sub);
 	if (!worker || !isWorkerRole(worker.role)) return response.status(403).json({ error: 'Only workers can update their own photo' });
 	if (!request.file) return response.status(400).json({ error: 'Choisissez une photo JPG ou PNG de 5 Mo maximum.' });
-	if (worker.avatarFile) await fs.unlink(path.join(identityUploadDir, worker.avatarFile)).catch(() => {});
+	if (worker.avatarFile) await deleteFile(IDENTITY_BUCKET, worker.avatarFile);
 	worker.avatarFile = request.file.filename;
 	worker.avatarUrl = identityFileUrl(worker.avatarFile);
 	await writeData(data);
@@ -584,7 +591,7 @@ app.delete('/api/me/avatar', auth, workerSelf, async (request, response) => {
 	const data = request.data || await readData();
 	const worker = data.users.find((user) => user.id === request.user.sub);
 	if (!worker || !isWorkerRole(worker.role)) return response.status(403).json({ error: 'Only workers can remove their own photo' });
-	if (worker.avatarFile) await fs.unlink(path.join(identityUploadDir, worker.avatarFile)).catch(() => {});
+	if (worker.avatarFile) await deleteFile(IDENTITY_BUCKET, worker.avatarFile);
 	worker.avatarFile = '';
 	worker.avatarUrl = '';
 	await writeData(data);
@@ -922,7 +929,7 @@ app.post('/api/projects/:id/labor-costs', auth, manager, async (request, respons
 	response.status(existing ? 200 : 201).json(laborCost);
 });
 app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async (request, response) => {
-	const uploadedPdf = request.file ? await fs.readFile(request.file.path) : null;
+	const uploadedPdf = request.file?.buffer || null;
 	if (!request.file || !(request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf') || uploadedPdf?.subarray(0, 5).toString() === '%PDF-')) return response.status(400).json({ error: 'A Devis PDF is required' });
 	const total = Number(request.body.total || 0);
 	if (!Number.isFinite(total) || total <= 0) return response.status(400).json({ error: 'Devis total is required' });
@@ -931,7 +938,9 @@ app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async
 	try { assertProjectAccess(data, request.user, request.params.id); context = projectContextFor(data, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const existing = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	if (existing && existing.devisNumber && String(request.body.devisNumber || '') !== existing.devisNumber && request.body.replaceExisting !== 'true') return response.status(409).json({ error: 'An active Devis already exists. Confirm replacement explicitly.' });
-	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, projectName: context.projectName, chantierName: String(request.body.chantierName || context.projectName), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile: request.file.filename, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	const sourceFile = storageKeyFor(request.file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Devis upload failed: ' + uploadError.message }); }
+	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, projectName: context.projectName, chantierName: String(request.body.chantierName || context.projectName), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectBudgets = [...(data.projectBudgets || []).filter((item) => item.projectId !== request.params.id), budget];
 	await writeData(data); response.status(201).json(budget);
 });
@@ -947,7 +956,9 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), async (reque
 	const data = await readData();
 	let context;
 	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile: request.file.filename, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const invoiceFile = storageKeyFor(request.file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, invoiceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
+	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
@@ -1153,11 +1164,11 @@ app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (req
 	const sourceDocuments = [];
 	for (const document of (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType?.includes('pdf')).slice(-4)) {
 		try {
-			const buffer = await fs.readFile(path.join(uploadDir, document.storedName));
+			const buffer = await downloadFile(UPLOADS_BUCKET, document.storedName);
 			const parsed = await parsePdf(buffer);
 			if (parsed.text?.trim()) sourceDocuments.push(`File: ${document.originalName}\nType: ${document.evidenceType}\nText:\n${parsed.text.slice(0, 6000)}`);
 		} catch (error) {
-			if (error.code !== 'ENOENT') console.error('Quantity estimate source document read failed:', error.message);
+			console.error('Quantity estimate source document read failed:', error.message);
 		}
 	}
 	const documentContext = sourceDocuments.length ? `\n\nProject documents already uploaded in the app. Use these as dimensional references when they match the photo. Do not use a dimension from the documents unless the photographed façade/zone/detail can be matched to it.\n${sourceDocuments.join('\n\n---\n\n')}` : '\n\nNo plan/fiche technique text is available for this project. If the photo has no visible or known reference, return null.';
@@ -1194,7 +1205,9 @@ app.post('/api/work-reports', auth, upload.single('photo'), async (request, resp
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, user); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile: request.file.filename, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const photoFile = storageKeyFor(request.file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, photoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
+	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
@@ -1213,10 +1226,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	const projectId = String(request.body.projectId || '');
 	const data = await readData();
 	let context;
-	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { await fs.unlink(path.join(uploadDir, request.file.filename)).catch(() => {}); return response.status(error.status || 500).json({ error: error.message }); }
+	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const storedName = storageKeyFor(request.file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
 	let autoAnalysis = null;
 	if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
-		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
+		const buffer = request.file.buffer;
 		const language = request.body.responseLanguage || 'sr';
 		let parsed = { text: '' };
 		try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
@@ -1229,12 +1244,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		}
 	} else if (request.file.mimetype.startsWith('image/')) {
 		const language = request.body.responseLanguage || 'sr';
-		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
+		const buffer = request.file.buffer;
 		const visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language });
 		autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 	}
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
@@ -1249,14 +1264,14 @@ app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
 	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
 	if (!source) return response.status(404).json({ error: 'Document not found' });
-	const storedName = `${Date.now()}-${source.storedName}`; await fs.copyFile(path.join(uploadDir, source.storedName), path.join(uploadDir, storedName));
+	const storedName = `${Date.now()}-${source.storedName}`; const sourceBuffer = await downloadFile(UPLOADS_BUCKET, source.storedName); await uploadFile(UPLOADS_BUCKET, storedName, sourceBuffer, source.mimeType);
 	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
 	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
 });
 app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
-	await fs.unlink(path.join(uploadDir, item.storedName)).catch(() => {});
+	await deleteFile(UPLOADS_BUCKET, item.storedName);
 	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
 });
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
@@ -1276,10 +1291,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	for (const document of documents) {
 		if (!document.storedName) continue;
 		let buffer;
-		try { buffer = await fs.readFile(path.join(uploadDir, document.storedName)); } catch (error) {
-			if (error.code === 'ENOENT') continue;
-			throw error;
-		}
+		try { buffer = await downloadFile(UPLOADS_BUCKET, document.storedName); } catch { continue; }
 		if (document.mimeType.includes('pdf')) {
 			const parsed = await parsePdf(buffer); const pages = parsed.text.split('\f');
 			pages.forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, type: document.evidenceType, page: index + 1, text: text.slice(0, 12000) }); });
@@ -1333,7 +1345,7 @@ app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Gerant-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
 	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
-	for (const document of documents) { try { const buffer = await fs.readFile(path.join(uploadDir, document.storedName)); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
+	for (const document of documents) { try { const buffer = await downloadFile(UPLOADS_BUCKET, document.storedName); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
 	if (!sources.length) return response.json({ status: 'no_source', steps: [], answer: 'Nije pronađen plan ili fiche technique PDF. Redosled radova ne može biti određen.', sources: [], requiresHumanConfirmation: true });
 	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
 });
@@ -1346,11 +1358,9 @@ app.get('/api/projects/:id/evidence-summary', auth, async (request, response) =>
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
 });
 await fs.mkdir(persistentRoot, { recursive: true });
-await fs.mkdir(uploadDir, { recursive: true });
-await fs.mkdir(identityUploadDir, { recursive: true });
+await ensureBuckets();
 if (persistentRoot !== root) {
-	const seedDataPath = path.join(root, 'data.json'); const seedUploadDir = path.join(root, 'uploads');
+	const seedDataPath = path.join(root, 'data.json');
 	try { await fs.access(dataPath); } catch { await fs.copyFile(seedDataPath, dataPath); }
-	try { const existingUploads = await fs.readdir(uploadDir); if (!existingUploads.length) await fs.cp(seedUploadDir, uploadDir, { recursive: true, force: false }); } catch {}
 }
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`IBRA-BA web app listening on port ${process.env.PORT || 3000} at ${root}`));
