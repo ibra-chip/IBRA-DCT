@@ -1416,10 +1416,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	const refreshActiveView = async () => {
 		const active = document.querySelector('.view.active')?.id;
 		const refreshers = {
-			'dashboard-view': () => Promise.allSettled([loadDashboard(), loadFinancialSummary()]),
+			'dashboard-view': () => Promise.allSettled([loadDashboard()]),
 			'devis-view': () => Promise.allSettled([loadBudget(), loadFinancialSummary()]),
 			'purchases-view': () => Promise.allSettled([loadPurchases(), loadBudget(), loadFinancialSummary()]),
-			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory()]),
+			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
 			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadPayouts()]),
