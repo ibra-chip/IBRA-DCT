@@ -13,6 +13,7 @@ import type {
   PurchaseCategory,
   QuantityEstimateResult,
   QuantityUnit,
+  Rendezvous,
   SituationSummary,
   WorkReport,
 } from './api-types';
@@ -209,6 +210,21 @@ export const apiClient = {
     if (params?.date) query.set('date', params.date);
     const suffix = query.toString() ? `?${query.toString()}` : '';
     return request<SituationSummary>(`${projectPath(projectId)}/situation-summary${suffix}`);
+  },
+  listRendezvous(projectId: string) {
+    return request<Rendezvous[]>(`${projectPath(projectId)}/rendezvous`);
+  },
+  createRendezvous(projectId: string, payload: { absenceDate: string; time: string; reason?: string }) {
+    return request<Rendezvous>(`${projectPath(projectId)}/rendezvous`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+  updateRendezvous(projectId: string, rendezvousId: string, payload: { absenceDate?: string; time?: string }) {
+    return request<Rendezvous>(`${projectPath(projectId)}/rendezvous/${encodeURIComponent(rendezvousId)}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
   },
 };
 

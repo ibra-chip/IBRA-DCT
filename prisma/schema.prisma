@@ -311,10 +311,11 @@ model Rendezvous {
   ownerId     String?
   absenceDate DateTime
   time        String
-  reason      String
-  status      String   @default("pending")
-  createdAt   DateTime @default(now())
-  project     Project  @relation(fields: [projectId], references: [id])
+  reason      String?
+  status      String    @default("pending")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  project     Project   @relation(fields: [projectId], references: [id])
 
   @@index([projectId, absenceDate])
 }

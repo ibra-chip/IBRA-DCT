@@ -11,6 +11,22 @@ const managerRoles = new Set(['admin', 'manager', 'gerant']);
 
 type UploadedFile = Express.Multer.File;
 
+const stripFinancialFields = <T extends { unitRate?: unknown; calculatedAmount?: unknown }>(record: T) => {
+  const publicRecord: Record<string, unknown> = {};
+  for (const key of Object.keys(record)) {
+    if (key !== 'unitRate' && key !== 'calculatedAmount') publicRecord[key] = (record as Record<string, unknown>)[key];
+  }
+  return publicRecord as Omit<T, 'unitRate' | 'calculatedAmount'>;
+};
+
+const stripAmount = <T extends { amount?: unknown }>(record: T) => {
+  const publicRecord: Record<string, unknown> = {};
+  for (const key of Object.keys(record)) {
+    if (key !== 'amount') publicRecord[key] = (record as Record<string, unknown>)[key];
+  }
+  return publicRecord as Omit<T, 'amount'>;
+};
+
 @Injectable()
 export class WorkReportsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -80,7 +96,7 @@ export class WorkReportsService {
     });
 
     if (manager) return reports;
-    return reports.map(({ unitRate: _unitRate, calculatedAmount: _calculatedAmount, ...report }) => report);
+    return reports.map((report) => stripFinancialFields(report));
   }
 
   async updateStatus(projectId: string, reportId: string, user: AuthenticatedUser, dto: UpdateWorkReportStatusDto) {
@@ -143,7 +159,7 @@ export class WorkReportsService {
       quantityM2,
       quantityMl,
       amount: manager ? amount : null,
-      byWorker: manager ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker),
+      byWorker: manager ? byWorker : byWorker.map((worker) => stripAmount(worker)),
       requiresHumanConfirmation: true,
     };
   }

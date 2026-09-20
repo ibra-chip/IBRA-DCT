@@ -177,6 +177,19 @@ export interface SituationSummary {
   requiresHumanConfirmation: true;
 }
 
+export interface Rendezvous {
+  id: string;
+  projectId: string;
+  workerId: string;
+  ownerId?: string | null;
+  absenceDate: string;
+  time: string;
+  reason?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface ProjectRecord {
   id: string;
   name: string;

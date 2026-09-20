@@ -8,10 +8,11 @@ import { ChecklistsModule } from './checklists/checklists.module';
 import { DocumentsModule } from './documents/documents.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { ProjectsModule } from './projects/projects.module';
+import { RendezvousModule } from './rendezvous/rendezvous.module';
 import { WorkReportsModule } from './work-reports/work-reports.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, ProjectsModule, DocumentsModule, ChecklistsModule, BudgetModule, WorkReportsModule],
+  imports: [PrismaModule, AuthModule, ProjectsModule, DocumentsModule, ChecklistsModule, BudgetModule, WorkReportsModule, RendezvousModule],
   controllers: [AppController],
   providers: [AppService],
 })
