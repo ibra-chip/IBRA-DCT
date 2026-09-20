@@ -7,6 +7,7 @@ export class AppService {
       status: 'ok',
       app: 'IBRA-BA API',
       environment: process.env.NODE_ENV ?? 'development',
+      commit: process.env.RENDER_GIT_COMMIT ?? null,
     };
   }
 }
