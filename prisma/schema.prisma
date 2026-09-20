@@ -7,6 +7,16 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// Owned by the legacy server.js data store (Supabase REST JSON blob), not
+// by this Prisma schema. @@ignore keeps `prisma db push` from proposing to
+// drop it just because it isn't declared as a real model here.
+model app_state {
+  id   String @id
+  data Json?
+
+  @@ignore
+}
+
 model Company {
   id        String    @id @default(cuid())
   name      String
