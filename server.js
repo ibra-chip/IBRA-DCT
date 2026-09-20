@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
+import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
@@ -21,6 +22,7 @@ const root = process.env.IBRA_APP_ROOT ? path.resolve(process.env.IBRA_APP_ROOT)
 const persistentRoot = process.env.IBRA_DATA_DIR || root;
 const dataPath = path.join(persistentRoot, 'data.json');
 const uploadDir = process.env.IBRA_UPLOAD_DIR || path.join(persistentRoot, 'uploads');
+const identityUploadDir = process.env.IBRA_IDENTITY_UPLOAD_DIR || path.join(uploadDir, 'identity');
 const secret = process.env.IBRA_JWT_SECRET || 'local-development-secret-change-before-deploy';
 const supabaseUrl = String(process.env.SUPABASE_URL || '').replace(/\/$/, '');
 const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -36,6 +38,8 @@ if (!supabaseConfigured) {
 }
 const upload = multer({ dest: uploadDir, limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+const identityUpload = multer({ dest: identityUploadDir, limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(isAllowedIdentityAsset(file) ? null : new Error('Choisissez un fichier JPG ou PNG de 5 Mo maximum.'), true) });
+const identityUploadMiddleware = (field) => (request, response, next) => identityUpload.single(field)(request, response, (error) => error ? response.status(400).json({ error: 'Choisissez un fichier JPG ou PNG de 5 Mo maximum.' }) : next());
 app.use(cors());
 app.use(express.json());
 app.use(express.static(root, {
@@ -43,6 +47,7 @@ app.use(express.static(root, {
 		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
 	}
 }));
+app.use('/identity-assets', express.static(identityUploadDir, { index: false, fallthrough: false }));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
@@ -81,9 +86,40 @@ const ownerRoles = ['admin', 'gerant', 'manager'];
 const workerRoles = ['user', 'worker'];
 const isOwnerRole = (role) => ownerRoles.includes(role);
 const isWorkerRole = (role) => workerRoles.includes(role);
-const cleanSiret = (value) => String(value || '').replace(/\D/g, '');
-const publicUser = (user) => ({ id: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '' });
-const issueAuthToken = (user) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [] }, secret, { expiresIn: '8h' });
+const identityFileUrl = (fileName) => fileName ? `/identity-assets/${encodeURIComponent(fileName)}` : '';
+const companyOwnerForUser = (data, user) => {
+	if (!user) return null;
+	if (isOwnerRole(user.role)) return user;
+	const invitedOwner = (data.users || []).find((item) => item.id === user.invitedBy && isOwnerRole(item.role));
+	if (invitedOwner) return invitedOwner;
+	const employerSiret = cleanSiret(user.employerSiret);
+	return (data.users || []).find((item) => isOwnerRole(item.role) && employerSiret && cleanSiret(item.siret) === employerSiret) || (data.users || []).find((item) => isOwnerRole(item.role) && user.employerCompany && item.company === user.employerCompany) || null;
+};
+const companyProfileForUser = (data, user) => {
+	const owner = companyOwnerForUser(data, user) || user;
+	const key = companyKeyForUser(owner);
+	const profile = (data.companyProfiles || []).find((item) => item.key === key || (owner?.siret && cleanSiret(item.siret) === cleanSiret(owner.siret)));
+	return profile || { key, name: owner?.company || owner?.employerCompany || '', siret: owner?.siret || owner?.employerSiret || '', logoFile: '', logoUrl: '' };
+};
+const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || '', name: profile.name || '', siret: profile.siret || '', logoFile: profile.logoFile || '', logoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), updatedAt: profile.updatedAt || '' });
+const publicUser = (user, companyProfile = null) => ({ id: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' });
+const issueAuthToken = (user, companyProfile = null) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' }, secret, { expiresIn: '8h' });
+const projectById = (data, projectId) => (data.projects || []).find((project) => project.id === String(projectId || '')) || null;
+const projectBudgetFor = (data, projectId) => (data.projectBudgets || []).find((budget) => budget.projectId === projectId) || null;
+const projectContextFor = (data, projectId) => { const project = projectById(data, projectId); const budget = projectBudgetFor(data, projectId); return { project, budget, projectName: project?.name || '', budgetId: budget?.id || '', devisNumber: budget?.devisNumber || '' }; };
+const canAccessProject = (data, requestUser, projectId) => {
+	const project = projectById(data, projectId);
+	return Boolean(project && project.status !== 'archived' && (isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id)));
+};
+const assertProjectAccess = (data, requestUser, projectId, worker = null) => {
+	const project = projectById(data, projectId);
+	if (!project) { const error = new Error('Chantier not found'); error.status = 404; throw error; }
+	if (project.status === 'archived') { const error = new Error('This chantier is archived'); error.status = 400; throw error; }
+	const actorCanAccess = isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id);
+	const workerCanAccess = !worker || isOwnerRole(worker.role) || (worker.projectIds || []).includes(project.id);
+	if (!actorCanAccess || !workerCanAccess) { const error = new Error(`Le chantier sélectionné n’est pas accessible à ce travailleur: ${project.name}`); error.status = 403; throw error; }
+	return project;
+};
 const tokenIssuedBeforePasswordChange = (payload, user) => { const changedAt = changedAtSeconds(user.passwordChangedAt); return Boolean(changedAt && Number(payload.iat || 0) < changedAt); };
 const configuredMailFrom = () => {
 	const explicit = process.env.SMTP_FROM || process.env.SMTP_USER || process.env.BREVO_SENDER_EMAIL || process.env.MAIL_FROM;
@@ -220,7 +256,11 @@ async function auth(request, response, next) {
 		const data = await readData();
 		const user = data.users.find((item) => item.id === payload.sub);
 		if (!user || tokenIssuedBeforePasswordChange(payload, user)) return response.status(401).json({ error: 'Session expired. Please sign in again.' });
-		request.user = payload;
+		const profile = companyProfileForUser(data, user);
+		request.user = { ...payload, ...publicUser(user, profile), sub: user.id };
+		request.userRecord = user;
+		request.companyProfile = profile;
+		request.data = data;
 		next();
 	} catch { response.status(401).json({ error: 'Authentication required' }); }
 }
@@ -379,6 +419,20 @@ app.get('/api/siret/:siret', async (request, response) => {
 		response.status(error.status || 500).json({ error: error.message || 'Company lookup failed' });
 	}
 });
+app.get('/api/auth/identity-preview', async (request, response) => {
+	const data = await readData();
+	const identifier = String(request.query.identifier || request.query.email || '').trim();
+	const role = String(request.query.role || 'user');
+	const normalizedEmail = identifier.toLowerCase();
+	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
+	const user = isWorkerRole(role)
+		? (data.users || []).find((item) => item.email && item.email.toLowerCase() === normalizedEmail)
+		: (data.users || []).find((item) => (item.email && item.email.toLowerCase() === normalizedEmail) || (item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone));
+	if (!user || (isWorkerRole(role) && !isWorkerRole(user.role)) || (isOwnerRole(role) && !isOwnerRole(user.role))) return response.json({ matched: false, companyName: '', companyLogoUrl: '' });
+	if (isOwnerRole(role) && user.siret && cleanSiret(request.query.siret) && cleanSiret(user.siret) !== cleanSiret(request.query.siret)) return response.json({ matched: false, companyName: '', companyLogoUrl: '' });
+	const profile = companyProfileForUser(data, user);
+	response.json({ matched: true, companyName: profile.name || user.company || user.employerCompany || '', companyLogoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), role: user.role });
+});
 const createPasswordSetupUrl = (data, userId) => {
 	const token = crypto.randomBytes(32).toString('hex');
 	const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
@@ -388,18 +442,21 @@ const createPasswordSetupUrl = (data, userId) => {
 app.post('/api/auth/login', async (request, response) => {
 	const data = await readData();
 	const identifier = String(request.body.phone || request.body.email || '').trim();
+	const requestedRole = String(request.body.role || 'user');
 	const normalizedPhone = identifier.replace(/[\s()-]/g, '');
-	const user = data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
-	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: 'Invalid phone or password' });
-	const requestedRole = String(request.body.role || user.role || 'user');
+	const user = isWorkerRole(requestedRole)
+		? data.users.find((item) => item.email && item.email.toLowerCase() === identifier.toLowerCase())
+		: data.users.find((item) => item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone) || data.users.find((item) => item.email === identifier.toLowerCase());
+	if (!user || !(await bcrypt.compare(String(request.body.password || ''), user.passwordHash))) return response.status(401).json({ error: isWorkerRole(requestedRole) ? 'Invalid email or password' : 'Invalid phone or password' });
 	if (requestedRole === 'gerant') {
 		if (!isOwnerRole(user.role)) return response.status(403).json({ error: 'SIRET owner access only' });
-		if (user.siret && cleanSiret(user.siret) !== cleanSiret(request.body.siret)) return response.status(403).json({ error: 'Invalid SIRET for this owner account' });
+		if (!user.siret || cleanSiret(user.siret) !== cleanSiret(request.body.siret)) return response.status(403).json({ error: 'Invalid SIRET for this owner account' });
 	} else if (isWorkerRole(requestedRole) && !isWorkerRole(user.role)) {
 		return response.status(403).json({ error: 'Selected profile does not match this account' });
 	}
-	const token = issueAuthToken(user);
-	response.json({ token, user: publicUser(user) });
+	const profile = companyProfileForUser(data, user);
+	const token = issueAuthToken(user, profile);
+	response.json({ token, user: publicUser(user, profile) });
 });
 app.post('/api/auth/register', async (request, response) => {
 	const data = await readData();
@@ -429,7 +486,7 @@ app.post('/api/auth/register', async (request, response) => {
 	if (data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
 	if (existingUser) return response.status(409).json({ error: 'User already exists' });
 	if (requestedPassword.length < 10) return response.status(400).json({ error: 'Password must be at least 10 characters' });
-	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: companyInfo.siret, siren: companyInfo.siren, company: manualCompany || companyInfo.name, companyRegistryName: companyInfo.name, companyAddress: companyInfo.address, projectIds: ['lot-a'], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(requestedPassword, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const user = { id: `user-${Date.now()}`, name, email, phone, role, siret: companyInfo.siret, siren: companyInfo.siren, company: manualCompany || companyInfo.name, companyRegistryName: companyInfo.name, companyAddress: companyInfo.address, projectIds: [], dailyRate: 0, hourlyRate: 0, passwordHash: await bcrypt.hash(requestedPassword, 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
 	data.users.push(user); await writeData(data);
 	response.status(201).json({ message: 'Owner account created with chosen password', email: email || null, phone: phone || null, role, delivery: 'password-set' });
 });
@@ -457,13 +514,55 @@ app.post('/api/auth/change-password', auth, async (request, response) => {
 	if (newPassword.length < 10) return response.status(400).json({ error: 'New password must be at least 10 characters' });
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	if (!user || !(await bcrypt.compare(currentPassword, user.passwordHash))) return response.status(401).json({ error: 'Current password is incorrect' });
-	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); response.json({ message: 'Password changed', token: issueAuthToken(user), user: publicUser(user) });
+	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); const profile = companyProfileForUser(data, user); response.json({ message: 'Password changed', token: issueAuthToken(user, profile), user: publicUser(user, profile) });
 });
-app.get('/api/me', auth, (request, response) => response.json({ user: request.user }));
-app.get('/api/users', auth, manager, async (_request, response) => response.json((await readData()).users.map(({ passwordHash, ...user }) => user)));
+app.get('/api/me', auth, (request, response) => response.json({ user: publicUser(request.userRecord, request.companyProfile), company: publicCompanyProfile(request.companyProfile) }));
+app.get('/api/users', auth, manager, async (request, response) => { const data = await readData(); response.json(data.users.map((user) => publicUser(user, companyProfileForUser(data, user)))); });
 app.get('/api/contacts', auth, async (request, response) => {
 	const data = await readData(); const financialView = isOwnerRole(request.user.role);
-	response.json(data.users.map(({ passwordHash, dailyRate, hourlyRate, ...user }) => ({ ...user, ...(financialView ? { dailyRate, hourlyRate } : {}) })));
+	response.json(data.users.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), ...(financialView ? { dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 } : {}) })));
+});
+app.get('/api/company/profile', auth, async (request, response) => response.json(publicCompanyProfile(companyProfileForUser(await readData(), request.userRecord))));
+app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'), async (request, response) => {
+	const data = request.data || await readData();
+	const owner = data.users.find((user) => user.id === request.user.sub) || request.userRecord;
+	const existing = companyProfileForUser(data, owner);
+	const name = String(request.body.name ?? existing.name ?? owner?.company ?? '').trim();
+	if (!name) return response.status(400).json({ error: 'Company name is required' });
+	const removeLogo = String(request.body.removeLogo || '').toLowerCase() === 'true';
+	if (removeLogo && existing.logoFile) await fs.unlink(path.join(identityUploadDir, existing.logoFile)).catch(() => {});
+	if (request.file && existing.logoFile && existing.logoFile !== request.file.filename) await fs.unlink(path.join(identityUploadDir, existing.logoFile)).catch(() => {});
+	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	data.companyProfiles = [...(data.companyProfiles || []).filter((item) => item.key !== profile.key), profile];
+	data.users = data.users.map((user) => {
+		if (companyKeyForUser(companyOwnerForUser(data, user) || user) !== profile.key) return user;
+		return isOwnerRole(user.role) ? { ...user, company: name } : { ...user, employerCompany: name, company: name };
+	});
+	await writeData(data);
+	response.json(publicCompanyProfile(profile));
+});
+app.post('/api/users/:id/avatar', auth, manager, identityUploadMiddleware('avatar'), async (request, response) => {
+	const data = request.data || await readData();
+	const target = data.users.find((user) => user.id === request.params.id);
+	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
+	if (request.user.role !== 'admin' && companyKeyForUser(companyOwnerForUser(data, target) || target) !== companyKeyForUser(companyOwnerForUser(data, request.userRecord) || request.userRecord)) return response.status(403).json({ error: 'Access denied for this worker' });
+	if (!request.file) return response.status(400).json({ error: 'Photo du travailleur requise' });
+	if (target.avatarFile) await fs.unlink(path.join(identityUploadDir, target.avatarFile)).catch(() => {});
+	target.avatarFile = request.file.filename;
+	target.avatarUrl = identityFileUrl(target.avatarFile);
+	await writeData(data);
+	response.json({ avatarUrl: target.avatarUrl });
+});
+app.delete('/api/users/:id/avatar', auth, manager, async (request, response) => {
+	const data = request.data || await readData();
+	const target = data.users.find((user) => user.id === request.params.id);
+	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
+	if (request.user.role !== 'admin' && companyKeyForUser(companyOwnerForUser(data, target) || target) !== companyKeyForUser(companyOwnerForUser(data, request.userRecord) || request.userRecord)) return response.status(403).json({ error: 'Access denied for this worker' });
+	if (target.avatarFile) await fs.unlink(path.join(identityUploadDir, target.avatarFile)).catch(() => {});
+	target.avatarFile = '';
+	target.avatarUrl = '';
+	await writeData(data);
+	response.json({ avatarUrl: '' });
 });
 app.post('/api/users', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -477,7 +576,8 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const siret = String(request.body.siret || '').trim(); const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const company = String(request.body.company || '').trim();
-	if (!name || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany))) return response.status(400).json({ error: 'Name, email, and company/SIRET details are required' });
+	const selectedProjectIds = role === 'user' ? normalizeProjectIds(request.body.projectIds, data.projects) : (data.projects || []).map((project) => project.id);
+	if (!name || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany || !selectedProjectIds.length))) return response.status(400).json({ error: 'Name, email, company/SIRET details, and at least one chantier are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	if (role === 'gerant' && data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
 	let companyInfo = null;
@@ -485,9 +585,10 @@ app.post('/api/users', auth, manager, async (request, response) => {
 		try { companyInfo = await resolveCompanyFromSiret(siret); }
 		catch { companyInfo = { name: company, siren: cleanSiret(siret).slice(0, 9), siret: cleanSiret(siret), address: '' }; }
 	}
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? companyInfo.siret : '', siren: role === 'gerant' ? companyInfo.siren : '', company: role === 'gerant' ? company : ownerCompany, companyRegistryName: role === 'gerant' ? companyInfo.name : '', companyAddress: role === 'gerant' ? companyInfo.address : '', employerSiret: role === 'user' ? ownerSiret : '', employerCompany: role === 'user' ? ownerCompany : '', invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod, role, siret: role === 'gerant' ? companyInfo.siret : '', siren: role === 'gerant' ? companyInfo.siren : '', company: role === 'gerant' ? company : ownerCompany, companyRegistryName: role === 'gerant' ? companyInfo.name : '', companyAddress: role === 'gerant' ? companyInfo.address : '', employerSiret: role === 'user' ? ownerSiret : '', employerCompany: role === 'user' ? ownerCompany : '', invitedBy: request.user.sub, projectIds: selectedProjectIds, dailyRate: Number(request.body.dailyRate || 0), hourlyRate: Number(request.body.hourlyRate || 0), passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
 	const setupUrl = createPasswordSetupUrl(data, user.id);
-	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt pour ${user.employerCompany || user.company}.\nSIRET: ${user.employerSiret || user.siret || 'N/A'}\nIdentifiant : ${email || phone}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nCe lien est valable 7 jours.`;
+	const assignedProjectNames = selectedProjectIds.map((projectId) => (data.projects || []).find((project) => project.id === projectId)?.name || projectId).join(', ');
+	const credentialsText = `Bonjour ${name},\n\nVotre compte IBRA-BA est prêt pour ${user.employerCompany || user.company}.\nSIRET: ${user.employerSiret || user.siret || 'N/A'}\nChantiers attribués: ${assignedProjectNames || 'N/A'}\nIdentifiant : ${email || phone}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nCe lien est valable 7 jours.`;
 	let delivery = 'manual';
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
 	if (!mailResult.skipped) delivery = 'email';
@@ -507,11 +608,13 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const dailyRate = Number(request.body.dailyRate || 0);
 	const hourlyRate = Number(request.body.hourlyRate || 0);
-	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, daily rate, and hourly rate are required' });
+	const selectedProjectIds = normalizeProjectIds(request.body.projectIds, data.projects);
+	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || !selectedProjectIds.length || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, at least one chantier, daily rate, and hourly rate are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
-	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: (data.projects || []).map((project) => project.id), dailyRate, hourlyRate, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
+	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: selectedProjectIds, dailyRate, hourlyRate, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
 	const setupUrl = createPasswordSetupUrl(data, user.id);
-	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nIdentifiant : ${email}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nVous pourrez ensuite saisir vos jours de travail et vos rendez-vous/absences. Ce lien est valable 7 jours.`;
+	const assignedProjectNames = selectedProjectIds.map((projectId) => (data.projects || []).find((project) => project.id === projectId)?.name || projectId).join(', ');
+	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nChantiers attribués: ${assignedProjectNames}\nIdentifiant : ${email}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nVous pourrez ensuite saisir vos jours de travail et vos rendez-vous/absences. Ce lien est valable 7 jours.`;
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - invitation ouvrier', text: credentialsText });
 	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 	data.users.push(user);
@@ -523,6 +626,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (user.id === request.user.sub) return response.status(400).json({ error: 'Edit your own account through the account flow' });
 	const name = String(request.body.name ?? user.name).trim();
 	const contact = String(request.body.contact || '').trim();
 	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(request.body.email ?? user.email ?? '').trim().toLowerCase();
@@ -530,15 +634,75 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	if (!name || (!email && !phone)) return response.status(400).json({ error: 'Name and phone or email are required' });
 	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	const isWorker = isWorkerRole(user.role);
+	const hasProjectAssignment = request.body.projectIds !== undefined;
+	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, data.projects) : (user.projectIds || []);
+	const dailyRate = request.body.dailyRate === undefined ? user.dailyRate : Number(request.body.dailyRate);
+	const hourlyRate = request.body.hourlyRate === undefined ? user.hourlyRate : Number(request.body.hourlyRate);
+	if (!Number.isFinite(dailyRate) || dailyRate < 0 || !Number.isFinite(hourlyRate) || hourlyRate < 0) return response.status(400).json({ error: 'Rates must be non-negative numbers' });
 	user.name = name;
 	user.email = email;
 	user.phone = phone;
-	if (request.body.dailyRate !== undefined) user.dailyRate = Number(request.body.dailyRate || 0);
-	if (request.body.hourlyRate !== undefined) user.hourlyRate = Number(request.body.hourlyRate || 0);
+	user.dailyRate = dailyRate;
+	user.hourlyRate = hourlyRate;
+	if (isWorker && hasProjectAssignment) user.projectIds = projectIds;
 	data.timeEntries = (data.timeEntries || []).map((entry) => entry.workerId === user.id ? { ...entry, workerName: user.name } : entry);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.json(safeUser);
+});
+app.post('/api/users/:id/password-reset', auth, manager, async (request, response) => {
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.params.id);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (user.id === request.user.sub) return response.status(400).json({ error: 'Use the account password flow for your own account' });
+	if (!user.email) return response.status(400).json({ error: 'This user has no email address for password reset' });
+	const setupUrl = createPasswordSetupUrl(data, user.id);
+	try {
+		const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - nouveau lien de mot de passe', text: `Bonjour ${user.name},\n\nUn nouveau lien de configuration de mot de passe a été demandé pour votre accès IBRA-BA :\n\n${setupUrl}\n\nCe lien est valable 7 jours.` });
+		if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
+		await writeData(data);
+		return response.json({ message: mailResult.skipped ? 'Reset link prepared for local testing.' : 'Reset link sent.', delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { setupUrl } : {}) });
+	} catch (error) {
+		return response.status(502).json({ error: error.message || 'Password reset delivery failed' });
+	}
+});
+app.get('/api/worker-assignments', auth, manager, async (request, response) => {
+	const data = await readData();
+	const managerUser = data.users.find((user) => user.id === request.user.sub) || request.userRecord;
+	const ownerUsers = (data.users || []).filter((user) => isOwnerRole(user.role));
+	const managerOwnsWorker = (worker) => {
+		if (request.user.role === 'admin') return true;
+		const owner = companyOwnerForUser(data, worker);
+		return owner?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
+	};
+	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const workers = (data.users || []).filter((user) => isWorkerRole(user.role) && managerOwnsWorker(user));
+	response.json({ workers: workers.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 })), projects, assignments: workers.map((user) => ({ userId: user.id, projectIds: user.projectIds || [] })) });
+});
+app.put('/api/worker-assignments', auth, manager, async (request, response) => {
+	const data = await readData();
+	const assignments = Array.isArray(request.body.assignments) ? request.body.assignments : null;
+	if (!assignments) return response.status(400).json({ error: 'Assignments must be an array' });
+	const managerUser = data.users.find((user) => user.id === request.user.sub) || request.userRecord;
+	const ownerUsers = (data.users || []).filter((user) => isOwnerRole(user.role));
+	const managerOwnsWorker = (worker) => request.user.role === 'admin' || companyOwnerForUser(data, worker)?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
+	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const availableIds = new Set(projects.map((project) => project.id));
+	const updateMap = new Map();
+	for (const assignment of assignments) {
+		const worker = data.users.find((user) => user.id === assignment?.userId);
+		if (!worker || !isWorkerRole(worker.role) || !managerOwnsWorker(worker)) return response.status(403).json({ error: 'Access denied for this worker' });
+		const requested = Array.isArray(assignment.projectIds) ? [...new Set(assignment.projectIds.map(String))] : [];
+		if (requested.some((projectId) => !availableIds.has(projectId))) return response.status(400).json({ error: 'One or more chantier assignments are invalid' });
+		updateMap.set(worker.id, requested);
+	}
+	for (const [workerId, projectIds] of updateMap) {
+		const worker = data.users.find((user) => user.id === workerId);
+		worker.projectIds = projectIds;
+	}
+	await writeData(data);
+	response.json({ assignments: [...updateMap].map(([userId, projectIds]) => ({ userId, projectIds })) });
 });
 app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	if (request.params.id === request.user.sub) return response.status(400).json({ error: 'You cannot remove your own active account' });
@@ -564,7 +728,11 @@ const defaultControlsForProject = (projectId) => [
 	{ id: `${projectId}-material-traceability`, projectId, name: 'Materijali, ugradnja i sledljivost', status: 'review', owner: 'Gérant' },
 	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Gérant' }
 ];
-app.get('/api/projects', auth, async (_request, response) => response.json((await readData()).projects));
+app.get('/api/projects', auth, async (request, response) => {
+	const projects = (await readData()).projects || [];
+	const visible = isOwnerRole(request.user.role) ? projects : projects.filter((project) => (request.user.projectIds || []).includes(project.id));
+	response.json(visible);
+});
 app.post('/api/projects', auth, manager, async (request, response) => {
 	const name = String(request.body.name || request.body.chantierName || '').trim();
 	if (!name) return response.status(400).json({ error: 'Chantier name is required' });
@@ -600,7 +768,9 @@ app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	response.json({ removed: true, id: project.id, name: project.name });
 });
 app.get('/api/projects/:id/schedule', auth, async (request, response) => {
-	const data = await readData(); const schedule = (data.projectSchedules || []).find((item) => item.projectId === request.params.id);
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const schedule = (data.projectSchedules || []).find((item) => item.projectId === request.params.id);
 	const delays = (data.projectDelays || []).filter((item) => item.projectId === request.params.id);
 	const delayDays = delays.reduce((sum, item) => sum + Number(item.days || 0), 0);
 	const plannedEnd = schedule?.plannedEndDate ? new Date(`${schedule.plannedEndDate}T00:00:00Z`) : null;
@@ -608,19 +778,24 @@ app.get('/api/projects/:id/schedule', auth, async (request, response) => {
 	response.json({ ...(schedule || { projectId: request.params.id }), delayDays, adjustedEndDate: adjustedEnd, delays });
 });
 app.post('/api/projects/:id/schedule', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const startDate = String(request.body.startDate || '').trim(); const plannedEndDate = String(request.body.plannedEndDate || '').trim();
 	if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(plannedEndDate) || new Date(`${plannedEndDate}T00:00:00`) < new Date(`${startDate}T00:00:00`)) return response.status(400).json({ error: 'Valid start and planned end dates are required' });
-	const data = await readData(); const schedule = { projectId: request.params.id, startDate, plannedEndDate, updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	const schedule = { projectId: request.params.id, startDate, plannedEndDate, updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectSchedules = [...(data.projectSchedules || []).filter((item) => item.projectId !== request.params.id), schedule]; await writeData(data); response.status(201).json(schedule);
 });
 app.post('/api/projects/:id/delays', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const days = Number(request.body.days || 0); const reason = String(request.body.reason || '').trim();
 	if (!Number.isFinite(days) || days <= 0 || !['weather', 'materials', 'client', 'technical', 'other'].includes(request.body.category) || !reason) return response.status(400).json({ error: 'Delay category, positive days, and reason are required' });
-	const data = await readData(); const delay = { id: `delay-${Date.now()}`, projectId: request.params.id, category: request.body.category, days, reason, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const delay = { id: `delay-${Date.now()}`, projectId: request.params.id, category: request.body.category, days, reason, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.projectDelays = [...(data.projectDelays || []), delay]; await writeData(data); response.status(201).json(delay);
 });
 app.get('/api/projects/:id/budget', auth, async (request, response) => {
 	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const budget = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	response.json(budget || { projectId: request.params.id, status: 'missing', total: 0, spent: 0, remaining: 0 });
 });
@@ -691,6 +866,7 @@ app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), async (request, 
 });
 app.get('/api/projects/:id/financial-summary', auth, async (request, response) => {
 	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const budget = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	const purchases = (data.purchases || []).filter((item) => item.projectId === request.params.id);
 	const approvedHours = (data.timeEntries || []).filter((item) => item.projectId === request.params.id && item.status === 'approved');
@@ -706,11 +882,12 @@ app.get('/api/projects/:id/financial-summary', auth, async (request, response) =
 	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
 });
 app.post('/api/projects/:id/labor-costs', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const month = String(request.body.month || '');
 	const amount = Number(request.body.amount || 0);
 	const description = String(request.body.description || '').trim();
 	if (!/^\d{4}-\d{2}$/.test(month) || !Number.isFinite(amount) || amount < 0) return response.status(400).json({ error: 'Month and a non-negative final worker amount are required' });
-	const data = await readData();
 	const existing = (data.projectLaborCosts || []).find((item) => item.projectId === request.params.id && item.month === month);
 	const laborCost = { id: existing?.id || `labor-cost-${Date.now()}`, projectId: request.params.id, month, amount, description, status: 'final', enteredBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectLaborCosts = [...(data.projectLaborCosts || []).filter((item) => item.id !== existing?.id), laborCost];
@@ -723,20 +900,27 @@ app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async
 	const total = Number(request.body.total || 0);
 	if (!Number.isFinite(total) || total <= 0) return response.status(400).json({ error: 'Devis total is required' });
 	const data = await readData();
+	let context;
+	try { assertProjectAccess(data, request.user, request.params.id); context = projectContextFor(data, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const existing = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	if (existing && existing.devisNumber && String(request.body.devisNumber || '') !== existing.devisNumber && request.body.replaceExisting !== 'true') return response.status(409).json({ error: 'An active Devis already exists. Confirm replacement explicitly.' });
-	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, chantierName: String(request.body.chantierName || ''), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile: request.file.filename, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, projectName: context.projectName, chantierName: String(request.body.chantierName || context.projectName), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile: request.file.filename, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectBudgets = [...(data.projectBudgets || []).filter((item) => item.projectId !== request.params.id), budget];
 	await writeData(data); response.status(201).json(budget);
 });
-app.get('/api/purchases', auth, async (_request, response) => response.json((await readData()).purchases || []));
+app.get('/api/purchases', auth, async (request, response) => {
+	const data = await readData();
+	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
+});
 app.post('/api/purchases', auth, manager, upload.single('invoice'), async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A purchase invoice PDF is required' });
 	const amount = Number(request.body.amount || 0);
 	const category = String(request.body.category || 'other');
 	if (!request.body.projectId || !request.body.supplier || !request.body.description || !Number.isFinite(amount) || amount <= 0 || !['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'].includes(category)) return response.status(400).json({ error: 'Purchase fields are incomplete' });
 	const data = await readData();
-	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile: request.file.filename, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	let context;
+	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile: request.file.filename, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
@@ -762,51 +946,97 @@ app.patch('/api/chantier-controls/:id', auth, async (request, response) => {
 	await writeData(data); response.json(control);
 });
 app.get('/api/projects/:id/control-history', auth, async (request, response) => {
-	const data = await readData(); response.json((data.controlHistory || []).filter((item) => item.projectId === request.params.id));
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	response.json((data.controlHistory || []).filter((item) => item.projectId === request.params.id));
 });
-app.get('/api/messages', auth, async (request, response) => response.json((await readData()).messages.filter((item) => item.senderId === request.user.sub || item.recipientId === request.user.sub)));
+app.get('/api/messages', auth, async (request, response) => {
+	const data = await readData();
+	response.json((data.messages || []).filter((item) => (item.senderId === request.user.sub || item.recipientId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+});
 app.post('/api/messages', auth, async (request, response) => {
 	const data = await readData(); const text = String(request.body.text || '').trim();
 	if (!text || !request.body.recipientId || !request.body.projectId) return response.status(400).json({ error: 'Message fields required' });
 	const recipient = data.users.find((item) => item.id === request.body.recipientId); if (!recipient) return response.status(404).json({ error: 'Recipient not found' });
-	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, text, createdAt: new Date().toISOString(), read: false };
+	let context;
+	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(request.body.projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
 	data.messages.push(message); await writeData(data);
 	const mailResult = recipient.email ? await sendMailSafe({ to: recipient.email, subject: `IBRA-BA - nouvelle message de ${request.user.name}`, text: `Bonjour ${recipient.name},\n\n${request.user.name} vous a envoyé un message dans IBRA-BA :\n\n${text}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'http://localhost:3000'} pour répondre.` }) : { skipped: true };
 	response.status(201).json({ ...message, emailStatus: mailResult.skipped ? 'not-sent' : 'sent' });
 });
+const dateOnlyTimestamp = (value) => {
+	const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+	if (!match) return Number.NaN;
+	const timestamp = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]));
+	return new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : Number.NaN;
+};
+const resolveRendezvousOwner = (data, worker) => {
+	if (!worker) return null;
+	const invitedOwner = data.users.find((user) => user.id === worker.invitedBy && isOwnerRole(user.role));
+	if (invitedOwner) return invitedOwner;
+	const employerSiret = cleanSiret(worker.employerSiret);
+	return employerSiret ? data.users.find((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === employerSiret) || null : null;
+};
 app.get('/api/rendezvous', auth, async (request, response) => {
-	const data = await readData(); const canSeeAll = isOwnerRole(request.user.role); const projectIds = request.user.projectIds || [];
-	response.json((data.rendezvous || []).filter((item) => canSeeAll || projectIds.includes(item.projectId)));
+	const data = await readData(); const canSeeAll = isOwnerRole(request.user.role);
+	response.json((data.rendezvous || []).filter((item) => (canSeeAll || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
-	const absenceDate = String(request.body.absenceDate || request.body.date || '');
-	const date = String(request.body.date || absenceDate);
-	const days = Math.ceil((new Date(`${absenceDate}T00:00:00`) - new Date()) / 86400000);
-	if (!request.body.projectId || !request.body.time || !request.body.reason || !/^\d{4}-\d{2}-\d{2}$/.test(absenceDate) || days < 3) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
+	const absenceDate = String(request.body.absenceDate || request.body.date || '').trim();
+	const date = String(request.body.date || absenceDate).trim();
+	const time = String(request.body.time || '').trim();
+	const reason = String(request.body.reason || '').trim();
+	const todayTimestamp = dateOnlyTimestamp(new Date().toISOString().slice(0, 10));
+	const absenceTimestamp = dateOnlyTimestamp(absenceDate);
+	const dateTimestamp = dateOnlyTimestamp(date);
+	const days = Number.isFinite(absenceTimestamp) && Number.isFinite(todayTimestamp) ? Math.floor((absenceTimestamp - todayTimestamp) / 86400000) : -1;
+	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || days < 3) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
 	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const data = await readData(); const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, workerId: request.user.sub, workerName: request.user.name, date, time: request.body.time, absenceDate, reason: request.body.reason, createdAt: new Date().toISOString() };
+	const data = await readData();
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	if (!worker) return response.status(404).json({ error: 'Worker account not found' });
+	let context;
+	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const owner = resolveRendezvousOwner(data, worker);
+	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, ownerId: owner?.id || null, emailStatus: owner?.email ? 'pending' : 'not-sent', createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
-	const recipients = data.users.filter((user) => (user.projectIds || []).includes(request.body.projectId));
-	const notificationText = `Absence/RDV ${absenceDate} à ${request.body.time} | ${request.body.reason}`;
-	data.messages = [...(data.messages || []), ...recipients.map((recipient) => ({ id: `notification-${Date.now()}-${recipient.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }))];
+	const notificationText = `Absence/RDV ${absenceDate} à ${time} | ${reason}`;
+	data.messages = [...(data.messages || []), ...(owner ? [{ id: `notification-${Date.now()}-${owner.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: owner.id, recipientName: owner.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }] : [])];
 	await writeData(data);
 	const project = (data.projects || []).find((entry) => entry.id === request.body.projectId);
-	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email);
-	const mailResults = await Promise.allSettled(managers.map((owner) => sendMailSafe({
-		to: owner.email,
-		subject: `IBRA-BA - absence/RDV ${request.user.name}`,
-		text: `Bonjour ${owner.name},\n\n${request.user.name} a déclaré qu'il ne viendra pas travailler.\nChantier: ${project?.name || request.body.projectId}\nAbsence/RDV: ${absenceDate} à ${request.body.time}\nPréavis: ${days} jour(s)\nMotif: ${request.body.reason}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'https://ibra-ba.net'} pour vérifier.`
-	})));
-	response.status(201).json({ ...item, emailStatus: mailResults.some((result) => result.status === 'fulfilled' && !result.value.skipped) ? 'sent' : 'not-sent' });
+	let emailStatus = 'not-sent';
+	if (owner?.email) {
+		try {
+			const mailResult = await sendMailSafe({
+				to: owner.email,
+				subject: `IBRA-BA - absence/RDV ${worker.name}`,
+				text: `Bonjour ${owner.name},\n\n${worker.name} a déclaré qu'il ne viendra pas travailler.\nChantier: ${project?.name || request.body.projectId}\nAbsence/RDV: ${absenceDate} à ${time}\nPréavis: ${days} jour(s)\nMotif: ${reason}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'https://ibra-ba.net'} pour vérifier.`
+			});
+			emailStatus = mailResult.skipped ? 'not-sent' : 'sent';
+		} catch (error) {
+			console.error('Rendezvous owner notification failed:', error.message);
+			emailStatus = 'failed';
+		}
+	}
+	item.emailStatus = emailStatus;
+	item.notifiedAt = emailStatus === 'sent' ? new Date().toISOString() : undefined;
+	try { await writeData(data); } catch (error) { console.error('Rendezvous status persistence failed:', error.message); }
+	response.status(201).json({ ...item, emailStatus });
 });
-app.get('/api/time-entries', auth, async (request, response) => response.json((await readData()).timeEntries.filter((item) => isOwnerRole(request.user.role) || item.workerId === request.user.sub)));
+app.get('/api/time-entries', auth, async (request, response) => {
+	const data = await readData();
+	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+});
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
 	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = isOwnerRole(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
+	let context;
+	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
-	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
+	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
@@ -881,14 +1111,16 @@ app.patch('/api/payout-requests/:id/status', auth, manager, async (request, resp
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
 });
 app.get('/api/work-reports', auth, async (request, response) => {
-	const data = await readData(); const managerView = isOwnerRole(request.user.role); const projectIds = request.user.projectIds || [];
-	const reports = (data.workReports || []).filter((item) => managerView ? projectIds.includes(item.projectId) || isOwnerRole(request.user.role) : item.workerId === request.user.sub && projectIds.includes(item.projectId)); const financialView = isOwnerRole(request.user.role);
+	const data = await readData(); const managerView = isOwnerRole(request.user.role);
+	const reports = (data.workReports || []).filter((item) => (managerView || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)); const financialView = isOwnerRole(request.user.role);
 	response.json(financialView ? reports : reports.map(({ unitRate: _unitRate, calculatedAmount: _calculatedAmount, ...report }) => report));
 });
 app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
 	if (!request.file || !request.file.mimetype.startsWith('image/')) return response.status(400).json({ error: 'A work photo is required' });
 	const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2';
-	const projectId = String(request.body.projectId || 'lot-a');
+	const projectId = String(request.body.projectId || '');
+	const projectData = await readData();
+	try { assertProjectAccess(projectData, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const base64Image = request.file.buffer.toString('base64');
 	const parseEstimate = (text) => {
 		try { return JSON.parse(String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return {}; }
@@ -950,7 +1182,10 @@ For m² use visible height x width of executed work. For ml use visible linear l
 app.post('/api/work-reports', auth, upload.single('photo'), async (request, response) => {
 	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const date = String(request.body.date || ''); const capturedAt = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitude = Number(request.body.latitude); const longitude = Number(request.body.longitude); const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
 	if (!projectId || !request.file || !request.file.mimetype.startsWith('image/') || !description || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAt) || !locationName || !Number.isFinite(latitude) || latitude < -90 || latitude > 90 || !Number.isFinite(longitude) || longitude < -180 || longitude > 180 || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitRate) || unitRate < 0) return response.status(400).json({ error: 'Photo, date, time, location, description, AI quantity estimate, and unit rate are required' });
-	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub); const report = { id: `work-report-${Date.now()}`, projectId, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile: request.file.filename, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
+	let context;
+	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, user); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile: request.file.filename, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
@@ -958,12 +1193,18 @@ app.patch('/api/work-reports/:id/status', auth, manager, async (request, respons
 	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
 });
 app.get('/api/projects/:id/situation-summary', auth, async (request, response) => {
-	const data = await readData(); const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
 app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });
 	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
 	const evidenceType = request.body.evidenceType || 'other';
+	const projectId = String(request.body.projectId || '');
+	const data = await readData();
+	let context;
+	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { await fs.unlink(path.join(uploadDir, request.file.filename)).catch(() => {}); return response.status(error.status || 500).json({ error: error.message }); }
 	let autoAnalysis = null;
 	if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
 		const buffer = await fs.readFile(path.join(uploadDir, request.file.filename));
@@ -984,7 +1225,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 	}
-	const data = await readData(); const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId: request.body.projectId || 'lot-a', evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName: request.file.filename, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
@@ -1011,12 +1252,14 @@ app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 });
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
-	const projectId = String(request.body.projectId || 'lot-a');
+	const projectId = String(request.body.projectId || '').trim();
 	const responseLanguage = ['sr', 'bs', 'fr'].includes(request.body.responseLanguage) ? request.body.responseLanguage : 'sr';
 	if (!question) return response.status(400).json({ error: 'A technical question is required' });
+	if (!projectId) return response.status(400).json({ error: 'A chantier is required' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
 	const data = await readData();
+	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
 	const sourceVersion = crypto.createHash('sha256').update(documents.map((item) => `${item.id}:${item.updatedAt || item.uploadedAt || ''}`).join('|')).digest('hex');
 	const cacheKey = answerCacheKey(request.user.sub, projectId, question, sourceVersion);
@@ -1077,21 +1320,25 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Gerant-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
-	const data = await readData(); const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
+	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
 	for (const document of documents) { try { const buffer = await fs.readFile(path.join(uploadDir, document.storedName)); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
 	if (!sources.length) return response.json({ status: 'no_source', steps: [], answer: 'Nije pronađen plan ili fiche technique PDF. Redosled radova ne može biti određen.', sources: [], requiresHumanConfirmation: true });
 	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
 });
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
-	const documents = data.documents.filter((item) => item.projectId === request.params.id && item.uploadedBy === request.user.sub);
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && item.uploadedBy === request.user.sub);
 	const required = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 	const present = required.filter((type) => documents.some((item) => item.evidenceType === type));
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
 });
 await fs.mkdir(persistentRoot, { recursive: true });
 await fs.mkdir(uploadDir, { recursive: true });
+await fs.mkdir(identityUploadDir, { recursive: true });
 if (persistentRoot !== root) {
 	const seedDataPath = path.join(root, 'data.json'); const seedUploadDir = path.join(root, 'uploads');
 	try { await fs.access(dataPath); } catch { await fs.copyFile(seedDataPath, dataPath); }

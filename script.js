@@ -17,7 +17,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	new MutationObserver(syncAuthModalState).observe(loginModal, { attributes: true, attributeFilter: ['class'] });
 	syncAuthModalState();
 	const ownerRoles = ['admin', 'gerant', 'manager'];
+	const workerRoles = ['user', 'worker'];
 	const isOwner = (role = currentUser?.role) => ownerRoles.includes(role);
+	const isWorkerRole = (role) => workerRoles.includes(role);
 	const toast = (message) => { const french = { 'Korisnik je dodat.': 'Utilisateur enregistré.', 'Poruka je sačuvana.': 'Message enregistré.', 'Radno vreme je sačuvano.': 'Temps de travail enregistré.', 'Radno vreme nije sačuvano.': 'Temps de travail non enregistré.', 'Korisnik nije dodat.': 'Utilisateur non enregistré.', 'Trošak nije sačuvan.': 'Dépense non enregistrée.', 'Devis nije sačuvan.': 'Devis non enregistré.', 'Devis i budžet su sačuvani.': 'Devis et budget enregistrés.' }; const translated = french[message] || String(message).replace('Dokument je obrisan.', 'Document supprimé.').replace('Dokument je preimenovan.', 'Document renommé.').replace('Kopija dokumenta je dodata.', 'Copie du document ajoutée.'); const el = document.querySelector('#toast'); el.textContent = translated; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
 	const formatEUR = (value) => new Intl.NumberFormat('sr-Latn-RS', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
 	const translations = { 'Dashboard':'Tableau de bord','Devis':'Devis','Nabavke':'Achats','Chantier kontrole':'Contrôles chantier','RGE / QUALIBAT':'RGE / QUALIBAT','Dokumenti i slike':'Documents et photos','Zadaci i komunikacija':'Tâches et communication','Korisnici':'Utilisateurs','Dokazni paket':'Dossier de preuves','Odjava':'Déconnexion','Kontrola pravilnog izvođenja radova':'Contrôle de la bonne exécution des travaux','Plan, fiche technique, fotografije i potvrda Gerant-a u jednom toku.':'Plan, fiche technique, photos et validation du Gerant dans un seul parcours.','Otvorene kontrole':'Contrôles ouverts','Radno vreme':'Temps de travail','Trošak rada ovog meseca':'Coût du travail ce mois-ci','Preostali budžet':'Budget restant','Materijal, alat i mašine':'Matériaux, outils et machines','Radnici':'Travailleurs','Sous-traitance':'Sous-traitance','Nema Devis-a':'Aucun devis','Bez kašnjenja':'Aucun retard','Début de travaux i rok':'Début des travaux et délai','Début de travaux: nije unet':'Début des travaux : non renseigné','Planirani rok: nije unet · Prilagođeni rok: nije izračunat':'Échéance prévue : non renseignée · Échéance ajustée : non calculée','Chantier kontrole':'Contrôles chantier','Dokumenti i slike':'Documents et photos','AIDE RGE / QUALIBAT':'AIDE RGE / QUALIBAT','ITE - znanje, kontrole i odgovori':'ITE - connaissances, contrôles et réponses','Za učenje i chantier provjeru':'Pour apprendre et contrôler le chantier','Pretraga pitanja i odgovora':'Recherche questions/réponses',"Traži po riječi, npr. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov":"Rechercher par mot-clé, ex. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov",'Upiši pojam...':'Saisir un terme...','RGE kontrolna lista':'Liste de contrôle RGE','Kompletno znanje po temama':'Connaissance complète par thèmes','Francuski tehnički termini su ostavljeni da odgovaraju RGE/QUALIBAT dokumentaciji.':'Les termes techniques français sont conservés pour correspondre à la documentation RGE/QUALIBAT.' };
@@ -42,7 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	const translateRuntimeText = () => { if (language !== 'fr') return; const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => { let text = node.nodeValue; Object.entries(runtimeFrench).forEach(([source, target]) => { text = text.split(source).join(target); }); if (text !== node.nodeValue) node.nodeValue = text; }); };
 	const encodingRepairs = [['Cat?gorie','Catégorie'],['cat?gorie','catégorie'],['ext?rieur','extérieur'],['?nerg?tique','énergétique'],['continuit?','continuité'],['r?duction','réduction'],['qualit?','qualité'],['contr?le','contrôle'],['contr?les','contrôles'],['?uvre','œuvre'],['r?ception','réception'],['conductivit?','conductivité'],['r?sistance','résistance'],['?lev?','élevé'],['cr?er','créer'],['ventil?','ventilé'],['diff?rents','différents'],['?tre','être'],['r?solique','résolique'],['min?rale','minérale'],['li?ge','liège'],['d?pend','dépend'],['humidit?','humidité'],['r?fl?chissants','réfléchissants'],['?pais','épais'],['compl?ment','complément'],['ferm?','fermé'],['?tanch?it?','étanchéité'],['entr?es','entrées'],['pi?ces','pièces'],['concern?es','concernées'],['s?jour','séjour'],['?l?ments','éléments'],['chauff?s','chauffés'],['D?but','Début'],['d?but','début'],['?ch?ance','Échéance'],['renseign?e','renseignée'],['renseign?','renseigné'],['ajust?e','ajustée'],['ajust?','ajusté'],['calcul?e','calculée'],['calcul?','calculé'],['D?clarer','Déclarer'],['Cat?gorie','Catégorie'],['M?t?o','Météo'],['enregistr?','enregistré'],['sa?uvan','sačuvan'],['s?uvan','sačuvan'],['potro?eno','potrošeno'],['Obri?i','Obriši'],['S?lectionnez','Sélectionnez'],['l?enregistrement','l’enregistrement'],['Tra?im','Tražim'],['prona?ena','pronađena'],['ru?no','ručno'],['? l\'','à l\''],['m?t?','mété'],['m?tallique','métallique'],['m?tal','métal'],['n?cessaire','nécessaire'],['r?glementation','réglementation'],['r?gles','règles'],['s?curit?','sécurité'],['v?rifier','vérifier'],['v?rifi?','vérifié'],['d?grad?','dégradé'],['d?tails','détails'],['? cause','à cause'],['? partir','À partir'],['?ligible','éligible'],['R?novation','Rénovation'],['R?ception','Réception'],['probl?me','problème'],['obligatoire','obligatoire']];
 	const repairEncoding = () => { const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => { let text = node.nodeValue; encodingRepairs.forEach(([source, target]) => { text = text.split(source).join(target); }); if (text !== node.nodeValue) node.nodeValue = text; }); };
-	let language = localStorage.getItem('ibra-language') || 'sr';
+	Object.assign(runtimeFrench, { 'Obracun ovog unosa:': 'Calcul de cette saisie :', 'Unesite datum, satnicu/dnevnicu, pocetak, kraj i pauzu.': 'Saisissez la date, le tarif, le début, la fin et la pause.', 'Kalendar radnih dana se ucitava...': 'Chargement du calendrier des jours travaillés…', 'Radnik / ouvrier': 'Travailleur', 'Creer un chantier u Devis sekciji': 'Créez un chantier depuis Devis', 'Creer un chantier dans Devis': 'Créer un chantier dans Devis', 'Tip cene': 'Type de tarif', 'Cena rada EUR': 'Tarif de travail EUR', 'Dodaj radnika': 'Ajouter un travailleur', 'Nom et prenom': 'Nom et prénom', 'Email radnika': 'E-mail du travailleur', 'Dnevnica EUR': 'Tarif journalier EUR', 'Satnica / radni sat EUR': 'Tarif horaire EUR', 'Chantier-i na kojima radnik radi': 'Chantiers attribués', 'Pošalji email poziv': 'Envoyer l’invitation e-mail', 'Radnik dobija email poziv i pristup samo za svoje dane, dodeljene chantier-e i RDV/odsustvo.': 'Le travailleur reçoit une invitation e-mail et accède uniquement à ses jours, chantiers et rendez-vous.', 'Prvo registruj chantier u Devis sekciji.': 'Créez d’abord un chantier dans Devis.', 'Nema promena za izabrani chantier.': 'Aucune modification pour ce chantier.', 'Aucune saisie de temps de travail pour ce travailleur.': 'Aucune saisie de temps pour ce travailleur.' });
+	encodingRepairs.push(['pr?vue', 'prévue'], ['pr?vu', 'prévu'], ['ajust?e', 'ajustée'], ['enregistr?', 'enregistré'], ['non renseign?', 'non renseigné'], ['?t?', 'été'], ['D?but', 'Début'], ['?ch?ance', 'Échéance'], ['Cat?gorie', 'Catégorie'], ['M?t?o', 'Météo']);
+	let language = localStorage.getItem('ibra-language') || 'fr';
 	let rgeQualibatKnowledge;
 	const originalText = new Map();
 	document.querySelectorAll('body *').forEach((element) => { if (element.children.length === 0) originalText.set(element, element.textContent); });
@@ -61,6 +65,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	userRateFields.forEach((field) => userRateObserver.observe(field, { attributes: true, attributeFilter: ['hidden'] }));
 	new MutationObserver(() => { translateRuntimeText(); repairEncoding(); }).observe(document.body, { childList: true, subtree: true });
 	const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
+	const workerInitials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || '?';
+	const paintIdentityToken = (el, url, label) => { if (!el) return; el.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" />` : escapeHtml(workerInitials(label)); };
+	const identityTokenHtml = (url, name, classNames) => `<span class="${classNames} ${classNames.split(' ')[0]}--initials">${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" />` : escapeHtml(workerInitials(name))}</span>`;
 	const formValues = (form) => {
 		const values = Object.fromEntries(new FormData(form).entries());
 		if (form.elements.projectIds) values.projectIds = [...form.elements.projectIds.selectedOptions].map((option) => option.value).filter(Boolean);
@@ -87,26 +94,97 @@ document.addEventListener('DOMContentLoaded', () => {
 		input.addEventListener('blur', lookup);
 		input.addEventListener('change', lookup);
 	};
-	const ensureSystemStatus = () => {
-		if (document.querySelector('#system-status-bar')) return;
-		const header = document.querySelector('main > header');
-		if (!header) return;
-		const bar = document.createElement('div');
-		bar.id = 'system-status-bar';
-		bar.className = 'system-status-bar';
-		bar.innerHTML = '<span id="online-state"></span><span>Memorija: Supabase cloud</span><span>AI gratis: Gemini</span><span>Server: produkcija</span>';
-		header.after(bar);
-		const sync = () => {
-			const online = navigator.onLine;
-			const target = bar.querySelector('#online-state');
-			target.textContent = online ? 'Status: online' : 'Status: offline';
-			target.className = online ? 'system-pill online' : 'system-pill offline';
-		};
-		window.addEventListener('online', sync);
-		window.addEventListener('offline', sync);
-		sync();
-	};
-	ensureSystemStatus();
+
+	let companyProfileState = null;
+	async function loadCompanyProfile() {
+		try { companyProfileState = await request('/company/profile'); }
+		catch { companyProfileState = null; }
+		renderCompanyIdentity();
+	}
+	function renderCompanyIdentity() {
+		const strip = document.querySelector('#company-identity-strip');
+		if (!strip || !currentUser) return;
+		const canEdit = isOwner();
+		const name = companyProfileState?.name || currentUser?.companyName || currentUser?.company || currentUser?.employerCompany || '';
+		const logoUrl = companyProfileState?.logoUrl || currentUser?.companyLogoUrl || '';
+		strip.hidden = false;
+		paintIdentityToken(document.querySelector('#company-identity-logo'), logoUrl, name);
+		const nameTarget = document.querySelector('#company-identity-name');
+		if (nameTarget) nameTarget.textContent = name || (canEdit ? 'Nom de l’entreprise à renseigner' : 'Entreprise non renseignée');
+		const editButton = document.querySelector('#company-identity-edit');
+		if (editButton) editButton.hidden = !canEdit;
+	}
+	const companyIdentityModal = document.querySelector('#company-identity-modal');
+	const companyIdentityForm = document.querySelector('#company-identity-form');
+	let lastCompanyIdentityTrigger;
+	let companyIdentityRemoveLogoQueued = false;
+	let companyIdentityLocalPreviewUrl = '';
+	function closeCompanyIdentityEditor() {
+		if (!companyIdentityModal) return;
+		companyIdentityModal.hidden = true; companyIdentityModal.setAttribute('aria-hidden', 'true');
+		if (companyIdentityLocalPreviewUrl) URL.revokeObjectURL(companyIdentityLocalPreviewUrl);
+		companyIdentityLocalPreviewUrl = '';
+		const trigger = lastCompanyIdentityTrigger; lastCompanyIdentityTrigger = null; trigger?.focus();
+	}
+	function openCompanyIdentityEditor(trigger) {
+		if (!companyIdentityModal || !companyIdentityForm) return;
+		lastCompanyIdentityTrigger = trigger;
+		companyIdentityRemoveLogoQueued = false;
+		const name = companyProfileState?.name || currentUser?.company || currentUser?.employerCompany || '';
+		companyIdentityForm.elements.name.value = name;
+		companyIdentityForm.elements.logo.value = '';
+		paintIdentityToken(document.querySelector('#company-identity-preview'), companyProfileState?.logoUrl || '', name);
+		const removeButton = document.querySelector('#company-identity-remove-logo');
+		if (removeButton) removeButton.hidden = !companyProfileState?.logoUrl;
+		document.querySelector('#company-identity-message').textContent = '';
+		companyIdentityModal.hidden = false; companyIdentityModal.setAttribute('aria-hidden', 'false');
+		companyIdentityForm.elements.name.focus();
+	}
+	document.querySelector('#company-identity-edit')?.addEventListener('click', (event) => openCompanyIdentityEditor(event.currentTarget));
+	companyIdentityModal?.addEventListener('click', (event) => { if (event.target === companyIdentityModal) closeCompanyIdentityEditor(); });
+	document.querySelector('#company-identity-close')?.addEventListener('click', closeCompanyIdentityEditor);
+	document.querySelector('#company-identity-cancel')?.addEventListener('click', closeCompanyIdentityEditor);
+	document.querySelector('#company-identity-logo-input')?.addEventListener('change', (event) => {
+		const file = event.currentTarget.files[0];
+		if (!file) return;
+		companyIdentityRemoveLogoQueued = false;
+		if (companyIdentityLocalPreviewUrl) URL.revokeObjectURL(companyIdentityLocalPreviewUrl);
+		companyIdentityLocalPreviewUrl = URL.createObjectURL(file);
+		const preview = document.querySelector('#company-identity-preview');
+		if (preview) preview.innerHTML = `<img src="${companyIdentityLocalPreviewUrl}" alt="" />`;
+		const removeButton = document.querySelector('#company-identity-remove-logo');
+		if (removeButton) removeButton.hidden = false;
+	});
+	document.querySelector('#company-identity-remove-logo')?.addEventListener('click', (event) => {
+		companyIdentityRemoveLogoQueued = true;
+		companyIdentityForm.elements.logo.value = '';
+		if (companyIdentityLocalPreviewUrl) URL.revokeObjectURL(companyIdentityLocalPreviewUrl);
+		companyIdentityLocalPreviewUrl = '';
+		paintIdentityToken(document.querySelector('#company-identity-preview'), '', companyIdentityForm.elements.name.value);
+		event.currentTarget.hidden = true;
+	});
+	companyIdentityForm?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const message = document.querySelector('#company-identity-message');
+		const submit = companyIdentityForm.querySelector('button[type="submit"]');
+		message.textContent = '';
+		submit.disabled = true; submit.setAttribute('aria-busy', 'true');
+		const body = new FormData();
+		body.set('name', companyIdentityForm.elements.name.value.trim());
+		if (companyIdentityForm.elements.logo.files[0]) body.set('logo', companyIdentityForm.elements.logo.files[0]);
+		if (companyIdentityRemoveLogoQueued) body.set('removeLogo', 'true');
+		try {
+			const response = await fetch(`${api}/company/profile`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}` }, body });
+			if (!response.ok) throw new Error('save-failed');
+			companyProfileState = await response.json();
+			if (currentUser) { currentUser.companyName = companyProfileState.name; currentUser.companyLogoUrl = companyProfileState.logoUrl; }
+			renderCompanyIdentity();
+			closeCompanyIdentityEditor();
+			toast('Identité de l’entreprise enregistrée.');
+		} catch { message.textContent = 'Les modifications n’ont pas été enregistrées. Réessayez.'; }
+		finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
+	});
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && companyIdentityModal && !companyIdentityModal.hidden) closeCompanyIdentityEditor(); });
 	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; };
 	const applyRole = (role) => {
 		const access = {
@@ -131,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const assignedProjectNames = (worker) => (worker?.projectIds || []).map((projectId) => projectsCache.find((project) => project.id === projectId)?.name || projectId).filter(Boolean).join(', ');
 	const visibleProjects = () => {
 		const assigned = isOwner() ? projectsCache : projectsCache.filter((project) => (currentUser?.projectIds || []).includes(project.id));
-		return assigned.filter((project) => isOwner() ? project.id !== 'lot-a' : true).sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' }));
+		return assigned.filter((project) => project.status !== 'archived').sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' }));
 	};
 	const currentProjectId = () => {
 		const projects = visibleProjects();
@@ -163,7 +241,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			select.onchange = async () => {
 				activeProjectId = select.value;
 				localStorage.setItem('ibra-active-project', activeProjectId);
-				await Promise.allSettled([loadDashboard(), loadControlHistory(), loadEvidenceSummary(), loadFinancialSummary(), loadSchedule(), loadTime()]);
+				document.querySelector('#work-sequence')?.remove();
+				await Promise.allSettled([loadDashboard(), loadControlHistory(), loadEvidenceSummary(), loadFinancialSummary(), loadSchedule(), loadTime(), loadMessages(), loadDocuments(), loadProduction(), loadWorkSequence()]);
 			};
 		});
 	}
@@ -194,9 +273,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!projectId) {
 			document.querySelector('#progress-value').textContent = '0%';
 			document.querySelector('#open-controls').textContent = '0';
-			document.querySelector('#controls').innerHTML = '<small>Prvo registruj chantier u Devis sekciji.</small>';
-			document.querySelector('#project-risk').textContent = 'NEMA CHANTIER';
-			document.querySelector('#project-risk-detail').textContent = 'Izaberite aktivni chantier da biste videli rizik.';
+			document.querySelector('#controls').innerHTML = '<small>Créez d’abord un chantier dans Devis.</small>';
+			document.querySelector('#project-risk').textContent = 'AUCUN CHANTIER';
+			document.querySelector('#project-risk-state').textContent = 'À configurer';
+			document.querySelector('#project-risk-detail').textContent = 'Sélectionnez un chantier pour afficher les priorités.';
+			document.querySelector('#project-risk-action').textContent = 'Action : créer ou sélectionner un chantier.';
 			return;
 		}
 		const controls = await request(`/projects/${projectId}/chantier-controls`);
@@ -204,8 +285,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : Number(project?.progress || 0);
 		document.querySelector('#progress-value').textContent = `${progress}%`;
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
-		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${progress}% AVANCEMENT`;
-		const schedule = await request(`/projects/${projectId}/schedule`); const financial = await request(`/projects/${projectId}/financial-summary`); const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length; const openControls = controls.filter((item) => item.status !== 'complete').length; const red = openControls >= 3 || missingEvidence >= 4 || (financial.budgetStatus === 'available' && financial.remaining < 0); const orange = !red && (openControls > 0 || missingEvidence > 0 || schedule.delayDays > 0); const risk = document.querySelector('#project-risk-card'); risk.classList.remove('risk-red','risk-orange','risk-green'); risk.classList.add(red ? 'risk-red' : orange ? 'risk-orange' : 'risk-green'); document.querySelector('#project-risk').textContent = `${red ? 'KRITIČAN' : orange ? 'PAŽNJA' : 'STABILAN'} · ${progress}%`; document.querySelector('#project-risk-detail').textContent = `${openControls} otvorene kontrole · ${missingEvidence} nedostajućih dokaza${schedule.delayDays ? ` · ${schedule.delayDays} dana kašnjenja` : ''}`;
+		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${progress}% d’avancement`;
+		const schedule = await request(`/projects/${projectId}/schedule`);
+		const financial = await request(`/projects/${projectId}/financial-summary`);
+		const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length;
+		const openControls = controls.filter((item) => item.status !== 'complete').length;
+		const red = openControls >= 3 || missingEvidence >= 4 || (financial.budgetStatus === 'available' && financial.remaining < 0);
+		const orange = !red && (openControls > 0 || missingEvidence > 0 || schedule.delayDays > 0);
+		const risk = document.querySelector('#project-risk-card');
+		const riskLabel = red ? 'CRITIQUE' : orange ? 'ATTENTION' : 'STABLE';
+		risk.classList.remove('risk-red','risk-orange','risk-green');
+		risk.classList.add(red ? 'risk-red' : orange ? 'risk-orange' : 'risk-green');
+		document.querySelector('#project-risk').textContent = `${riskLabel} · ${progress}%`;
+		document.querySelector('#project-risk-state').textContent = red ? 'Action requise' : orange ? 'À vérifier' : 'Sous contrôle';
+		document.querySelector('#project-risk-detail').textContent = `${openControls} contrôle${openControls === 1 ? '' : 's'} ouvert${openControls === 1 ? '' : 's'} · ${missingEvidence} preuve${missingEvidence === 1 ? '' : 's'} manquante${missingEvidence === 1 ? '' : 's'}${schedule.delayDays ? ` · ${schedule.delayDays} jour${schedule.delayDays === 1 ? '' : 's'} de retard` : ''}`;
+		document.querySelector('#project-risk-action').textContent = red ? 'Action : traiter les contrôles et preuves manquants.' : orange ? 'Action : vérifier les points ouverts avant de continuer.' : 'Action : aucune intervention urgente.';
 		const canUpdate = isOwner();
 		document.querySelector('#controls').innerHTML = `<div class="list-item chantier-progress"><strong>${escapeHtml(project?.name || 'Chantier')} · ${progress}% zavrseno</strong><small>${completedControls}/${controls.length} kontrola zavrseno</small></div>${controls.map((item) => `<div class="list-item ${item.status === 'complete' ? 'ok' : item.status === 'incomplete' ? 'bad' : 'warn'}"><strong>${item.name}</strong><small>${item.owner} · ${item.status}</small>${canUpdate ? `<div class="control-actions"><button class="secondary control-action" data-control="${item.id}" data-status="complete">Završi</button><button class="secondary control-action" data-control="${item.id}" data-status="incomplete">Vrati na ispravku</button></div>` : ''}</div>`).join('')}`;
 		document.querySelectorAll('.control-action').forEach((button) => button.addEventListener('click', async () => { try { await request(`/chantier-controls/${button.dataset.control}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status: button.dataset.status }) }); await Promise.allSettled([loadDashboard(), loadEvidenceSummary(), loadControlHistory()]); toast('Kontrola je ažurirana.'); } catch (error) { try { const details = JSON.parse(error.message); toast(details.missing ? `Nedostaje dokaz: ${details.missing.join(', ')}` : 'Kontrola nije ažurirana.'); } catch { toast('Kontrola nije ažurirana.'); } } }));
@@ -241,22 +335,289 @@ document.addEventListener('DOMContentLoaded', () => {
 		modulesTarget.innerHTML = (rgeQualibatKnowledge.modules || []).map((module) => { const items = french ? (module.itemsFr || module.items) : module.items; return `<article class="rge-module"><h3>${escapeHtml(localized(module, 'title'))}</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`; }).join('');
 	}
 	async function loadControlHistory() { await loadProjectOptions(); const projectId = currentProjectId(); const history = projectId ? await request(`/projects/${projectId}/control-history`) : []; const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena za izabrani chantier.</small>'; }
-	async function loadUsers() {
-		await loadProjectOptions();
-		const users = await request('/contacts');
-		const projectNames = new Map(projectsCache.map((project) => [project.id, project.name]));
-		const managerView = isOwner();
-		const currentUserId = currentUser?.id || currentUser?.sub;
-		const canRemoveUsers = Boolean(managerView && currentUserId);
-		const removeUserLabel = language === 'fr' ? "Supprimer l'utilisateur" : 'Ukloni korisnika';
-		document.querySelector('#users').innerHTML = users.map((user) => {
-			const assignedProjects = (user.projectIds || []).map((projectId) => projectNames.get(projectId) || projectId).filter(Boolean);
-			return `<div class="list-item"><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)} · ${escapeHtml(user.email || 'bez e-maila')} · ${escapeHtml(user.phone || 'bez telefona')}${user.siret ? ` · SIRET: ${escapeHtml(user.siret)}` : ''}${user.company ? ` · Firma: ${escapeHtml(user.company)}` : ''}${user.employerSiret ? ` · Radi za: ${escapeHtml(user.employerCompany || user.company)} · SIRET: ${escapeHtml(user.employerSiret)}` : ''}${assignedProjects.length ? ` · Chantier: ${escapeHtml(assignedProjects.join(', '))}` : ''}${managerView && (user.dailyRate || user.hourlyRate) ? ` · Dnevno: ${formatEUR(user.dailyRate)} · Satnica: ${formatEUR(user.hourlyRate)}` : ''}</small>${canRemoveUsers && user.id !== currentUserId ? `<button class="secondary remove-user" data-user="${user.id}" data-name="${escapeHtml(user.name)}" type="button">${removeUserLabel}</button>` : ''}</div>`;
-		}).join('');
-		document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } }));
-		const recipient = document.querySelector('#recipient');
-		recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${user.id}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join('');
+	const userRoleLabels = { admin: 'Administrateur', manager: 'Manager', gerant: 'Gérant', user: 'Utilisateur', worker: 'Ouvrier' };
+	let lastUserEditorTrigger;
+	const userEditModal = document.querySelector('#user-edit-modal');
+	const userEditForm = document.querySelector('#user-edit-form');
+	const userEditAvatarInput = document.querySelector('#user-edit-avatar-input');
+	const userEditAvatarPreview = document.querySelector('#user-edit-avatar-preview');
+	const userEditAvatarRemove = document.querySelector('#user-edit-avatar-remove');
+	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
+	const openUserEditor = (user, trigger) => {
+		if (!userEditModal || !userEditForm) return;
+		lastUserEditorTrigger = trigger;
+		userEditForm.elements.userId.value = user.id;
+		userEditForm.elements.name.value = user.name || '';
+		userEditForm.elements.contact.value = user.email || user.phone || '';
+		userEditForm.elements.dailyRate.value = user.dailyRate ?? 0;
+		userEditForm.elements.hourlyRate.value = user.hourlyRate ?? 0;
+		document.querySelector('#user-edit-name-preview').textContent = user.name || 'Utilisateur';
+		document.querySelector('#user-edit-role-preview').textContent = userRoleLabels[user.role] || user.role || 'Utilisateur';
+		document.querySelector('#user-edit-company').textContent = user.company || user.employerCompany || '—';
+		document.querySelector('#user-edit-role').textContent = userRoleLabels[user.role] || user.role || '—';
+		const projectSelect = userEditForm.elements.projectIds;
+		projectSelect.innerHTML = projectsCache.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join('');
+		const selectedProjects = new Set(user.projectIds || []);
+		[...projectSelect.options].forEach((option) => { option.selected = selectedProjects.has(option.value); });
+		userEditForm.querySelector('.user-edit-rates').hidden = !isWorkerRole(user.role);
+		const avatarField = userEditForm.querySelector('.image-field');
+		if (avatarField) avatarField.hidden = !isWorkerRole(user.role);
+		if (userEditAvatarPreview) paintIdentityToken(userEditAvatarPreview, user.avatarUrl || '', user.name);
+		if (userEditAvatarRemove) userEditAvatarRemove.hidden = !user.avatarUrl;
+		if (userEditAvatarInput) userEditAvatarInput.value = '';
+		projectSelect.disabled = !isWorkerRole(user.role);
+		userEditForm.querySelector('#user-edit-project-help').textContent = isWorkerRole(user.role) ? 'Sélectionnez les chantiers accessibles à cet utilisateur.' : 'Les chantiers d’un gérant suivent l’accès société.';
+		userEditForm.querySelector('#user-edit-message').textContent = '';
+		userEditModal.hidden = false;
+		userEditModal.setAttribute('aria-hidden', 'false');
+		userEditForm.elements.name.focus();
+	};
+	userEditModal?.addEventListener('click', (event) => { if (event.target === userEditModal) closeUserEditor(); });
+	userEditModal?.querySelector('#user-edit-close')?.addEventListener('click', closeUserEditor);
+	userEditModal?.querySelector('#user-edit-cancel')?.addEventListener('click', closeUserEditor);
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && userEditModal && !userEditModal.hidden) closeUserEditor(); });
+	userEditForm?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const message = userEditForm.querySelector('#user-edit-message');
+		const submit = userEditForm.querySelector('button[type="submit"]');
+		const values = Object.fromEntries(new FormData(userEditForm).entries());
+		values.projectIds = [...userEditForm.elements.projectIds.selectedOptions].map((option) => option.value);
+		message.textContent = '';
+		submit.disabled = true; submit.setAttribute('aria-busy', 'true');
+		try { await request(`/users/${encodeURIComponent(values.userId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); closeUserEditor(); await Promise.allSettled([loadUsers(), loadTime(), loadMessages()]); toast('Utilisateur mis à jour.'); }
+		catch (error) { try { message.textContent = JSON.parse(error.message).error || 'Utilisateur non mis à jour.'; } catch { message.textContent = 'Utilisateur non mis à jour.'; } }
+		finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
+	});
+	userEditAvatarInput?.addEventListener('change', async () => {
+		const file = userEditAvatarInput.files[0];
+		const userId = userEditForm.elements.userId.value;
+		if (!file || !userId) return;
+		const message = userEditForm.querySelector('#user-edit-message');
+		const body = new FormData(); body.set('avatar', file);
+		try {
+			const response = await fetch(`${api}/users/${encodeURIComponent(userId)}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			if (!response.ok) throw new Error();
+			const result = await response.json();
+			paintIdentityToken(userEditAvatarPreview, result.avatarUrl, userEditForm.elements.name.value);
+			if (userEditAvatarRemove) userEditAvatarRemove.hidden = !result.avatarUrl;
+			await loadUsers();
+			toast('Photo du travailleur enregistrée.');
+		} catch { message.textContent = 'La photo n’a pas pu être enregistrée.'; }
+		finally { userEditAvatarInput.value = ''; }
+	});
+	userEditAvatarRemove?.addEventListener('click', async () => {
+		const userId = userEditForm.elements.userId.value;
+		if (!userId) return;
+		try {
+			await request(`/users/${encodeURIComponent(userId)}/avatar`, { method: 'DELETE' });
+			paintIdentityToken(userEditAvatarPreview, '', userEditForm.elements.name.value);
+			userEditAvatarRemove.hidden = true;
+			await loadUsers();
+			toast('Photo du travailleur supprimée.');
+		} catch { toast('La photo n’a pas pu être supprimée.'); }
+	});
+	async function resetUserPassword(user, trigger) {
+		if (!user?.email || !window.confirm(`Envoyer un nouveau lien de mot de passe à ${user.email} ?`)) return;
+		trigger.disabled = true; trigger.setAttribute('aria-busy', 'true');
+		try { const result = await request(`/users/${encodeURIComponent(user.id)}/password-reset`, { method: 'POST' }); toast(result.setupUrl ? `Lien de configuration : ${result.setupUrl}` : 'Lien de mot de passe envoyé.'); }
+		catch (error) { try { toast(JSON.parse(error.message).error || 'Lien de mot de passe non envoyé.'); } catch { toast('Lien de mot de passe non envoyé.'); } }
+		finally { trigger.disabled = false; trigger.removeAttribute('aria-busy'); }
 	}
+	const workerRosterState = { month: new Date().toISOString().slice(0, 7), query: '', statusFilter: 'all', users: [], entries: [], rendezvous: [], payouts: [], loading: false, error: null, menuWorkerId: '', detailWorkerId: '', detailMonth: '', detailSelectedDate: '', detailSnapshot: null };
+	const workerStatusMeta = {
+		critical: { label: 'Kritično', className: 'status-critical' },
+		attention: { label: 'Pažnja', className: 'status-attention' },
+		pending: { label: 'Čeka pregled', className: 'status-pending' },
+		good: { label: 'Plaćeno', className: 'status-good' },
+		empty: { label: 'Bez unosa', className: 'status-empty' }
+	};
+	const workerStatusRank = { critical: 0, attention: 1, pending: 2, good: 3, empty: 4 };
+	const payoutStatusLabels = { pending: 'Čeka odobrenje', approved: 'Odobreno · nije plaćeno', rejected: 'Odbijeno', paid: 'Plaćeno' };
+	const formatRosterDate = (value) => { if (!value) return ''; const parsed = new Date(`${String(value).slice(0, 10)}T00:00:00`); return Number.isNaN(parsed.getTime()) ? String(value) : new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { day: '2-digit', month: 'short' }).format(parsed); };
+	const workerEntryAmount = (entry, worker) => { const stored = Number(entry.workAmount); if (Number.isFinite(stored) && stored > 0) return stored; const rate = Number(entry.rate || (entry.rateType === 'hourly' ? worker?.hourlyRate : worker?.dailyRate) || 0); return entry.rateType === 'hourly' ? Number(entry.hours || 0) * rate : rate; };
+	const assignedWorkerProjects = (worker) => (worker?.projectIds || []).map((projectId) => projectsCache.find((project) => project.id === projectId)?.name || projectId).filter(Boolean);
+	const nextWorkerRendezvous = (items) => { const today = new Date().toISOString().slice(0, 10); return items.slice().sort((first, second) => `${first.absenceDate || first.date || ''} ${first.time || ''}`.localeCompare(`${second.absenceDate || second.date || ''} ${second.time || ''}`)).find((item) => (item.absenceDate || item.date || '') >= today) || null; };
+	function deriveWorkerSnapshot(user, month, source = workerRosterState) {
+		const entries = (source.entries || []).filter((entry) => entry.workerId === user.id && String(entry.date || '').startsWith(month));
+		const rendezvous = (source.rendezvous || []).filter((item) => item.workerId === user.id && String(item.absenceDate || item.date || '').startsWith(month));
+		const allRendezvous = (source.rendezvous || []).filter((item) => item.workerId === user.id);
+		const payout = (source.payouts || []).filter((item) => item.userId === user.id && item.month === month).sort((first, second) => String(second.createdAt || '').localeCompare(String(first.createdAt || '')))[0];
+		const workedDays = new Set(entries.map((entry) => entry.date)).size;
+		const hours = entries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
+		const amount = entries.reduce((sum, entry) => sum + workerEntryAmount(entry, user), 0);
+		const missingRate = entries.some((entry) => workerEntryAmount(entry, user) <= 0);
+		const dueDate = payout?.paymentDate || '';
+		const overdue = Boolean(dueDate && dueDate < new Date().toISOString().slice(0, 10) && payout?.status !== 'paid');
+		let paymentState = 'empty';
+		if (entries.length) {
+			if (missingRate || payout?.status === 'rejected' || overdue) paymentState = 'critical';
+			else if (payout?.status === 'paid') paymentState = 'good';
+			else if (!payout || payout.status === 'approved') paymentState = 'attention';
+			else paymentState = 'pending';
+		}
+		const paymentDetail = paymentState === 'empty' ? 'Nema unosa rada u ovom mesecu' : paymentState === 'critical' ? (missingRate ? 'Nedostaje tarifa za jedan ili više unosa' : payout?.status === 'rejected' ? 'Zahtev za isplatu je odbijen' : `Rok plaćanja je prošao${dueDate ? ` · ${formatRosterDate(dueDate)}` : ''}`) : paymentState === 'attention' ? (payout?.status === 'approved' ? `Odobreno · čeka uplatu${dueDate ? ` do ${formatRosterDate(dueDate)}` : ''}` : 'Nema zahteva za isplatu') : paymentState === 'good' ? `Isplaćeno${payout?.paymentDate ? ` · ${formatRosterDate(payout.paymentDate)}` : ''}` : 'Zahtev je poslat · čeka pregled';
+		return { user, month, entries, rendezvous, payout, workedDays, hours, amount, nextRendezvous: nextWorkerRendezvous(allRendezvous), paymentState, paymentDetail, assignedProjects: assignedWorkerProjects(user), rateMissing: missingRate };
+	}
+	const renderRosterStatus = (snapshot) => { const meta = workerStatusMeta[snapshot.paymentState] || workerStatusMeta.empty; return `<span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><small class="worker-status-detail">${escapeHtml(snapshot.paymentDetail)}</small>`; };
+	function renderWorkerRosterSummary(snapshots) {
+		const summary = document.querySelector('#worker-roster-summary');
+		if (!summary) return;
+		const totalAmount = snapshots.reduce((sum, snapshot) => sum + snapshot.amount, 0);
+		const counts = Object.fromEntries(Object.keys(workerStatusMeta).map((status) => [status, snapshots.filter((snapshot) => snapshot.paymentState === status).length]));
+		summary.innerHTML = `<div><dt>Radnici</dt><dd>${snapshots.length}</dd><small>${counts.empty ? `${counts.empty} bez unosa` : 'aktivni registar'}</small></div><div class="summary-critical"><dt>Kritično</dt><dd>${counts.critical}</dd><small>rok, tarifa ili odbijen zahtev</small></div><div class="summary-attention"><dt>Za pregled</dt><dd>${counts.attention + counts.pending}</dd><small>${counts.attention} čeka uplatu · ${counts.pending} čeka pregled</small></div><div class="summary-total"><dt>Ukupno ovog meseca</dt><dd>${formatEUR(totalAmount)}</dd><small>${escapeHtml(formatMonthLabel(workerRosterState.month))}</small></div>`;
+	}
+	const closeWorkerActionMenus = () => { document.querySelectorAll('.worker-action-menu').forEach((menu) => { menu.hidden = true; }); document.querySelectorAll('.worker-action-menu-trigger').forEach((button) => button.setAttribute('aria-expanded', 'false')); workerRosterState.menuWorkerId = ''; };
+	const toggleWorkerActionMenu = (workerId, trigger) => { const menu = trigger?.closest('.worker-action-menu-wrap')?.querySelector('.worker-action-menu'); const alreadyOpen = menu && !menu.hidden; closeWorkerActionMenus(); if (menu && !alreadyOpen) { menu.hidden = false; trigger.setAttribute('aria-expanded', 'true'); workerRosterState.menuWorkerId = workerId; menu.querySelector('[role="menuitem"]')?.focus(); } };
+	function renderWorkerRoster() {
+		const table = document.querySelector('#worker-roster-table');
+		const body = document.querySelector('#worker-roster-body');
+		const stateTarget = document.querySelector('#worker-roster-state');
+		if (!table || !body || !stateTarget) return;
+		const workerUsers = workerRosterState.users.filter((user) => isWorkerRole(user.role));
+		const snapshots = workerUsers.map((user) => deriveWorkerSnapshot(user, workerRosterState.month));
+		const query = workerRosterState.query.trim().toLowerCase();
+		const filtered = snapshots.filter((snapshot) => { const haystack = [snapshot.user.name, snapshot.user.email, snapshot.user.phone, snapshot.user.company, snapshot.user.employerCompany, ...snapshot.assignedProjects].filter(Boolean).join(' ').toLowerCase(); return (!query || haystack.includes(query)) && (workerRosterState.statusFilter === 'all' || snapshot.paymentState === workerRosterState.statusFilter); }).sort((first, second) => (workerStatusRank[first.paymentState] - workerStatusRank[second.paymentState]) || String(first.user.name || '').localeCompare(String(second.user.name || ''), 'fr', { sensitivity: 'base' }));
+		renderWorkerRosterSummary(snapshots);
+		document.querySelector('#worker-roster-period-label').textContent = `${formatMonthLabel(workerRosterState.month)} · ${filtered.length} od ${snapshots.length} radnika`;
+		if (workerRosterState.error) { stateTarget.hidden = false; stateTarget.innerHTML = `<strong>Podaci ekipe nisu dostupni.</strong><small>Pokušajte ponovo bez brisanja prethodnog prikaza.</small><button class="secondary" id="worker-roster-retry" type="button">Pokušaj ponovo</button>`; table.hidden = !workerUsers.length; } else if (workerRosterState.loading && !workerUsers.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Données en cours de chargement…</strong>'; table.hidden = true; } else if (!workerUsers.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Nema dodatih radnika</strong><small>Dodajte prvog radnika da biste pratili dane, sate i isplate.</small>'; table.hidden = true; } else if (!filtered.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Nema radnika za ovaj filter</strong><small>Promenite pretragu ili status.</small>'; table.hidden = false; } else { stateTarget.hidden = true; stateTarget.innerHTML = ''; table.hidden = false; }
+		body.innerHTML = filtered.map((snapshot) => { const user = snapshot.user; const contact = user.email || user.phone || 'Kontakt nije unet'; const roleLabel = userRoleLabels[user.role] || 'Radnik'; const canManage = isOwner() && user.id !== (currentUser?.id || currentUser?.sub); const projectLabel = snapshot.assignedProjects.length ? snapshot.assignedProjects.join(', ') : 'Nema dodeljenog chantier-a'; const nextRdv = snapshot.nextRendezvous ? `${formatRosterDate(snapshot.nextRendezvous.absenceDate || snapshot.nextRendezvous.date)} · ${snapshot.nextRendezvous.time || ''}` : 'Nema zakazanog RDV'; return `<tr class="worker-roster-row ${workerStatusMeta[snapshot.paymentState]?.className || ''}" data-worker-row="${escapeHtml(user.id)}"><th scope="row"><div class="worker-name-cell">${identityTokenHtml(user.avatarUrl, user.name, 'worker-avatar worker-avatar--roster')}<button class="worker-detail-primary" data-worker-detail="${escapeHtml(user.id)}" type="button"><strong>${escapeHtml(user.name || 'Radnik')}</strong><span>Otvori praćenje</span></button><span class="user-role">${escapeHtml(roleLabel)}</span></div><small class="worker-contact">${escapeHtml(contact)}</small><small class="worker-projects" title="${escapeHtml(projectLabel)}">${escapeHtml(projectLabel)}</small></th><td data-label="Jours"><strong>${snapshot.workedDays}</strong><small> ce mois</small></td><td data-label="Heures"><strong>${snapshot.hours.toFixed(2)}</strong><small> h</small></td><td data-label="Tarif"><span>${formatEUR(user.dailyRate || 0)}/j</span><small>${formatEUR(user.hourlyRate || 0)}/h</small></td><td data-label="Montant du mois" class="worker-amount"><strong>${formatEUR(snapshot.amount)}</strong><small>${snapshot.entries.length ? `${snapshot.entries.length} unosa` : 'bez unosa'}</small></td><td data-label="Paiement" class="worker-payment-cell">${renderRosterStatus(snapshot)}</td><td data-label="Prochain RDV"><span class="worker-next-rdv">${escapeHtml(nextRdv)}</span>${snapshot.nextRendezvous?.reason ? `<small>${escapeHtml(snapshot.nextRendezvous.reason)}</small>` : ''}</td><td data-label="Actions" class="worker-actions-cell"><div class="worker-row-actions"><button class="secondary worker-detail-primary worker-detail-action" data-worker-detail="${escapeHtml(user.id)}" type="button">Otvori</button>${canManage ? `<div class="worker-action-menu-wrap"><button class="secondary worker-action-menu-trigger" data-worker-menu="${escapeHtml(user.id)}" type="button" aria-haspopup="menu" aria-expanded="false" aria-label="Akcije za ${escapeHtml(user.name || 'radnika')}">⋯</button><div class="worker-action-menu" role="menu" hidden><button type="button" role="menuitem" data-worker-action="edit" data-worker="${escapeHtml(user.id)}">Izmeni profil</button><button type="button" role="menuitem" data-worker-action="reset" data-worker="${escapeHtml(user.id)}"${user.email ? '' : ' disabled'}>Pošalji link za lozinku</button><button type="button" role="menuitem" class="danger" data-worker-action="delete" data-worker="${escapeHtml(user.id)}">Obriši radnika</button></div></div>` : ''}</div></td></tr>`; }).join('');
+		document.querySelector('#worker-roster-retry')?.addEventListener('click', () => loadUsers());
+	}
+	function setupWorkerRosterControls() {
+		const monthInput = document.querySelector('#worker-roster-month');
+		const searchInput = document.querySelector('#worker-roster-search');
+		const filterInput = document.querySelector('#worker-roster-status-filter');
+		if (monthInput && monthInput.dataset.wired !== 'true') { monthInput.dataset.wired = 'true'; monthInput.addEventListener('change', () => { workerRosterState.month = monthInput.value || new Date().toISOString().slice(0, 7); workerRosterState.detailSelectedDate = ''; renderWorkerRoster(); if (workerRosterState.detailWorkerId) { workerRosterState.detailMonth = workerRosterState.month; renderWorkerDetail(); } }); }
+		if (searchInput && searchInput.dataset.wired !== 'true') { searchInput.dataset.wired = 'true'; searchInput.addEventListener('input', () => { workerRosterState.query = searchInput.value; renderWorkerRoster(); }); }
+		if (filterInput && filterInput.dataset.wired !== 'true') { filterInput.dataset.wired = 'true'; filterInput.addEventListener('change', () => { workerRosterState.statusFilter = filterInput.value; renderWorkerRoster(); }); }
+		if (monthInput && !monthInput.value) monthInput.value = workerRosterState.month;
+		const addPanel = document.querySelector('#worker-add-panel');
+		const toggleAdd = (open) => { if (!addPanel) return; addPanel.hidden = !open; document.querySelector('#toggle-add-worker')?.setAttribute('aria-expanded', String(open)); if (open) { addPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }); addPanel.querySelector('input')?.focus(); } else document.querySelector('#toggle-add-worker')?.focus(); };
+		[['#toggle-add-worker', true], ['#close-add-worker', false], ['#cancel-add-worker', false]].forEach(([selector, open]) => { const button = document.querySelector(selector); if (button && button.dataset.wired !== 'true') { button.dataset.wired = 'true'; button.addEventListener('click', () => toggleAdd(open)); } });
+	}
+	const workerDetailModal = document.querySelector('#worker-detail-modal');
+	let lastWorkerDetailTrigger;
+	function closeWorkerDetail() { if (!workerDetailModal) return; workerDetailModal.hidden = true; workerDetailModal.setAttribute('aria-hidden', 'true'); workerRosterState.detailWorkerId = ''; workerRosterState.detailSnapshot = null; lastWorkerDetailTrigger?.focus(); lastWorkerDetailTrigger = null; }
+	function openWorkerDetail(workerId, trigger) { const user = workerRosterState.users.find((item) => item.id === workerId); if (!user || !workerDetailModal) return; closeWorkerActionMenus(); lastWorkerDetailTrigger = trigger; workerRosterState.detailWorkerId = workerId; workerRosterState.detailMonth = workerRosterState.detailMonth || workerRosterState.month; workerRosterState.detailSelectedDate = ''; workerDetailModal.hidden = false; workerDetailModal.setAttribute('aria-hidden', 'false'); renderWorkerDetail(); document.querySelector('#worker-detail-close')?.focus(); }
+	function renderWorkerDetailCalendar(snapshot, month) {
+		const target = document.querySelector('#worker-detail-calendar'); if (!target) return;
+		const [year, monthNumber] = month.split('-').map(Number); const first = new Date(year, monthNumber - 1, 1); const last = new Date(year, monthNumber, 0); const entryByDate = new Map(snapshot.entries.map((entry) => [entry.date, entry])); const rendezvousByDate = new Map(); snapshot.rendezvous.forEach((item) => { const date = item.absenceDate || item.date; const list = rendezvousByDate.get(date) || []; list.push(item); rendezvousByDate.set(date, list); }); let cells = ''; for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty" aria-hidden="true"></span>'; for (let day = 1; day <= last.getDate(); day += 1) { const date = `${month}-${String(day).padStart(2, '0')}`; const weekday = new Date(year, monthNumber - 1, day).getDay(); const weekend = weekday === 0 || weekday === 6; const entry = entryByDate.get(date); const rdv = rendezvousByDate.get(date) || []; const title = [entry ? `${Number(entry.hours || 0).toFixed(2)} h · ${formatEUR(workerEntryAmount(entry, snapshot.user))}` : '', rdv.map((item) => `RDV ${item.time || ''} · ${item.reason || ''}`).join(' | ')].filter(Boolean).join(' · ') || 'Bez unosa'; const marker = [entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '', ...rdv.map((item) => `<span class="calendar-rendezvous" title="${escapeHtml(item.reason || '')}">RDV ${escapeHtml(item.time || '')}</span>`)].join('') || '<small>—</small>'; cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${rdv.length ? ' has-rendezvous' : ''}" data-detail-date="${date}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</button>`; }
+		const workedDays = new Set(snapshot.entries.map((entry) => entry.date)).size; const hours = snapshot.entries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0); const rdvDays = rendezvousByDate.size; target.innerHTML = `<div class="work-calendar-head"><strong>${escapeHtml(formatMonthLabel(month))}</strong><small>${workedDays} radnih dana · ${hours.toFixed(2)} h · ${rdvDays} RDV</small></div><p class="calendar-hint">Zeleno = radni dan · žuto = RDV/odsustvo. Klikni datum za evidenciju tog dana.</p><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Čet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
+	}
+	function renderWorkerDetail() {
+		const user = workerRosterState.users.find((item) => item.id === workerRosterState.detailWorkerId); if (!user) return; const month = workerRosterState.detailMonth || workerRosterState.month; const snapshot = deriveWorkerSnapshot(user, month); workerRosterState.detailSnapshot = snapshot; const title = document.querySelector('#worker-detail-title'); const subtitle = document.querySelector('#worker-detail-subtitle'); const monthInput = document.querySelector('#worker-detail-month'); const badge = document.querySelector('#worker-detail-payment-badge'); paintIdentityToken(document.querySelector('#worker-detail-avatar'), user.avatarUrl || '', user.name); if (title) title.textContent = user.name || 'Radnik'; if (subtitle) subtitle.textContent = [user.email || user.phone || 'Kontakt nije unet', user.company || user.employerCompany || '', snapshot.assignedProjects.join(', ')].filter(Boolean).join(' · '); if (monthInput) monthInput.value = month; if (badge) { badge.className = `worker-status ${workerStatusMeta[snapshot.paymentState].className}`; badge.innerHTML = `<span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}`; }
+		document.querySelector('#worker-detail-summary').innerHTML = `<div><small>Radni dani</small><strong>${snapshot.workedDays}</strong><span>${escapeHtml(formatMonthLabel(month))}</span></div><div><small>Sati</small><strong>${snapshot.hours.toFixed(2)}</strong><span>ukupno</span></div><div><small>Dnevnica</small><strong>${formatEUR(user.dailyRate || 0)}</strong><span>po danu</span></div><div><small>Satnica</small><strong>${formatEUR(user.hourlyRate || 0)}</strong><span>po satu</span></div><div class="detail-summary-amount"><small>Obračunato</small><strong>${formatEUR(snapshot.amount)}</strong><span>${snapshot.entries.length} unosa</span></div>`;
+		renderWorkerDetailCalendar(snapshot, month); renderWorkerDetailPayment(snapshot); renderWorkerDetailRendezvous(snapshot); renderWorkerDetailEntries(snapshot);
+	}
+	function renderWorkerDetailPayment(snapshot) { const target = document.querySelector('#worker-detail-payment'); if (!target) return; const payout = snapshot.payout; const payoutLabel = payout ? (payoutStatusLabels[payout.status] || payout.status) : 'Nema zahteva'; const due = payout?.paymentDate ? `Rok plaćanja: ${formatRosterDate(payout.paymentDate)}` : 'Rok nije određen'; const actions = isOwner() && payout ? payout.status === 'pending' ? `<button class="secondary" data-payout-status="approved" data-payout="${escapeHtml(payout.id)}">Odobri</button><button class="secondary" data-payout-status="rejected" data-payout="${escapeHtml(payout.id)}">Odbij</button>` : payout.status === 'approved' ? `<button class="primary" data-payout-status="paid" data-payout="${escapeHtml(payout.id)}">Označi plaćeno</button>` : '' : ''; target.innerHTML = `<div class="detail-payment-status ${workerStatusMeta[snapshot.paymentState].className}"><div><span class="worker-status ${workerStatusMeta[snapshot.paymentState].className}"><span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}</span><strong>${formatEUR(snapshot.amount)}</strong></div><p>${escapeHtml(snapshot.paymentDetail)}</p><small>${escapeHtml(payoutLabel)} · ${escapeHtml(due)}</small>${actions ? `<div class="detail-payment-actions">${actions}</div>` : ''}</div>`; }
+	function renderWorkerDetailRendezvous(snapshot) { const target = document.querySelector('#worker-detail-rendezvous'); if (!target) return; target.innerHTML = snapshot.rendezvous.length ? snapshot.rendezvous.slice().sort((first, second) => `${first.absenceDate || first.date} ${first.time}`.localeCompare(`${second.absenceDate || second.date} ${second.time}`)).map((item) => `<div class="detail-list-item"><strong>${escapeHtml(formatRosterDate(item.absenceDate || item.date))} · ${escapeHtml(item.time || '')}</strong><small>${escapeHtml(item.reason || 'Bez razloga')} · ${escapeHtml(assignedWorkerProjects({ projectIds: [item.projectId] })[0] || item.projectId || '')}</small></div>`).join('') : '<small>Nema RDV/odsustva u izabranom mesecu.</small>'; }
+	function renderWorkerDetailEntries(snapshot) { const target = document.querySelector('#worker-detail-entries'); if (!target) return; const selectedDate = workerRosterState.detailSelectedDate; const entries = selectedDate ? snapshot.entries.filter((entry) => entry.date === selectedDate) : snapshot.entries; const heading = selectedDate ? `<div class="detail-list-filter"><small>Prikazan dan: ${escapeHtml(formatRosterDate(selectedDate))}</small><button class="secondary" type="button" data-detail-clear>Prikaži sve</button></div>` : ''; target.innerHTML = `${heading}${entries.length ? entries.slice().sort((first, second) => String(second.date).localeCompare(String(first.date))).map((item) => `<div class="detail-list-item"><strong>${escapeHtml(formatRosterDate(item.date))} · ${Number(item.hours || 0).toFixed(2)} h · ${formatEUR(workerEntryAmount(item, snapshot.user))}</strong><small>${escapeHtml(item.start || '')}${item.end ? `–${escapeHtml(item.end)}` : ''} · ${item.rateType === 'hourly' ? 'Satnica' : 'Dnevnica'} · ${item.status === 'approved' ? 'Odobreno' : item.status === 'rejected' ? 'Odbijeno' : 'Čeka pregled'}</small></div>`).join('') : '<small>Nema unosa rada u izabranom mesecu.</small>'}`; }
+	workerDetailModal?.addEventListener('click', async (event) => { if (event.target === workerDetailModal) { closeWorkerDetail(); return; } const dateButton = event.target.closest('[data-detail-date]'); if (dateButton) { workerRosterState.detailSelectedDate = dateButton.dataset.detailDate; renderWorkerDetail(); return; } if (event.target.closest('[data-detail-clear]')) { workerRosterState.detailSelectedDate = ''; renderWorkerDetail(); return; } const payoutButton = event.target.closest('[data-payout-status]'); if (payoutButton) { payoutButton.disabled = true; try { await request(`/payout-requests/${encodeURIComponent(payoutButton.dataset.payout)}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: payoutButton.dataset.payoutStatus }) }); await loadUsers(); renderWorkerDetail(); toast(payoutButton.dataset.payoutStatus === 'paid' ? 'Plaćanje je označeno kao završeno.' : 'Status zahteva je promenjen.'); } catch { toast('Status plaćanja nije promenjen.'); } finally { payoutButton.disabled = false; } } });
+	workerDetailModal?.querySelector('#worker-detail-close')?.addEventListener('click', closeWorkerDetail);
+	workerDetailModal?.addEventListener('change', (event) => { if (event.target.id !== 'worker-detail-month') return; workerRosterState.detailMonth = event.target.value || workerRosterState.month; workerRosterState.detailSelectedDate = ''; renderWorkerDetail(); });
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape') { closeWorkerActionMenus(); if (workerDetailModal && !workerDetailModal.hidden) closeWorkerDetail(); } if (event.key === 'Tab' && workerDetailModal && !workerDetailModal.hidden) { const focusable = [...workerDetailModal.querySelectorAll('button:not([disabled]), input:not([disabled]), select:not([disabled]), [href], [tabindex]:not([tabindex="-1"])')].filter((element) => !element.hidden && element.offsetParent !== null); if (!focusable.length) return; const first = focusable[0]; const last = focusable[focusable.length - 1]; if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); } else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); } } });
+	document.addEventListener('click', (event) => { if (!event.target.closest('.worker-action-menu-wrap')) closeWorkerActionMenus(); });
+	document.querySelector('#worker-roster-body')?.addEventListener('click', async (event) => { const detailButton = event.target.closest('[data-worker-detail]'); if (detailButton) { openWorkerDetail(detailButton.dataset.workerDetail, detailButton); return; } const menuTrigger = event.target.closest('[data-worker-menu]'); if (menuTrigger) { event.stopPropagation(); toggleWorkerActionMenu(menuTrigger.dataset.workerMenu, menuTrigger); return; } const action = event.target.closest('[data-worker-action]'); if (!action) return; const user = workerRosterState.users.find((item) => item.id === action.dataset.worker); closeWorkerActionMenus(); if (!user) return; if (action.dataset.workerAction === 'edit') { openUserEditor(user, action); return; } if (action.dataset.workerAction === 'reset') { await resetUserPassword(user, action); return; } if (action.dataset.workerAction === 'delete' && window.confirm(`Obrisati radnika ${user.name}?`)) { try { await request(`/users/${encodeURIComponent(user.id)}`, { method: 'DELETE' }); await refreshActiveView(); toast('Radnik je uklonjen.'); } catch (error) { let message = 'Radnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } } });
+	async function loadUsers() {
+		setupWorkerRosterControls();
+		workerRosterState.loading = true; workerRosterState.error = null; renderWorkerRoster();
+		try {
+			await loadProjectOptions();
+			const [users, entries, rendezvous, payouts] = await Promise.all([request('/contacts'), request('/time-entries'), request('/rendezvous'), request('/payout-requests')]);
+			workerRosterState.users = users; workerRosterState.entries = entries; workerRosterState.rendezvous = rendezvous; workerRosterState.payouts = payouts; workerRosterState.loading = false; workerRosterState.error = null; renderWorkerRoster();
+			const currentUserId = currentUser?.id || currentUser?.sub; const recipient = document.querySelector('#recipient'); if (recipient) recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join('');
+			if (workerRosterState.detailWorkerId) renderWorkerDetail();
+		} catch (error) { workerRosterState.loading = false; workerRosterState.error = error; renderWorkerRoster(); }
+	}
+	const workerAssignmentModal = document.querySelector('#worker-assignment-modal');
+	const workerAssignmentState = { query: '', workers: [], projects: [], original: {}, draft: {} };
+	let lastWorkerAssignmentTrigger;
+	function assignmentChangedCount() {
+		return workerAssignmentState.workers.reduce((count, worker) => {
+			const original = new Set(workerAssignmentState.original[worker.id] || []);
+			const draft = new Set(workerAssignmentState.draft[worker.id] || []);
+			const same = original.size === draft.size && [...original].every((id) => draft.has(id));
+			return same ? count : count + 1;
+		}, 0);
+	}
+	function renderWorkerAssignmentMatrix() {
+		const headRow = document.querySelector('#worker-assignment-head-row');
+		const body = document.querySelector('#worker-assignment-body');
+		const stateTarget = document.querySelector('#worker-assignment-state');
+		const table = document.querySelector('#worker-assignment-table');
+		if (!headRow || !body || !stateTarget || !table) return;
+		const projects = workerAssignmentState.projects;
+		headRow.innerHTML = `<th scope="col">Travailleur</th>${projects.map((project) => `<th scope="col">${escapeHtml(project.name)}</th>`).join('')}`;
+		const query = workerAssignmentState.query.trim().toLowerCase();
+		const workers = workerAssignmentState.workers.filter((worker) => !query || [worker.name, worker.email, worker.phone].filter(Boolean).join(' ').toLowerCase().includes(query));
+		if (!workerAssignmentState.workers.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Aucun travailleur à attribuer</strong><small>Invitez un travailleur par e-mail, puis attribuez-lui un chantier.</small>'; table.hidden = true; }
+		else if (!projects.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Aucun chantier disponible</strong><small>Créez un chantier depuis un devis avant de gérer les attributions.</small>'; table.hidden = true; }
+		else if (!workers.length) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Aucun travailleur ne correspond à cette recherche.</strong>'; table.hidden = true; }
+		else { stateTarget.hidden = true; stateTarget.innerHTML = ''; table.hidden = false; }
+		body.innerHTML = workers.map((worker) => { const draftIds = new Set(workerAssignmentState.draft[worker.id] || []); return `<tr><th scope="row">${identityTokenHtml(worker.avatarUrl, worker.name, 'worker-avatar worker-avatar--roster')}<span>${escapeHtml(worker.name)}</span></th>${projects.map((project) => { const assigned = draftIds.has(project.id); return `<td><button type="button" class="assignment-cell${assigned ? ' assignment-cell--assigned' : ''}" data-assignment-worker="${escapeHtml(worker.id)}" data-assignment-project="${escapeHtml(project.id)}" aria-pressed="${assigned}" aria-label="${escapeHtml(worker.name)} ${assigned ? 'est attribué(e) à' : 'n’est pas attribué(e) à'} ${escapeHtml(project.name)}"><span aria-hidden="true"></span></button></td>`; }).join('')}</tr>`; }).join('');
+		const savebar = document.querySelector('#worker-assignment-savebar');
+		const changed = assignmentChangedCount();
+		if (savebar) { savebar.hidden = changed === 0; document.querySelector('#worker-assignment-change-count').textContent = `${changed} attribution${changed === 1 ? '' : 's'} modifiée${changed === 1 ? '' : 's'}`; }
+	}
+	async function loadWorkerAssignments() {
+		const stateTarget = document.querySelector('#worker-assignment-state');
+		try {
+			const result = await request('/worker-assignments');
+			workerAssignmentState.workers = result.workers;
+			workerAssignmentState.projects = result.projects;
+			workerAssignmentState.original = Object.fromEntries(result.assignments.map((item) => [item.userId, item.projectIds]));
+			workerAssignmentState.draft = Object.fromEntries(result.assignments.map((item) => [item.userId, [...item.projectIds]]));
+			renderWorkerAssignmentMatrix();
+		} catch { if (stateTarget) { stateTarget.hidden = false; stateTarget.innerHTML = '<strong>Impossible de charger les attributions.</strong>'; } }
+	}
+	function openWorkerAssignmentDrawer(trigger) {
+		if (!workerAssignmentModal) return;
+		lastWorkerAssignmentTrigger = trigger;
+		workerAssignmentState.query = '';
+		const searchInput = document.querySelector('#worker-assignment-search');
+		if (searchInput) searchInput.value = '';
+		document.querySelector('#worker-assignment-message').textContent = '';
+		workerAssignmentModal.hidden = false; workerAssignmentModal.setAttribute('aria-hidden', 'false');
+		loadWorkerAssignments();
+		searchInput?.focus();
+	}
+	function closeWorkerAssignmentDrawer({ force = false } = {}) {
+		if (!workerAssignmentModal) return;
+		if (!force && assignmentChangedCount() > 0 && !window.confirm('Ignorer les modifications non enregistrées ?')) return;
+		workerAssignmentModal.hidden = true; workerAssignmentModal.setAttribute('aria-hidden', 'true');
+		const trigger = lastWorkerAssignmentTrigger; lastWorkerAssignmentTrigger = null; trigger?.focus();
+	}
+	document.querySelector('#open-worker-assignments')?.addEventListener('click', (event) => openWorkerAssignmentDrawer(event.currentTarget));
+	document.querySelector('#worker-assignment-close')?.addEventListener('click', () => closeWorkerAssignmentDrawer());
+	workerAssignmentModal?.addEventListener('click', (event) => { if (event.target === workerAssignmentModal) closeWorkerAssignmentDrawer(); });
+	document.querySelector('#worker-assignment-search')?.addEventListener('input', (event) => { workerAssignmentState.query = event.currentTarget.value; renderWorkerAssignmentMatrix(); });
+	document.querySelector('#worker-assignment-body')?.addEventListener('click', (event) => {
+		const cell = event.target.closest('[data-assignment-worker]');
+		if (!cell) return;
+		const workerId = cell.dataset.assignmentWorker;
+		const projectId = cell.dataset.assignmentProject;
+		const current = new Set(workerAssignmentState.draft[workerId] || []);
+		if (current.has(projectId)) current.delete(projectId); else current.add(projectId);
+		workerAssignmentState.draft[workerId] = [...current];
+		renderWorkerAssignmentMatrix();
+	});
+	document.querySelector('#worker-assignment-cancel')?.addEventListener('click', () => { workerAssignmentState.draft = Object.fromEntries(Object.entries(workerAssignmentState.original).map(([id, ids]) => [id, [...ids]])); renderWorkerAssignmentMatrix(); });
+	document.querySelector('#worker-assignment-save')?.addEventListener('click', async () => {
+		const button = document.querySelector('#worker-assignment-save');
+		const message = document.querySelector('#worker-assignment-message');
+		message.textContent = '';
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		const assignments = Object.entries(workerAssignmentState.draft).map(([userId, projectIds]) => ({ userId, projectIds }));
+		try {
+			await request('/worker-assignments', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ assignments }) });
+			workerAssignmentState.original = Object.fromEntries(assignments.map((item) => [item.userId, [...item.projectIds]]));
+			renderWorkerAssignmentMatrix();
+			await loadUsers();
+			toast('Attributions chantier enregistrées.');
+		} catch { message.textContent = 'Les attributions n’ont pas été enregistrées. Réessayez.'; }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && workerAssignmentModal && !workerAssignmentModal.hidden) closeWorkerAssignmentDrawer(); });
 	function ensureRendezvousForm() {
 		if (document.querySelector('#rendezvous-form')) return;
 		const panel = document.querySelector('#tasks-view .panel');
@@ -271,7 +632,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			event.preventDefault();
 			const values = Object.fromEntries(new FormData(form).entries());
 			values.date = values.absenceDate;
-			values.projectId = currentProjectId() || 'lot-a';
+			values.projectId = currentProjectId();
+			if (!values.projectId) { toast('Izaberite aktivni chantier pre slanja RDV-a.'); return; }
 			try {
 				await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
 				form.reset();
@@ -282,7 +644,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 	async function loadRendezvous(items) {
-		latestRendezvous = items || await request('/rendezvous');
+		const activeProject = currentProjectId();
+		latestRendezvous = (items || await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
 		const panel = document.querySelector('#tasks-view .panel');
 		if (!panel) return;
 		const target = document.querySelector('#rendezvous-list') || (() => { const element = document.createElement('div'); element.id = 'rendezvous-list'; element.className = 'list'; panel.append(element); return element; })();
@@ -290,7 +653,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const sorted = latestRendezvous.slice().sort((first, second) => `${first.absenceDate} ${first.time}`.localeCompare(`${second.absenceDate} ${second.time}`));
 		target.innerHTML = sorted.length ? `<h3>${french ? 'RDV / absences' : 'RDV / odsustva'}</h3>${sorted.map((item) => `<div class="list-item rendezvous-list-item"><strong>${escapeHtml(item.absenceDate)} · ${escapeHtml(item.time)}</strong><small>${escapeHtml(item.workerName || '')} · chantier ${escapeHtml(item.projectId || '')}</small><div>${escapeHtml(item.reason || '')}</div></div>`).join('')}` : `<small>${french ? 'Aucun RDV/absence.' : 'Nema RDV/odsustva.'}</small>`;
 	}
-	async function loadMessages() { ensureRendezvousForm(); const messages = await request('/messages'); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
+	async function loadMessages() { await loadProjectOptions(); ensureRendezvousForm(); const activeProject = currentProjectId(); const messages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
 	function ensurePayoutPanel() { if (!isOwner()) return; if (document.querySelector('#payout-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const section = document.createElement('section'); section.className = 'panel payout-panel'; section.innerHTML = `<div class="section-head"><div><h2>Demandes de paiement</h2><small>Les jours sont envoyés le 1er du mois. Le paiement est prévu le 15.</small></div></div><form id="payout-form"><label>Mois à payer<input name="month" type="month" required /></label><label>Nombre de jours à payer<input name="days" type="number" min="0" step="1" required /></label><button class="primary" type="submit">Envoyer la demande au Gérant</button></form><div id="payout-list" class="list"></div></section>`; section.querySelector('#payout-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/payout-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await loadPayouts(); toast('La demande du 1er a été envoyée au Gérant. Paiement prévu le 15.'); } catch (error) { toast(`Demande non enregistrée : ${error.message || 'erreur inconnue'}`); } }); panel.after(section); }
 	async function loadPayouts() { if (!isOwner()) { document.querySelector('.payout-panel')?.remove(); return; } ensurePayoutPanel(); const items = await request('/payout-requests'); const target = document.querySelector('#payout-list'); if (!target) return; const managerView = isOwner(); target.innerHTML = items.length ? `<h3>${managerView ? 'Demandes reçues' : 'Mes demandes'}</h3>${items.slice().reverse().map((item) => `<div class="list-item"><strong>${item.month} · ${item.userName} · ${item.days} jours</strong><small>${managerView ? `${formatEUR(item.amount)} · ` : ''}Demande le ${item.submissionDate} · Paiement le ${item.paymentDate} · ${item.status}</small>${managerView && item.status === 'pending' ? `<button class="secondary payout-status" data-payout="${item.id}" data-status="approved">Approuver</button><button class="secondary payout-status" data-payout="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucune demande de paiement.</small>'; document.querySelectorAll('.payout-status').forEach((button) => button.addEventListener('click', async () => { await request(`/payout-requests/${button.dataset.payout}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadPayouts(); })); }
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);
@@ -479,10 +842,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			const unit = form.elements.quantityUnit.value;
 			const status = section.querySelector('#area-estimate-status');
 			if (!file) { status.textContent = "Selectionnez d'abord une photo."; return; }
+			const projectId = currentProjectId();
+			if (!projectId) { status.textContent = 'Izaberite aktivni chantier pre procene.'; return; }
 			const body = new FormData();
 			body.append('photo', file, file.name);
 			body.append('quantityUnit', unit);
-			body.append('projectId', 'lot-a');
+			body.append('projectId', projectId);
 			status.textContent = unit === 'ml' ? 'Analyse de la longueur visible avec plans du chantier...' : 'Analyse de la surface visible avec plans du chantier...';
 			try {
 				const result = await fetch(`${api}/ai/estimate-area`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }).then(async (response) => { if (!response.ok) throw new Error(await response.text()); return response.json(); });
@@ -497,8 +862,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 		form.addEventListener('submit', async (event) => {
 			event.preventDefault();
+			const projectId = currentProjectId();
+			if (!projectId) { toast('Izaberite aktivni chantier pre čuvanja proizvodnje.'); return; }
 			const body = new FormData(form);
-			body.append('projectId', 'lot-a');
+			body.append('projectId', projectId);
 			try {
 				const response = await fetch(`${api}/work-reports`, { method: 'POST', headers: { Authorization: `Bearer ${token}` }, body });
 				if (!response.ok) throw new Error(await response.text());
@@ -541,9 +908,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!isOwner()) { document.querySelector('.production-panel')?.remove(); return; }
 		ensureProductionPanel();
 		ensureCaptureMetadata();
-		const reports = await request('/work-reports');
+		await loadProjectOptions();
+		const projectId = currentProjectId();
+		const reports = projectId ? (await request('/work-reports')).filter((item) => item.projectId === projectId) : [];
 		const today = new Date().toISOString().slice(0, 10);
-		const summary = await request(`/projects/lot-a/situation-summary?date=${today}`);
+		if (!projectId) {
+			document.querySelector('#production-summary').innerHTML = '<small>Prvo registrujte ili izaberite chantier.</small>';
+			document.querySelector('#production-reports').innerHTML = '';
+			return;
+		}
+		const summary = await request(`/projects/${projectId}/situation-summary?date=${today}`);
 		const summaryTarget = document.querySelector('#production-summary');
 		const reportTarget = document.querySelector('#production-reports');
 		if (!summaryTarget || !reportTarget) return;
@@ -555,7 +929,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		reportTarget.innerHTML = reports.length ? `<h3>Rapports de production</h3>${reports.slice().reverse().map((item) => `<div class="list-item"><strong>${item.date} ? ${item.workerName} ? ${quantityLabel(item)}</strong><small>${item.description} ? ${managerView ? `${formatEUR(item.calculatedAmount)} ? ` : ''}${item.status} ? ${item.aiStatus} ? ${item.capturedAt} ? ${item.locationName}</small>${canReview && item.status === 'pending' ? `<button class="secondary production-status" data-report="${item.id}" data-status="approved">Approuver</button><button class="secondary production-status" data-report="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucun rapport de production.</small>';
 		document.querySelectorAll('.production-status').forEach((button) => button.addEventListener('click', async () => { await request(`/work-reports/${button.dataset.report}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadProduction(); }));
 	}
-	async function loadWorkSequence() { const panel = document.querySelector('.ai-panel'); if (!panel || document.querySelector('#work-sequence')) return; const section = document.createElement('div'); section.id = 'work-sequence'; section.className = 'list'; section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse de la documentation...</small>'; panel.append(section); try { const result = await request('/projects/lot-a/work-sequence'); section.innerHTML = `<h3>Ordre des travaux selon les plans</h3><small>${result.answer}</small>${result.steps?.length ? result.steps.map((step) => `<div class="list-item"><strong>${step.order}. ${step.title}</strong><small>${step.instruction} · Preuve requise : ${step.requiredEvidence || 'à confirmer'} · Source : ${step.sourcePage || 'à confirmer'}</small></div>`).join('') : '<small>La séquence ne peut pas être affichée sans documentation source et configuration AI.</small>'}`; } catch { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse indisponible. Ajoutez un plan ou une fiche technique PDF.</small>'; } }
+	async function loadWorkSequence() { const panel = document.querySelector('.ai-panel'); if (!panel || document.querySelector('#work-sequence')) return; const section = document.createElement('div'); section.id = 'work-sequence'; section.className = 'list'; section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse de la documentation...</small>'; panel.append(section); const projectId = currentProjectId(); if (!projectId) { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Primo izaberite aktivni chantier.</small>'; return; } try { const result = await request(`/projects/${projectId}/work-sequence`); section.innerHTML = `<h3>Ordre des travaux selon les plans</h3><small>${result.answer}</small>${result.steps?.length ? result.steps.map((step) => `<div class="list-item"><strong>${step.order}. ${step.title}</strong><small>${step.instruction} · Preuve requise : ${step.requiredEvidence || 'à confirmer'} · Source : ${step.sourcePage || 'à confirmer'}</small></div>`).join('') : '<small>La séquence ne peut pas être affichée sans documentation source et configuration AI.</small>'}`; } catch { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse indisponible. Ajoutez un plan ou une fiche technique PDF.</small>'; } }
 	function renderAutoAnalysis(target, analysis) {
 		if (!target || !analysis) return false;
 		const french = language === 'fr';
@@ -749,9 +1123,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	async function loadTime() {
 		await loadProjectOptions();
-		const entries = await request('/time-entries');
+		const activeProject = currentProjectId();
+		const entries = (await request('/time-entries')).filter((entry) => !activeProject || entry.projectId === activeProject);
 		const own = await request('/my-payroll-summary');
-		const rendezvous = await request('/rendezvous');
+		const rendezvous = (await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
 		const managerView = isOwner();
 		latestRendezvous = rendezvous;
 		latestTimeWorkers = managerView ? (await request('/contacts')).filter((user) => ['worker','user'].includes(user.role)) : [{ ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate }];
@@ -805,22 +1180,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		const panel = document.querySelector('.schedule-panel');
 		const projectId = currentProjectId();
 		if (!panel || !projectId) return;
-		const form = document.createElement('form'); form.id = 'schedule-form'; form.className = 'schedule-editor'; form.innerHTML = `<h3>Modifier le calendrier</h3><label>D?but des travaux<input name="startDate" type="date" value="${schedule.startDate || ''}" required /></label><label>?ch?ance pr?vue<input name="plannedEndDate" type="date" value="${schedule.plannedEndDate || ''}" required /></label><button class="primary" type="submit">Enregistrer le calendrier</button>`; panel.append(form);
-		form.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(form).entries()); try { await request(`/projects/${currentProjectId()}/schedule`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); await loadSchedule(); toast('Le calendrier a ?t? enregistr?.'); } catch (error) { toast(`Calendrier non enregistr? : ${error.message || 'erreur inconnue'}`); } });
-		const delayForm = document.createElement('form'); delayForm.id = 'delay-form'; delayForm.className = 'schedule-editor'; delayForm.innerHTML = `<h3>D?clarer un retard</h3><label>Cat?gorie<select name="category"><option value="weather">M?t?o</option><option value="materials">Retard des mat?riaux</option><option value="client">Client</option><option value="technical">Technique</option><option value="other">Autre</option></select></label><label>Nombre de jours<input name="days" type="number" min="1" step="1" required /></label><label>Motif du retard<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Enregistrer le retard</button>`; panel.append(delayForm);
-		delayForm.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(delayForm).entries()); try { await request(`/projects/${currentProjectId()}/delays`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); delayForm.reset(); await loadSchedule(); toast('Le retard a ?t? enregistr?.'); } catch (error) { toast(`Retard non enregistr? : ${error.message || 'erreur inconnue'}`); } });
+		const form = document.createElement('form'); form.id = 'schedule-form'; form.className = 'schedule-editor'; form.innerHTML = `<h3>Modifier le calendrier</h3><label>Début des travaux<input name="startDate" type="date" value="${schedule.startDate || ''}" required /></label><label>Échéance prévue<input name="plannedEndDate" type="date" value="${schedule.plannedEndDate || ''}" required /></label><button class="primary" type="submit">Enregistrer le calendrier</button>`; panel.append(form);
+		form.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(form).entries()); try { await request(`/projects/${currentProjectId()}/schedule`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); await loadSchedule(); toast('Le calendrier a été enregistré.'); } catch (error) { toast(`Calendrier non enregistré : ${error.message || 'erreur inconnue'}`); } });
+		const delayForm = document.createElement('form'); delayForm.id = 'delay-form'; delayForm.className = 'schedule-editor'; delayForm.innerHTML = `<h3>Déclarer un retard</h3><label>Catégorie<select name="category"><option value="weather">Météo</option><option value="materials">Retard des matériaux</option><option value="client">Client</option><option value="technical">Technique</option><option value="other">Autre</option></select></label><label>Nombre de jours<input name="days" type="number" min="1" step="1" required /></label><label>Motif du retard<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Enregistrer le retard</button>`; panel.append(delayForm);
+		delayForm.addEventListener('submit', async (event) => { event.preventDefault(); const values = Object.fromEntries(new FormData(delayForm).entries()); try { await request(`/projects/${currentProjectId()}/delays`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); delayForm.reset(); await loadSchedule(); toast('Le retard a été enregistré.'); } catch (error) { toast(`Retard non enregistré : ${error.message || 'erreur inconnue'}`); } });
 	}
 	async function loadSchedule() {
 		await loadProjectOptions();
 		const projectId = currentProjectId();
 		const target = document.querySelector('#schedule-summary'); const status = document.querySelector('#schedule-status');
-		if (!projectId) { status.textContent = 'Aucun chantier'; target.innerHTML = '<small>Prvo registruj chantier u Devis sekciji.</small>'; return; }
+		if (!projectId) { status.textContent = 'Aucun chantier'; target.innerHTML = '<small>Créez d’abord un chantier dans Devis.</small>'; return; }
 		const schedule = await request(`/projects/${projectId}/schedule`);
 		status.textContent = schedule.delayDays ? `${schedule.delayDays} jours de retard` : 'Aucun retard';
-		target.innerHTML = `<div class="list-item"><strong>D?but des travaux : ${schedule.startDate || 'non renseign?'}</strong><small>?ch?ance pr?vue : ${schedule.plannedEndDate || 'non renseign?e'} ? ?ch?ance ajust?e : ${schedule.adjustedEndDate || 'non calcul?e'}</small></div>${schedule.delays.map((item) => `<div class="list-item"><strong>${item.category} ? ${item.days} jours</strong><small>${item.reason}</small></div>`).join('')}`;
+		target.innerHTML = `<div class="list-item"><strong>Début des travaux : ${schedule.startDate || 'non renseigné'}</strong><small>Échéance prévue : ${schedule.plannedEndDate || 'non renseignée'} · Échéance ajustée : ${schedule.adjustedEndDate || 'non calculée'}</small></div>${schedule.delays.map((item) => `<div class="list-item"><strong>${item.category} · ${item.days} jours</strong><small>${item.reason}</small></div>`).join('')}`;
 		ensureScheduleEditor(schedule);
 	}
-	async function loadDocuments() { const documents = await request('/documents'); const canManage = isOwner(); document.querySelector('#documents').innerHTML = documents.length ? documents.map((item) => `<div class="list-item"><strong>${item.originalName}</strong><small>${item.evidenceType || 'other'} · ${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small>${canManage ? `<div class="document-actions"><button class="secondary rename-document" data-document="${item.id}">Preimenuj</button><button class="secondary copy-document" data-document="${item.id}">Kopiraj</button><button class="secondary delete-document" data-document="${item.id}">Obriši</button></div>` : ''}</div>`).join('') : '<small>Nema sačuvanih dokumenata.</small>'; document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Dokument je preimenovan.'); })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Kopija dokumenta je dodata.'); })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); })); }
+	async function loadDocuments() { await loadProjectOptions(); const activeProject = currentProjectId(); const documents = (await request('/documents')).filter((item) => !activeProject || item.projectId === activeProject); const canManage = isOwner(); document.querySelector('#documents').innerHTML = documents.length ? documents.map((item) => `<div class="list-item"><strong>${item.originalName}</strong><small>${item.evidenceType || 'other'} · ${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small>${canManage ? `<div class="document-actions"><button class="secondary rename-document" data-document="${item.id}">Preimenuj</button><button class="secondary copy-document" data-document="${item.id}">Kopiraj</button><button class="secondary delete-document" data-document="${item.id}">Obriši</button></div>` : ''}</div>`).join('') : '<small>Nema sačuvanih dokumenata.</small>'; document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Dokument je preimenovan.'); })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Kopija dokumenta je dodata.'); })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); })); }
 	async function loadBudget() {
 		await loadProjectOptions();
 		const target = document.querySelector('#budget-summary');
@@ -885,6 +1260,32 @@ document.addEventListener('DOMContentLoaded', () => {
 	const updateLoginFields = () => { const role = loginRole?.value; const siret = document.querySelector('#login-siret-field'); if (siret) { siret.hidden = role !== 'gerant'; siret.querySelector('input').required = role === 'gerant'; } };
 	loginRole?.addEventListener('change', updateLoginFields);
 	updateLoginFields();
+	const clearLoginCompanyPreview = () => { const preview = document.querySelector('#login-company-preview'); if (preview) preview.hidden = true; };
+	let loginIdentityPreviewTimer;
+	async function refreshLoginIdentityPreview() {
+		const identifier = loginForm?.elements.phone?.value.trim();
+		if (!identifier) { clearLoginCompanyPreview(); return; }
+		const role = loginRole?.value || 'user';
+		const siretInput = document.querySelector('#login-siret-field input');
+		if (role === 'gerant' && (!siretInput?.value || siretInput.value.replace(/\D/g, '').length < 9)) { clearLoginCompanyPreview(); return; }
+		const params = new URLSearchParams({ identifier, role });
+		if (role === 'gerant' && siretInput?.value) params.set('siret', siretInput.value);
+		try {
+			const response = await fetch(`${api}/auth/identity-preview?${params.toString()}`);
+			const result = await response.json();
+			const preview = document.querySelector('#login-company-preview');
+			if (!result.matched) { clearLoginCompanyPreview(); return; }
+			paintIdentityToken(document.querySelector('#login-company-logo'), result.companyLogoUrl, result.companyName);
+			const nameTarget = document.querySelector('#login-company-name');
+			if (nameTarget) nameTarget.textContent = result.companyName || 'Entreprise';
+			if (preview) preview.hidden = false;
+		} catch { clearLoginCompanyPreview(); }
+	}
+	const scheduleLoginIdentityPreview = () => { clearTimeout(loginIdentityPreviewTimer); loginIdentityPreviewTimer = setTimeout(refreshLoginIdentityPreview, 380); };
+	loginForm?.elements.phone?.addEventListener('input', scheduleLoginIdentityPreview);
+	loginForm?.elements.phone?.addEventListener('blur', refreshLoginIdentityPreview);
+	document.querySelector('#login-siret-field input')?.addEventListener('input', scheduleLoginIdentityPreview);
+	loginRole?.addEventListener('change', () => { clearLoginCompanyPreview(); refreshLoginIdentityPreview(); });
 	const updateRegistrationFields = () => {
 		const siret = document.querySelector('#registration-siret');
 		const company = document.querySelector('#registration-company');
@@ -899,7 +1300,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const showLogin = () => { if (authChoice) authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); };
 	const showRegistration = () => { authChoice.hidden = true; loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; };
 	const loadInitialData = async () => {
-		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts()];
+		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts(), loadCompanyProfile()];
 		const results = await Promise.allSettled(loads);
 		results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('Initial load failed', result.reason));
 		ensurePayoutPdfPanel();
@@ -970,12 +1371,15 @@ document.addEventListener('DOMContentLoaded', () => {
 			authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = true; resetForm.hidden = false;
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
-	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
-	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId:'lot-a' }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
+	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
+	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); const projectId = currentProjectId(); if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; } try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
 	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = formValues(event.currentTarget); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); const projectField = document.querySelector('#user-project-field'); const projectSelect = document.querySelector('#user-project-field select'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'gerant'; companyField.querySelector('input').required = role === 'gerant'; } rateFields.forEach((field) => { field.hidden = role !== 'user'; }); if (projectField) projectField.hidden = role !== 'user'; if (projectSelect) projectSelect.required = role === 'user'; }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields(); wireSiretLookup(document.querySelector('#user-form')?.elements.siret, document.querySelector('#user-company-preview'), document.querySelector('#user-form')?.elements.company);
-		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(formValues(event.currentTarget)) }); event.currentTarget.reset(); updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
+	const userFormAvatarInput = document.querySelector('#user-form-avatar-input');
+	const userFormAvatarPreview = document.querySelector('#user-form-avatar-preview');
+	userFormAvatarInput?.addEventListener('change', () => { const file = userFormAvatarInput.files[0]; if (!file || !userFormAvatarPreview) return; userFormAvatarPreview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`; });
+		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(formValues(event.currentTarget)) }); let avatarWarning = ''; const avatarFile = userFormAvatarInput?.files[0]; if (avatarFile && created.id) { const avatarBody = new FormData(); avatarBody.set('avatar', avatarFile); try { const avatarResponse = await fetch(`${api}/users/${encodeURIComponent(created.id)}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: avatarBody }); if (!avatarResponse.ok) throw new Error(); } catch { avatarWarning = ' Fotografija nije sačuvana; probajte iz izmene profila.'; } } event.currentTarget.reset(); if (userFormAvatarPreview) userFormAvatarPreview.innerHTML = '?'; updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.${avatarWarning}`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
 	document.querySelector('#upload-form').addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#file-input').files[0]; if (!file) { toast('S?lectionnez un fichier avant l?enregistrement.'); return; } const body = new FormData(event.currentTarget); body.set('file', file, file.name); body.set('responseLanguage', language); try { const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `${response.status}`); event.currentTarget.reset(); await refreshActiveView(); if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); } toast(result.autoAnalysis ? 'Dokument je sa?uvan i automatski analiziran.' : 'Le document a ?t? enregistr? sur le serveur.'); } catch (error) { toast(`Document non enregistr? : ${error.message || 'erreur inconnue'}`); } });
 	document.querySelector('#budget-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#budget-file').files[0]; const form = event.currentTarget; const ensureProjectId = async () => { const select = form.querySelector('[name="projectId"]'); if (select.value !== '__new') return select.value; const chantierName = form.querySelector('[name="chantierName"]').value.trim() || form.querySelector('[name="client"]').value.trim() || 'Nouveau chantier'; const project = await request('/projects', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name: chantierName, chantierName }) }); await loadProjectOptions(); select.value = project.id; return project.id; }; const sendBudget = async (replaceExisting = false) => { const projectId = await ensureProjectId(); const body = new FormData(form); body.set('projectId', projectId); if (file) body.set('file', file, file.name); if (replaceExisting) body.set('replaceExisting', 'true'); return fetch(`${api}/projects/${projectId}/budget`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); }; try { let response = await sendBudget(false); if (response.status === 409 && window.confirm('Un Devis existe deja pour ce chantier. Remplacer par le nouveau PDF ?')) response = await sendBudget(true); if (!response.ok) { const details = await response.text(); throw new Error(`${response.status}: ${details}`); } form.reset(); await refreshActiveView(); toast('Devis et chantier enregistres.'); } catch (error) { toast(`Devis non enregistre : ${error.message || 'erreur inconnue'}`); } });
 	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Čitanje PDF-a...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'PDF je pročitan delimično. Proveri označena polja pre čuvanja.' : `Automatski pročitano iz: ${result.source}`; } catch { status.textContent = 'PDF nije moguće automatski pročitati. Unesi vrednosti ručno.'; } });
