@@ -227,7 +227,8 @@ ${String(text || '').slice(0, 18000)}`;
 		body: JSON.stringify({
 			generationConfig: { temperature: 0.1, responseMimeType: 'application/json' },
 			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
-		})
+		}),
+		signal: AbortSignal.timeout(25000)
 	});
 	if (!geminiResponse.ok) {
 		const details = await geminiResponse.text();
@@ -1235,7 +1236,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		const language = request.body.responseLanguage || 'sr';
 		let parsed = { text: '' };
 		try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
-		autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' });
+		try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
 		if (!autoAnalysis) {
 			autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
 			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
@@ -1245,7 +1246,8 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	} else if (request.file.mimetype.startsWith('image/')) {
 		const language = request.body.responseLanguage || 'sr';
 		const buffer = request.file.buffer;
-		const visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language });
+		let visionResult = { vision: null, status: 'not_configured' };
+		try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
 		autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 	}
