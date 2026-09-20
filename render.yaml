@@ -40,9 +40,9 @@ services:
       - key: GOOGLE_AI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.6-flash
+        value: gemini-3.1-flash-lite
       - key: GEMINI_VISION_MODEL
-        value: gemini-3.6-flash
+        value: gemini-3.1-flash-lite
       - key: BREVO_API_KEY
         sync: false
       - key: BREVO_SMS_SENDER
@@ -103,7 +103,7 @@ services:
       - key: GEMINI_API_KEY
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.6-flash
+        value: gemini-3.1-flash-lite
       - key: SMTP_FROM
         sync: false
       - key: SMTP_HOST

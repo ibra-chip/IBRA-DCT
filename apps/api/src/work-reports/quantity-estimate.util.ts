@@ -44,7 +44,7 @@ For m² use visible height x width of executed work. For ml use visible linear l
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   if (!geminiApiKey) return normalizeEstimate({}, quantityUnit, 'not_configured');
 
-  const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+  const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

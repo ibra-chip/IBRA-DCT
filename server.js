@@ -150,7 +150,7 @@ File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 
 		return JSON.parse(clean);
 	};
 	if (geminiApiKey) {
-		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
@@ -202,7 +202,7 @@ async function analyzeDocumentWithGemini({ buffer, mimeType, fileName, evidenceT
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const french = language === 'fr';
-	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 	const prompt = `${french ? 'Analyse ce document chantier RGE/QUALIBAT' : 'Analiziraj ovaj chantier dokument RGE/QUALIBAT'}: ${fileName}.
 Tu dois répondre SPECIFIQUEMENT selon ce plan/fiche, pas avec un texte générique.
 Si le document parle de bardage ventilé, explique exactement par où commencer, l'ordre logique: support, calepinage, ossature/équerres/tasseaux, isolant, pare-pluie, lame d'air, profils départ/angles/tableaux, pose du parement, contrôles et photos preuve.
@@ -844,7 +844,7 @@ const extractDevisFields = (text) => {
 const inspectDevisWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
-	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 	const prompt = 'Read this French construction quote/devis PDF. Return only JSON with fields: number string, client string, chantier string, total number. Use the final TTC/net payable total when available. If a field is not visible, use empty string or 0.';
 	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 		method: 'POST',
@@ -1167,7 +1167,7 @@ Never invent dimensions. Estimate if the photo can be matched to uploaded projec
 For m² use visible height x width of executed work. For ml use visible linear length of executed work such as joints, rails, profiles, flashing, bands, base rails, edge trims or linear façade elements.${documentContext}`;
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (geminiApiKey) {
-		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+		const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },

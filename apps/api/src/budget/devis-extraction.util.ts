@@ -58,7 +58,7 @@ export const inspectDevisWithGemini = async (file: { buffer: Buffer; mimetype?: 
   const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
   if (!geminiApiKey) return null;
 
-  const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.6-flash').replace(/^models\//, '');
+  const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
   const prompt = 'Read this French construction quote/devis PDF. Return only JSON with fields: number string, client string, chantier string, total number. Use the final TTC/net payable total when available. If a field is not visible, use empty string or 0.';
 
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
