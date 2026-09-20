@@ -97,7 +97,13 @@ function Navigation({ projectId, onNavigate }: { projectId?: string; onNavigate?
       )}
       <span className="nav-disabled">Équipe</span>
       <span className="nav-disabled">Assistant IA</span>
-      <span className="nav-disabled">Rapports</span>
+      {projectId ? (
+        <Link className="nav-link" href={`/projects/${encodeURIComponent(projectId)}#rapports`} onClick={onNavigate}>
+          <span>Rapports</span>
+        </Link>
+      ) : (
+        <span className="nav-disabled">Rapports</span>
+      )}
     </nav>
   );
 }

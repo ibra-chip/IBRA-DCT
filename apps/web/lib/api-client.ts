@@ -11,6 +11,10 @@ import type {
   ProjectRecord,
   Purchase,
   PurchaseCategory,
+  QuantityEstimateResult,
+  QuantityUnit,
+  SituationSummary,
+  WorkReport,
 } from './api-types';
 
 const apiRoutes = {
@@ -150,6 +154,61 @@ export const apiClient = {
       method: 'POST',
       body: formData,
     });
+  },
+  estimateQuantity(projectId: string, photo: File, quantityUnit: QuantityUnit) {
+    const formData = new FormData();
+    formData.append('photo', photo);
+    formData.append('quantityUnit', quantityUnit);
+    return request<QuantityEstimateResult>(`${projectPath(projectId)}/work-reports/estimate-quantity`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  createWorkReport(projectId: string, payload: {
+    photo: File;
+    description: string;
+    date: string;
+    capturedAt: string;
+    locationName: string;
+    latitude: number;
+    longitude: number;
+    quantityUnit: QuantityUnit;
+    quantity: number;
+    unitRate: number;
+    m2Source: 'ai' | 'manual';
+  }) {
+    const formData = new FormData();
+    formData.append('photo', payload.photo);
+    formData.append('description', payload.description);
+    formData.append('date', payload.date);
+    formData.append('capturedAt', payload.capturedAt);
+    formData.append('locationName', payload.locationName);
+    formData.append('latitude', String(payload.latitude));
+    formData.append('longitude', String(payload.longitude));
+    formData.append('quantityUnit', payload.quantityUnit);
+    formData.append('quantity', String(payload.quantity));
+    formData.append('unitRate', String(payload.unitRate));
+    formData.append('m2Source', payload.m2Source);
+    return request<WorkReport>(`${projectPath(projectId)}/work-reports`, {
+      method: 'POST',
+      body: formData,
+    });
+  },
+  listWorkReports(projectId: string) {
+    return request<WorkReport[]>(`${projectPath(projectId)}/work-reports`);
+  },
+  updateWorkReportStatus(projectId: string, reportId: string, status: 'approved' | 'rejected') {
+    return request<WorkReport>(`${projectPath(projectId)}/work-reports/${encodeURIComponent(reportId)}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status }),
+    });
+  },
+  getSituationSummary(projectId: string, params?: { month?: string; date?: string }) {
+    const query = new URLSearchParams();
+    if (params?.month) query.set('month', params.month);
+    if (params?.date) query.set('date', params.date);
+    const suffix = query.toString() ? `?${query.toString()}` : '';
+    return request<SituationSummary>(`${projectPath(projectId)}/situation-summary${suffix}`);
   },
 };
 

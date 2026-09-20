@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { CreateBudgetDto, CreatePurchaseDto } from './dto';
 import { extractDevisFields, extractInvoiceFields, inspectDevisWithGemini, parseAmount } from './devis-extraction.util';
 import { parsePdfText } from './pdf-text.util';
-import { budgetUploadDir } from './upload.config';
+import { uploadDir } from '../common/upload.util';
 
 const managerRoles = new Set(['admin', 'manager', 'gerant']);
 const purchaseCategories = ['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'];
@@ -103,7 +103,7 @@ export class BudgetService {
     await this.getProject(projectId, user);
     const budget = await this.prisma.projectBudget.findUnique({ where: { projectId } });
     if (!budget?.sourceFile) throw new NotFoundException('No devis document stored for this project');
-    return { filePath: path.join(budgetUploadDir, budget.sourceFile), fileName: budget.sourceName || budget.sourceFile };
+    return { filePath: path.join(uploadDir, budget.sourceFile), fileName: budget.sourceName || budget.sourceFile };
   }
 
   async listPurchases(projectId: string, user: AuthenticatedUser) {
@@ -144,7 +144,7 @@ export class BudgetService {
     await this.getProject(projectId, user);
     const purchase = await this.prisma.purchase.findFirst({ where: { id: purchaseId, projectId } });
     if (!purchase?.invoiceKey) throw new NotFoundException('No invoice stored for this purchase');
-    return { filePath: path.join(budgetUploadDir, purchase.invoiceKey), fileName: purchase.invoiceName || purchase.invoiceKey };
+    return { filePath: path.join(uploadDir, purchase.invoiceKey), fileName: purchase.invoiceName || purchase.invoiceKey };
   }
 
   async financialSummary(projectId: string, user: AuthenticatedUser) {

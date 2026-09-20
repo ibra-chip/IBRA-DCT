@@ -9,7 +9,7 @@ import { CurrentUser } from '../common/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { BudgetService } from './budget.service';
 import { CreatePurchaseDto } from './dto';
-import { budgetDiskUploadOptions, budgetMemoryUploadOptions } from './upload.config';
+import { pdfDiskUploadOptions, pdfMemoryUploadOptions } from '../common/upload.util';
 
 @ApiTags('purchases')
 @ApiBearerAuth()
@@ -25,7 +25,7 @@ export class PurchasesController {
   }
 
   @Post('inspect')
-  @UseInterceptors(FileInterceptor('file', budgetMemoryUploadOptions))
+  @UseInterceptors(FileInterceptor('file', pdfMemoryUploadOptions))
   @ApiOperation({ summary: 'Auto-extract invoice fields from an uploaded facture PDF' })
   inspectInvoice(
     @Param('projectId') projectId: string,
@@ -36,7 +36,7 @@ export class PurchasesController {
   }
 
   @Post()
-  @UseInterceptors(FileInterceptor('file', budgetDiskUploadOptions))
+  @UseInterceptors(FileInterceptor('file', pdfDiskUploadOptions))
   @ApiOperation({ summary: 'Log a facture (material, tools, machines, workers, subcontracting, other)' })
   create(
     @Param('projectId') projectId: string,

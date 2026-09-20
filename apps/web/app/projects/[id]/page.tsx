@@ -7,6 +7,7 @@ import { useParams } from 'next/navigation';
 
 import { AppShell } from '../../../components/app/AppShell';
 import { BudgetPanel } from '../../../components/project/BudgetPanel';
+import { WorkReportPanel } from '../../../components/project/WorkReportPanel';
 import { DossierBand } from '../../../components/ui/DossierBand';
 import { EmptyState } from '../../../components/ui/EmptyState';
 import { ErrorState } from '../../../components/ui/ErrorState';
@@ -57,6 +58,7 @@ export default function ProjectPage() {
               <article className="record-panel"><ListChecks size={18} aria-hidden="true" /><span>Contrôles</span><strong>{project.checklists.length}</strong><small>Listes qualité du projet</small></article>
             </section>
             <BudgetPanel projectId={project.id} user={user} />
+            <WorkReportPanel projectId={project.id} user={user} />
 
             <section className="project-next-step">
               <EmptyState title="Le reste du registre arrive ensuite." description="Les documents, contrôles et preuves sont maintenant isolés par projet. Les modules de validation seront activés dans la prochaine étape de parité API." />

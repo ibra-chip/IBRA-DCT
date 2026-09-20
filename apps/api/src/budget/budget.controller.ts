@@ -9,7 +9,7 @@ import { CurrentUser } from '../common/current-user.decorator';
 import type { AuthenticatedUser } from '../auth/jwt.strategy';
 import { BudgetService } from './budget.service';
 import { CreateBudgetDto } from './dto';
-import { budgetDiskUploadOptions, budgetMemoryUploadOptions } from './upload.config';
+import { pdfDiskUploadOptions, pdfMemoryUploadOptions } from '../common/upload.util';
 
 @ApiTags('budget')
 @ApiBearerAuth()
@@ -31,7 +31,7 @@ export class BudgetController {
   }
 
   @Post('inspect')
-  @UseInterceptors(FileInterceptor('file', budgetMemoryUploadOptions))
+  @UseInterceptors(FileInterceptor('file', pdfMemoryUploadOptions))
   @ApiOperation({ summary: 'Auto-extract devis fields from an uploaded PDF' })
   inspectDevis(
     @Param('projectId') projectId: string,
@@ -42,7 +42,7 @@ export class BudgetController {
   }
 
   @Post()
-  @UseInterceptors(FileInterceptor('file', budgetDiskUploadOptions))
+  @UseInterceptors(FileInterceptor('file', pdfDiskUploadOptions))
   @ApiOperation({ summary: 'Create or replace the project budget from a confirmed devis' })
   createBudget(
     @Param('projectId') projectId: string,

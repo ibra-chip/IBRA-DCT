@@ -33,6 +33,8 @@ export const formatRole = (role: UserRole) => roleLabels[role] ?? role;
 
 export const formatPurchaseCategory = (category: PurchaseCategory | string) => purchaseCategoryLabels[category] ?? category;
 
+export const formatQuantityUnit = (unit: string) => (unit === 'ml' ? 'ml' : 'm²');
+
 export const formatCurrency = (value: number) =>
   new Intl.NumberFormat('fr-FR', { style: 'currency', currency: 'EUR', maximumFractionDigits: 0 }).format(value);
 

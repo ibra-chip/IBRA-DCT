@@ -121,6 +121,62 @@ export interface InvoiceInspectResult {
   needsOcr: boolean;
 }
 
+export type QuantityUnit = 'm2' | 'ml';
+
+export interface QuantityEstimateResult {
+  status: 'estimated' | 'not_configured';
+  quantityUnit: QuantityUnit;
+  estimatedQuantity: number | null;
+  confidence: number;
+  answer: string;
+  requiresHumanConfirmation: true;
+}
+
+export interface WorkReport {
+  id: string;
+  projectId: string;
+  workerId: string;
+  title: string;
+  description: string;
+  date: string;
+  capturedAt: string;
+  locationName: string;
+  latitude: number;
+  longitude: number;
+  quantityUnit: QuantityUnit;
+  quantity: number;
+  unitRate?: number;
+  calculatedAmount?: number;
+  photoKey: string;
+  photoName?: string | null;
+  aiStatus?: string | null;
+  m2Source?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | string;
+  reviewedBy?: string | null;
+  reviewedAt?: string | null;
+  createdAt: string;
+}
+
+export interface SituationSummaryWorker {
+  workerId: string;
+  quantityM2: number;
+  quantityMl: number;
+  amount?: number;
+  reportCount: number;
+}
+
+export interface SituationSummary {
+  projectId: string;
+  month: string | null;
+  date: string | null;
+  reportCount: number;
+  quantityM2: number;
+  quantityMl: number;
+  amount: number | null;
+  byWorker: SituationSummaryWorker[];
+  requiresHumanConfirmation: true;
+}
+
 export interface ProjectRecord {
   id: string;
   name: string;
