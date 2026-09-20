@@ -241,6 +241,58 @@ document.addEventListener('DOMContentLoaded', () => {
 		modulesTarget.innerHTML = (rgeQualibatKnowledge.modules || []).map((module) => { const items = french ? (module.itemsFr || module.items) : module.items; return `<article class="rge-module"><h3>${escapeHtml(localized(module, 'title'))}</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`; }).join('');
 	}
 	async function loadControlHistory() { await loadProjectOptions(); const projectId = currentProjectId(); const history = projectId ? await request(`/projects/${projectId}/control-history`) : []; const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena za izabrani chantier.</small>'; }
+	const userRoleLabels = { admin: 'Administrateur', manager: 'Manager', gerant: 'Gérant', user: 'Utilisateur', worker: 'Ouvrier' };
+	let lastUserEditorTrigger;
+	const userEditModal = document.querySelector('#user-edit-modal');
+	const userEditForm = document.querySelector('#user-edit-form');
+	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
+	const openUserEditor = (user, trigger) => {
+		if (!userEditModal || !userEditForm || !user) return;
+		lastUserEditorTrigger = trigger;
+		userEditForm.elements.userId.value = user.id;
+		userEditForm.elements.name.value = user.name || '';
+		userEditForm.elements.contact.value = user.email || user.phone || '';
+		userEditForm.elements.dailyRate.value = user.dailyRate ?? 0;
+		userEditForm.elements.hourlyRate.value = user.hourlyRate ?? 0;
+		document.querySelector('#user-edit-name-preview').textContent = user.name || 'Utilisateur';
+		document.querySelector('#user-edit-role-preview').textContent = userRoleLabels[user.role] || user.role || 'Utilisateur';
+		document.querySelector('#user-edit-company').textContent = user.company || user.employerCompany || '—';
+		document.querySelector('#user-edit-role').textContent = userRoleLabels[user.role] || user.role || '—';
+		const projectSelect = userEditForm.elements.projectIds;
+		projectSelect.innerHTML = projectsCache.map((project) => `<option value="${escapeHtml(project.id)}">${escapeHtml(project.name)}</option>`).join('');
+		const selectedProjects = new Set(user.projectIds || []);
+		[...projectSelect.options].forEach((option) => { option.selected = selectedProjects.has(option.value); });
+		userEditForm.querySelector('.user-edit-rates').hidden = !isWorkerRole(user.role);
+		projectSelect.disabled = !isWorkerRole(user.role);
+		userEditForm.querySelector('#user-edit-project-help').textContent = isWorkerRole(user.role) ? 'Sélectionnez les chantiers accessibles à cet utilisateur.' : 'Les chantiers d’un gérant suivent l’accès société.';
+		userEditForm.querySelector('#user-edit-message').textContent = '';
+		userEditModal.hidden = false;
+		userEditModal.setAttribute('aria-hidden', 'false');
+		userEditForm.elements.name.focus();
+	};
+	userEditModal?.addEventListener('click', (event) => { if (event.target === userEditModal) closeUserEditor(); });
+	userEditModal?.querySelector('#user-edit-close')?.addEventListener('click', closeUserEditor);
+	userEditModal?.querySelector('#user-edit-cancel')?.addEventListener('click', closeUserEditor);
+	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && userEditModal && !userEditModal.hidden) closeUserEditor(); });
+	userEditForm?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const message = userEditForm.querySelector('#user-edit-message');
+		const submit = userEditForm.querySelector('button[type="submit"]');
+		const values = Object.fromEntries(new FormData(userEditForm).entries());
+		values.projectIds = [...userEditForm.elements.projectIds.selectedOptions].map((option) => option.value);
+		message.textContent = '';
+		submit.disabled = true; submit.setAttribute('aria-busy', 'true');
+		try { await request(`/users/${encodeURIComponent(values.userId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) }); closeUserEditor(); await Promise.allSettled([loadUsers(), loadTime(), loadMessages()]); toast('Utilisateur mis à jour.'); }
+		catch (error) { try { message.textContent = JSON.parse(error.message).error || 'Utilisateur non mis à jour.'; } catch { message.textContent = 'Utilisateur non mis à jour.'; } }
+		finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
+	});
+	async function resetUserPassword(user, trigger) {
+		if (!user?.email || !window.confirm(`Envoyer un nouveau lien de mot de passe à ${user.email} ?`)) return;
+		trigger.disabled = true; trigger.setAttribute('aria-busy', 'true');
+		try { const result = await request(`/users/${encodeURIComponent(user.id)}/password-reset`, { method: 'POST' }); toast(result.setupUrl ? `Lien de configuration : ${result.setupUrl}` : 'Lien de mot de passe envoyé.'); }
+		catch (error) { try { toast(JSON.parse(error.message).error || 'Lien de mot de passe non envoyé.'); } catch { toast('Lien de mot de passe non envoyé.'); } }
+		finally { trigger.disabled = false; trigger.removeAttribute('aria-busy'); }
+	}
 	async function loadUsers() {
 		await loadProjectOptions();
 		const users = await request('/contacts');
@@ -249,11 +301,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		const currentUserId = currentUser?.id || currentUser?.sub;
 		const canRemoveUsers = Boolean(managerView && currentUserId);
 		const removeUserLabel = language === 'fr' ? "Supprimer l'utilisateur" : 'Ukloni korisnika';
-		document.querySelector('#users').innerHTML = users.map((user) => {
+		const usersById = new Map(users.map((user) => [user.id, user]));
+		document.querySelector('#users').innerHTML = users.length ? users.map((user) => {
 			const assignedProjects = (user.projectIds || []).map((projectId) => projectNames.get(projectId) || projectId).filter(Boolean);
-			return `<div class="list-item"><strong>${escapeHtml(user.name)}</strong><small>${escapeHtml(user.role)} · ${escapeHtml(user.email || 'bez e-maila')} · ${escapeHtml(user.phone || 'bez telefona')}${user.siret ? ` · SIRET: ${escapeHtml(user.siret)}` : ''}${user.company ? ` · Firma: ${escapeHtml(user.company)}` : ''}${user.employerSiret ? ` · Radi za: ${escapeHtml(user.employerCompany || user.company)} · SIRET: ${escapeHtml(user.employerSiret)}` : ''}${assignedProjects.length ? ` · Chantier: ${escapeHtml(assignedProjects.join(', '))}` : ''}${managerView && (user.dailyRate || user.hourlyRate) ? ` · Dnevno: ${formatEUR(user.dailyRate)} · Satnica: ${formatEUR(user.hourlyRate)}` : ''}</small>${canRemoveUsers && user.id !== currentUserId ? `<button class="secondary remove-user" data-user="${user.id}" data-name="${escapeHtml(user.name)}" type="button">${removeUserLabel}</button>` : ''}</div>`;
-		}).join('');
-		document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } }));
+			const roleLabel = userRoleLabels[user.role] || user.role || 'Utilisateur';
+			const contact = user.email || user.phone || (language === 'fr' ? 'Contact non renseigné' : 'Kontakt nije unet');
+			const context = [user.company || user.employerCompany, assignedProjects.length ? `${assignedProjects.length} chantier${assignedProjects.length === 1 ? '' : 's'}` : (language === 'fr' ? 'Aucun chantier' : 'Nema chantier-a'), managerView && (user.dailyRate || user.hourlyRate) ? `${formatEUR(user.dailyRate || 0)}/j · ${formatEUR(user.hourlyRate || 0)}/h` : ''].filter(Boolean).join(' · ');
+			const canEdit = Boolean(managerView && user.id !== currentUserId);
+			return `<article class="user-row"><div class="user-identity"><strong>${escapeHtml(user.name)}</strong><span class="user-role">${escapeHtml(roleLabel)}</span></div><div class="user-meta"><span>${escapeHtml(contact)}</span><small>${escapeHtml(context)}</small></div>${canEdit ? `<div class="user-row-actions"><button class="secondary edit-user" data-user="${escapeHtml(user.id)}" type="button">${language === 'fr' ? 'Modifier' : 'Izmeni'}</button><button class="secondary reset-user" data-user="${escapeHtml(user.id)}" type="button"${user.email ? '' : ' disabled'}>${language === 'fr' ? 'Réinitialiser' : 'Reset'}</button><button class="danger remove-user" data-user="${escapeHtml(user.id)}" data-name="${escapeHtml(user.name)}" type="button">${removeUserLabel}</button></div>` : ''}</article>`;
+		}).join('') : `<div class="user-empty"><strong>${language === 'fr' ? 'Aucun utilisateur enregistré.' : 'Nema registrovanih korisnika.'}</strong><small>${language === 'fr' ? 'Ajoutez un utilisateur pour commencer.' : 'Dodajte radnika da počnete.'}</small></div>`;
+		document.querySelectorAll('.edit-user').forEach((button) => button.addEventListener('click', () => openUserEditor(usersById.get(button.dataset.user), button)));
+		document.querySelectorAll('.reset-user').forEach((button) => button.addEventListener('click', () => resetUserPassword(usersById.get(button.dataset.user), button)));
+		document.querySelectorAll('.remove-user').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm(`${removeUserLabel}: ${button.dataset.name}?`)) return; try { await request(`/users/${button.dataset.user}`, { method: 'DELETE' }); await refreshActiveView(); toast('Korisnik je uklonjen.'); } catch (error) { let message = 'Korisnik nije uklonjen.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); } }));
 		const recipient = document.querySelector('#recipient');
 		recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${user.id}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join('');
 	}

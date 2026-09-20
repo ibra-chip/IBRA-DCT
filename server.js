@@ -523,6 +523,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (user.id === request.user.sub) return response.status(400).json({ error: 'Edit your own account through the account flow' });
 	const name = String(request.body.name ?? user.name).trim();
 	const contact = String(request.body.contact || '').trim();
 	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(request.body.email ?? user.email ?? '').trim().toLowerCase();
@@ -530,15 +531,39 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	if (!name || (!email && !phone)) return response.status(400).json({ error: 'Name and phone or email are required' });
 	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	const isWorker = isWorkerRole(user.role);
+	const hasProjectAssignment = request.body.projectIds !== undefined;
+	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, data.projects) : (user.projectIds || []);
+	if (isWorker && hasProjectAssignment && !projectIds.length) return response.status(400).json({ error: 'At least one chantier is required for a worker' });
+	const dailyRate = request.body.dailyRate === undefined ? user.dailyRate : Number(request.body.dailyRate);
+	const hourlyRate = request.body.hourlyRate === undefined ? user.hourlyRate : Number(request.body.hourlyRate);
+	if (!Number.isFinite(dailyRate) || dailyRate < 0 || !Number.isFinite(hourlyRate) || hourlyRate < 0) return response.status(400).json({ error: 'Rates must be non-negative numbers' });
 	user.name = name;
 	user.email = email;
 	user.phone = phone;
-	if (request.body.dailyRate !== undefined) user.dailyRate = Number(request.body.dailyRate || 0);
-	if (request.body.hourlyRate !== undefined) user.hourlyRate = Number(request.body.hourlyRate || 0);
+	user.dailyRate = dailyRate;
+	user.hourlyRate = hourlyRate;
+	if (isWorker && hasProjectAssignment) user.projectIds = projectIds;
 	data.timeEntries = (data.timeEntries || []).map((entry) => entry.workerId === user.id ? { ...entry, workerName: user.name } : entry);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.json(safeUser);
+});
+app.post('/api/users/:id/password-reset', auth, manager, async (request, response) => {
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.params.id);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (user.id === request.user.sub) return response.status(400).json({ error: 'Use the account password flow for your own account' });
+	if (!user.email) return response.status(400).json({ error: 'This user has no email address for password reset' });
+	const setupUrl = createPasswordSetupUrl(data, user.id);
+	try {
+		const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - nouveau lien de mot de passe', text: `Bonjour ${user.name},\n\nUn nouveau lien de configuration de mot de passe a été demandé pour votre accès IBRA-BA :\n\n${setupUrl}\n\nCe lien est valable 7 jours.` });
+		if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
+		await writeData(data);
+		return response.json({ message: mailResult.skipped ? 'Reset link prepared for local testing.' : 'Reset link sent.', delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { setupUrl } : {}) });
+	} catch (error) {
+		return response.status(502).json({ error: error.message || 'Password reset delivery failed' });
+	}
 });
 app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	if (request.params.id === request.user.sub) return response.status(400).json({ error: 'You cannot remove your own active account' });

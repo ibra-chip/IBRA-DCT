@@ -125,6 +125,21 @@
 		</section>
 			<section id="settings-view" class="view"><div class="section-head"><div><small>ACCÈS</small><h2>Utilisateurs et rôles</h2></div></div><div class="grid-two"><div id="users" class="list"></div><form id="user-form" class="panel"><h3>Dodaj radnika</h3><small>Gazda šalje poziv emailom. Radnik sam bira password preko linka iz emaila.</small><label>Nom et prénom<input name="name" required /></label><label>E-mail<input name="email" type="email" required /></label><label>Telephone (optionnel)<input name="phone" type="tel" placeholder="+33 6 00 00 00 00" /></label><label>Role<select name="role" id="user-role"><option value="user" selected>Utilisateur / radnik</option><option value="gerant">Gerant / gazda</option></select></label><label id="company-field">Ime firme<input name="company" /></label><label id="siret-field">SIRET de l’entreprise<input name="siret" pattern="[0-9 ]{9,20}" /></label><small id="user-company-preview">Za dodatnog gazdu unesite ime firme i SIRET. Radnik nasljedjuje firmu gazde koji ga poziva.</small><label class="rate-field">Dnevna tarifa EUR<input name="dailyRate" type="number" min="0" step="0.01" /></label><label class="rate-field">Satnica EUR<input name="hourlyRate" type="number" min="0" step="0.01" /></label><label id="user-project-field">Chantier-i na kojima radnik radi<select name="projectIds" data-project-assignment multiple size="3" required aria-describedby="user-project-help"></select></label><small id="user-project-help">Izaberi jedan ili više chantier-a za ovog radnika.</small><button class="primary">Pošalji email poziv</button></form></div></section>
 		</main>
+		<div id="user-edit-modal" class="modal user-edit-modal" hidden role="dialog" aria-modal="true" aria-labelledby="user-edit-title">
+			<form id="user-edit-form" class="login-card" novalidate>
+				<div class="section-head"><div><small>ACCÈS</small><h2 id="user-edit-title">Modifier l’utilisateur</h2></div><button id="user-edit-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
+				<input name="userId" type="hidden" />
+				<div class="user-edit-summary"><strong id="user-edit-name-preview"></strong><small id="user-edit-role-preview"></small></div>
+				<label>Nom et prénom<input name="name" required /></label>
+				<label>E-mail ou téléphone<input name="contact" required autocomplete="email tel" /></label>
+				<div class="user-edit-readonly"><span>Entreprise</span><strong id="user-edit-company">—</strong><span>Rôle</span><strong id="user-edit-role">—</strong></div>
+				<div class="form-row user-edit-rates"><label>Dnevna tarifa EUR<input name="dailyRate" type="number" min="0" step="0.01" /></label><label>Satnica EUR<input name="hourlyRate" type="number" min="0" step="0.01" /></label></div>
+				<label>Chantiers attribués<select name="projectIds" data-project-assignment multiple size="4" aria-describedby="user-edit-project-help"></select></label>
+				<small id="user-edit-project-help">Sélectionnez les chantiers accessibles à cet utilisateur.</small>
+				<p id="user-edit-message" class="error" role="alert" aria-live="assertive"></p>
+				<div class="user-edit-actions"><button class="secondary" id="user-edit-cancel" type="button">Annuler</button><button class="primary" type="submit">Enregistrer</button></div>
+			</form>
+		</div>
 	</div>
 	<script src="script.js"></script>
 	<script>if ('serviceWorker' in navigator) navigator.serviceWorker.getRegistrations().then((registrations) => registrations.forEach((registration) => registration.unregister())); if ('caches' in window) caches.keys().then((keys) => keys.forEach((key) => caches.delete(key)));</script>
