@@ -725,7 +725,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const form = document.createElement('form');
 		form.id = 'rendezvous-form';
-		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru i dobija email.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Posalji gazdi</button>`;
+		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru u aplikaciji.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Sacuvaj RDV</button>`;
 		panel.append(form);
 		const minimumDate = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
 		form.elements.absenceDate.min = minimumDate;
@@ -740,7 +740,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				form.reset();
 				form.elements.absenceDate.min = minimumDate;
 				await refreshActiveView();
-				toast('Odsustvo/RDV je poslato gazdi.');
+				toast('Odsustvo/RDV je sacuvano. Gazda ga vidi u kalendaru.');
 			} catch (error) { toast(`RDV nije poslat: ${error.message || 'greska'}`); }
 		});
 	}

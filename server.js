@@ -1026,30 +1026,12 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	let context;
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const owner = resolveRendezvousOwner(data, worker);
-	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, ownerId: owner?.id || null, emailStatus: owner?.email ? 'pending' : 'not-sent', createdAt: new Date().toISOString() };
+	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
 	const notificationText = `Absence/RDV ${absenceDate} à ${time} | ${reason}`;
 	data.messages = [...(data.messages || []), ...(owner ? [{ id: `notification-${Date.now()}-${owner.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: owner.id, recipientName: owner.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }] : [])];
 	await writeData(data);
-	const project = (data.projects || []).find((entry) => entry.id === request.body.projectId);
-	let emailStatus = 'not-sent';
-	if (owner?.email) {
-		try {
-			const mailResult = await sendMailSafe({
-				to: owner.email,
-				subject: `IBRA-BA - absence/RDV ${worker.name}`,
-				text: `Bonjour ${owner.name},\n\n${worker.name} a déclaré qu'il ne viendra pas travailler.\nChantier: ${project?.name || request.body.projectId}\nAbsence/RDV: ${absenceDate} à ${time}\nPréavis: ${days} jour(s)\nMotif: ${reason}\n\nConnectez-vous à ${process.env.PUBLIC_URL || 'https://ibra-ba.net'} pour vérifier.`
-			});
-			emailStatus = mailResult.skipped ? 'not-sent' : 'sent';
-		} catch (error) {
-			console.error('Rendezvous owner notification failed:', error.message);
-			emailStatus = 'failed';
-		}
-	}
-	item.emailStatus = emailStatus;
-	item.notifiedAt = emailStatus === 'sent' ? new Date().toISOString() : undefined;
-	try { await writeData(data); } catch (error) { console.error('Rendezvous status persistence failed:', error.message); }
-	response.status(201).json({ ...item, emailStatus });
+	response.status(201).json(item);
 });
 app.get('/api/time-entries', auth, async (request, response) => {
 	const data = await readData();
