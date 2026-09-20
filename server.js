@@ -637,6 +637,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const isWorker = isWorkerRole(user.role);
 	const hasProjectAssignment = request.body.projectIds !== undefined;
 	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, data.projects) : (user.projectIds || []);
+	if (isWorker && hasProjectAssignment && !projectIds.length) return response.status(400).json({ error: 'At least one chantier is required for a worker' });
 	const dailyRate = request.body.dailyRate === undefined ? user.dailyRate : Number(request.body.dailyRate);
 	const hourlyRate = request.body.hourlyRate === undefined ? user.hourlyRate : Number(request.body.hourlyRate);
 	if (!Number.isFinite(dailyRate) || dailyRate < 0 || !Number.isFinite(hourlyRate) || hourlyRate < 0) return response.status(400).json({ error: 'Rates must be non-negative numbers' });

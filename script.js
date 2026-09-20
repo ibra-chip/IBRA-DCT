@@ -342,9 +342,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	const userEditAvatarInput = document.querySelector('#user-edit-avatar-input');
 	const userEditAvatarPreview = document.querySelector('#user-edit-avatar-preview');
 	const userEditAvatarRemove = document.querySelector('#user-edit-avatar-remove');
-	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
+	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('hidden', ''); userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
 	const openUserEditor = (user, trigger) => {
-		if (!userEditModal || !userEditForm) return;
+		if (!userEditModal || !userEditForm || !user) return;
 		lastUserEditorTrigger = trigger;
 		userEditForm.elements.userId.value = user.id;
 		userEditForm.elements.name.value = user.name || '';
@@ -369,6 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		userEditForm.querySelector('#user-edit-project-help').textContent = isWorkerRole(user.role) ? 'Sélectionnez les chantiers accessibles à cet utilisateur.' : 'Les chantiers d’un gérant suivent l’accès société.';
 		userEditForm.querySelector('#user-edit-message').textContent = '';
 		userEditModal.hidden = false;
+		userEditModal.removeAttribute('hidden');
 		userEditModal.setAttribute('aria-hidden', 'false');
 		userEditForm.elements.name.focus();
 	};
