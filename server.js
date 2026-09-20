@@ -268,6 +268,11 @@ function manager(request, response, next) {
 	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	next();
 }
+function workerSelf(request, response, next) {
+	if (!isWorkerRole(request.user.role)) return response.status(403).json({ error: 'Only workers can update their own photo' });
+	if (request.params.id && request.params.id !== request.user.sub) return response.status(403).json({ error: 'Workers can only update their own photo' });
+	next();
+}
 const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
@@ -541,7 +546,7 @@ app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'
 	await writeData(data);
 	response.json(publicCompanyProfile(profile));
 });
-app.post('/api/users/:id/avatar', auth, manager, identityUploadMiddleware('avatar'), async (request, response) => {
+app.post('/api/users/:id/avatar', auth, workerSelf, identityUploadMiddleware('avatar'), async (request, response) => {
 	const data = request.data || await readData();
 	const target = data.users.find((user) => user.id === request.params.id);
 	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
@@ -553,7 +558,7 @@ app.post('/api/users/:id/avatar', auth, manager, identityUploadMiddleware('avata
 	await writeData(data);
 	response.json({ avatarUrl: target.avatarUrl });
 });
-app.delete('/api/users/:id/avatar', auth, manager, async (request, response) => {
+app.delete('/api/users/:id/avatar', auth, workerSelf, async (request, response) => {
 	const data = request.data || await readData();
 	const target = data.users.find((user) => user.id === request.params.id);
 	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
@@ -561,6 +566,27 @@ app.delete('/api/users/:id/avatar', auth, manager, async (request, response) => 
 	if (target.avatarFile) await fs.unlink(path.join(identityUploadDir, target.avatarFile)).catch(() => {});
 	target.avatarFile = '';
 	target.avatarUrl = '';
+	await writeData(data);
+	response.json({ avatarUrl: '' });
+});
+app.post('/api/me/avatar', auth, workerSelf, identityUploadMiddleware('avatar'), async (request, response) => {
+	const data = request.data || await readData();
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	if (!worker || !isWorkerRole(worker.role)) return response.status(403).json({ error: 'Only workers can update their own photo' });
+	if (!request.file) return response.status(400).json({ error: 'Choisissez une photo JPG ou PNG de 5 Mo maximum.' });
+	if (worker.avatarFile) await fs.unlink(path.join(identityUploadDir, worker.avatarFile)).catch(() => {});
+	worker.avatarFile = request.file.filename;
+	worker.avatarUrl = identityFileUrl(worker.avatarFile);
+	await writeData(data);
+	response.json({ avatarUrl: worker.avatarUrl });
+});
+app.delete('/api/me/avatar', auth, workerSelf, async (request, response) => {
+	const data = request.data || await readData();
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	if (!worker || !isWorkerRole(worker.role)) return response.status(403).json({ error: 'Only workers can remove their own photo' });
+	if (worker.avatarFile) await fs.unlink(path.join(identityUploadDir, worker.avatarFile)).catch(() => {});
+	worker.avatarFile = '';
+	worker.avatarUrl = '';
 	await writeData(data);
 	response.json({ avatarUrl: '' });
 });

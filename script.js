@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const isOwner = (role = currentUser?.role) => ownerRoles.includes(role);
 	const isWorkerRole = (role) => workerRoles.includes(role);
 	const toast = (message) => { const french = { 'Korisnik je dodat.': 'Utilisateur enregistré.', 'Poruka je sačuvana.': 'Message enregistré.', 'Radno vreme je sačuvano.': 'Temps de travail enregistré.', 'Radno vreme nije sačuvano.': 'Temps de travail non enregistré.', 'Korisnik nije dodat.': 'Utilisateur non enregistré.', 'Trošak nije sačuvan.': 'Dépense non enregistrée.', 'Devis nije sačuvan.': 'Devis non enregistré.', 'Devis i budžet su sačuvani.': 'Devis et budget enregistrés.' }; const translated = french[message] || String(message).replace('Dokument je obrisan.', 'Document supprimé.').replace('Dokument je preimenovan.', 'Document renommé.').replace('Kopija dokumenta je dodata.', 'Copie du document ajoutée.'); const el = document.querySelector('#toast'); el.textContent = translated; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
-	const formatEUR = (value) => new Intl.NumberFormat('sr-Latn-RS', { style: 'currency', currency: 'EUR' }).format(Number(value || 0));
+	const formatEUR = (value) => new Intl.NumberFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(value || 0));
 	const translations = { 'Dashboard':'Tableau de bord','Devis':'Devis','Nabavke':'Achats','Chantier kontrole':'Contrôles chantier','RGE / QUALIBAT':'RGE / QUALIBAT','Dokumenti i slike':'Documents et photos','Zadaci i komunikacija':'Tâches et communication','Korisnici':'Utilisateurs','Dokazni paket':'Dossier de preuves','Odjava':'Déconnexion','Kontrola pravilnog izvođenja radova':'Contrôle de la bonne exécution des travaux','Plan, fiche technique, fotografije i potvrda Gerant-a u jednom toku.':'Plan, fiche technique, photos et validation du Gerant dans un seul parcours.','Otvorene kontrole':'Contrôles ouverts','Radno vreme':'Temps de travail','Trošak rada ovog meseca':'Coût du travail ce mois-ci','Preostali budžet':'Budget restant','Materijal, alat i mašine':'Matériaux, outils et machines','Radnici':'Travailleurs','Sous-traitance':'Sous-traitance','Nema Devis-a':'Aucun devis','Bez kašnjenja':'Aucun retard','Début de travaux i rok':'Début des travaux et délai','Début de travaux: nije unet':'Début des travaux : non renseigné','Planirani rok: nije unet · Prilagođeni rok: nije izračunat':'Échéance prévue : non renseignée · Échéance ajustée : non calculée','Chantier kontrole':'Contrôles chantier','Dokumenti i slike':'Documents et photos','AIDE RGE / QUALIBAT':'AIDE RGE / QUALIBAT','ITE - znanje, kontrole i odgovori':'ITE - connaissances, contrôles et réponses','Za učenje i chantier provjeru':'Pour apprendre et contrôler le chantier','Pretraga pitanja i odgovora':'Recherche questions/réponses',"Traži po riječi, npr. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov":"Rechercher par mot-clé, ex. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov",'Upiši pojam...':'Saisir un terme...','RGE kontrolna lista':'Liste de contrôle RGE','Kompletno znanje po temama':'Connaissance complète par thèmes','Francuski tehnički termini su ostavljeni da odgovaraju RGE/QUALIBAT dokumentaciji.':'Les termes techniques français sont conservés pour correspondre à la documentation RGE/QUALIBAT.' };
 	const runtimeFrench = {
 		'Nabavke': 'Achats', 'Dokumenti i slike': 'Documents et photos', 'Zadaci i komunikacija': 'Tâches et communication', 'Korisnici': 'Utilisateurs',
@@ -46,6 +46,41 @@ document.addEventListener('DOMContentLoaded', () => {
 	const repairEncoding = () => { const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT); const nodes = []; while (walker.nextNode()) nodes.push(walker.currentNode); nodes.forEach((node) => { let text = node.nodeValue; encodingRepairs.forEach(([source, target]) => { text = text.split(source).join(target); }); if (text !== node.nodeValue) node.nodeValue = text; }); };
 	Object.assign(runtimeFrench, { 'Obracun ovog unosa:': 'Calcul de cette saisie :', 'Unesite datum, satnicu/dnevnicu, pocetak, kraj i pauzu.': 'Saisissez la date, le tarif, le début, la fin et la pause.', 'Kalendar radnih dana se ucitava...': 'Chargement du calendrier des jours travaillés…', 'Radnik / ouvrier': 'Travailleur', 'Creer un chantier u Devis sekciji': 'Créez un chantier depuis Devis', 'Creer un chantier dans Devis': 'Créer un chantier dans Devis', 'Tip cene': 'Type de tarif', 'Cena rada EUR': 'Tarif de travail EUR', 'Dodaj radnika': 'Ajouter un travailleur', 'Nom et prenom': 'Nom et prénom', 'Email radnika': 'E-mail du travailleur', 'Dnevnica EUR': 'Tarif journalier EUR', 'Satnica / radni sat EUR': 'Tarif horaire EUR', 'Chantier-i na kojima radnik radi': 'Chantiers attribués', 'Pošalji email poziv': 'Envoyer l’invitation e-mail', 'Radnik dobija email poziv i pristup samo za svoje dane, dodeljene chantier-e i RDV/odsustvo.': 'Le travailleur reçoit une invitation e-mail et accède uniquement à ses jours, chantiers et rendez-vous.', 'Prvo registruj chantier u Devis sekciji.': 'Créez d’abord un chantier dans Devis.', 'Nema promena za izabrani chantier.': 'Aucune modification pour ce chantier.', 'Aucune saisie de temps de travail pour ce travailleur.': 'Aucune saisie de temps pour ce travailleur.' });
 	encodingRepairs.push(['pr?vue', 'prévue'], ['pr?vu', 'prévu'], ['ajust?e', 'ajustée'], ['enregistr?', 'enregistré'], ['non renseign?', 'non renseigné'], ['?t?', 'été'], ['D?but', 'Début'], ['?ch?ance', 'Échéance'], ['Cat?gorie', 'Catégorie'], ['M?t?o', 'Météo']);
+	Object.assign(runtimeFrench, {
+		'Creer un chantier dans Devis': 'Créer un chantier dans Devis', 'Creer un chantier u Devis sekciji': 'Créez d’abord un chantier dans Devis',
+		'Planovi i fiches techniques u PDF-u, fotografije sa gradilišta · 25 Mo maksimum': 'Plans et fiches techniques PDF, photos de chantier · 25 Mo maximum',
+		'ITE - znanje, kontrole i odgovori': 'ITE · connaissances, contrôles et réponses', 'Za učenje i chantier provjeru': 'Pour apprendre et contrôler le chantier',
+		'Pretraga pitanja i odgovora': 'Recherche de questions et réponses', 'Traži po riječi, npr. RGE, pare-vapeur, BAR-EN-102, lame d’air, MaPrimeRenov': 'Rechercher par mot-clé, ex. RGE, pare-vapeur, BAR-EN-102, lame d’air, MaPrimeRénov',
+		'Upiši pojam...': 'Saisir un terme…', 'RGE kontrolna lista': 'Liste de contrôle RGE', 'Kompletno znanje po temama': 'Connaissances par thème', 'Učitavanje RGE baze...': 'Chargement de la base RGE…', 'Učitavanje kontrola...': 'Chargement des contrôles…', 'Učitavanje tema...': 'Chargement des thèmes…',
+		'Obracun ovog unosa: 0.00 h ? 0,00 EUR': 'Calcul de cette saisie : 0,00 h · 0,00 €', 'Unesite datum, satnicu/dnevnicu, pocetak, kraj i pauzu.': 'Saisissez la date, le tarif, le début, la fin et la pause.', 'Kalendar radnih dana se ucitava...': 'Chargement du calendrier des jours travaillés…',
+		'Radnik / ouvrier': 'Travailleur', 'Tip cene': 'Type de tarif', 'Cena rada EUR': 'Tarif de travail EUR', 'Dnevnica': 'Tarif journalier', 'Satnica': 'Tarif horaire', 'Dodaj radnika': 'Ajouter un travailleur', 'Nom et prenom': 'Nom et prénom', 'Email radnika': 'E-mail du travailleur', 'Dnevnica EUR': 'Tarif journalier EUR', 'Satnica / radni sat EUR': 'Tarif horaire EUR',
+		'Chantier-i na kojima radnik radi': 'Chantiers attribués', 'Izaberi jedan ili više chantier-a za ovog radnika.': 'Sélectionnez un ou plusieurs chantiers.', 'Pošalji email poziv': 'Envoyer l’invitation e-mail', 'Radnik dobija email poziv i pristup samo za svoje dane, dodeljene chantier-e i RDV/odsustvo.': 'Le travailleur reçoit une invitation e-mail et accède uniquement à ses jours, chantiers et rendez-vous.',
+		'Role': 'Rôle', 'Utilisateur / radnik': 'Travailleur', 'Gerant / gazda': 'Gérant', 'Ime firme': 'Nom de l’entreprise', 'Za dodatnog gazdu unesite ime firme i SIRET. Radnik nasljedjuje firmu gazde koji ga poziva.': 'Pour un gérant supplémentaire, renseignez le nom de l’entreprise et le SIRET. Le travailleur reprend l’entreprise du gérant qui l’invite.',
+		'Izaberi jedan ili više chantier-a za ovog radnika.': 'Sélectionnez un ou plusieurs chantiers.', 'Nema registrovanih chantier-a': 'Aucun chantier enregistré', 'Nema promena za izabrani chantier.': 'Aucune modification pour ce chantier.', 'Nema sačuvanih dokumenata.': 'Aucun document enregistré.', 'Nema troškova.': 'Aucune dépense.', 'Nema unosa radnog vremena.': 'Aucune saisie de temps de travail.', 'Nema RDV/odsustva.': 'Aucun rendez-vous ni absence.',
+		'RADNIK · MJESEČNI PREGLED': 'TRAVAILLEUR · VUE MENSUELLE', 'Detalji radnika': 'Détails du travailleur', 'Mjesec pregleda': 'Mois affiché', 'Učitavanje': 'Chargement', 'KALENDAR': 'CALENDRIER', 'Radni dani i RDV': 'Jours travaillés et rendez-vous', 'ISPLATA': 'PAIEMENT', 'Plata i status': 'Paiement et statut', 'RDV / ODSUSTVO': 'RENDEZ-VOUS / ABSENCES', 'Termini': 'Rendez-vous', 'EVIDENCIJA': 'SUIVI', 'Unosi rada': 'Saisies de temps',
+		'Preimenuj': 'Renommer', 'Obriši': 'Supprimer', 'Otvori': 'Ouvrir', 'Otvori praćenje': 'Ouvrir le suivi', 'Izmeni profil': 'Modifier le profil', 'Pošalji link za lozinku': 'Envoyer le lien de mot de passe', 'Obriši radnika': 'Supprimer le travailleur', 'Nema dodeljenog chantier-a': 'Aucun chantier attribué', 'Nema zakazanog RDV': 'Aucun rendez-vous prévu',
+		'Chantier controle': 'Contrôles chantier', 'Izaberite aktivni chantier da biste videli rizik.': 'Sélectionnez un chantier pour afficher les priorités.', 'Prvo registruj chantier u Devis sekciji.': 'Créez d’abord un chantier dans Devis.', 'Nema chantier-a': 'Aucun chantier', 'Nema Devis-a': 'Aucun devis', 'Nedostupno': 'Indisponible',
+		'Radno vreme je odobreno.': 'Le temps de travail a été approuvé.', 'Radno vreme je odbijeno.': 'Le temps de travail a été refusé.', 'Radno vreme je sačuvano.': 'Le temps de travail a été enregistré.', 'Radno vreme nije sačuvano.': 'Le temps de travail n’a pas été enregistré.', 'Poruka je sačuvana.': 'Le message a été enregistré.', 'Poruka nije poslata.': 'Le message n’a pas été envoyé.', 'Kontrola je ažurirana.': 'Le contrôle a été mis à jour.', 'Kontrola nije ažurirana.': 'Le contrôle n’a pas été mis à jour.'
+	});
+	Object.assign(runtimeFrench, {
+		"Salarié · Gerant · Gérant": "Travailleur · Gérant", "Chaque jour: chantier, durée et prix": "Chaque jour : chantier, durée et tarif", "Temps de travail": "Temps de travail", "Jours :": "Jours :", "Calcul :": "Calcul :", "Pause en minutes": "Pause en minutes",
+		"Npr. kojim redom se izvodi ovaj sistem?": "Ex. dans quel ordre exécuter ce système ?", "Tip izvora": "Type de preuve", "Fotografija pre radova": "Photo avant travaux", "Fotografija tokom radova": "Photo pendant les travaux", "Fotografija posle radova": "Photo après travaux", "Sačuvaj i automatski analiziraj": "Enregistrer et analyser",
+		"Ubacite plan, fiche technique PDF ili fotografiju. Aplikacija automatski kaže u čemu se radi, kojim sistemom/materijalom, kako se izvodi, šta kontrolisati i šta slikati kao dokaz.": "Ajoutez un plan, une fiche technique PDF ou une photo. L’analyse propose le type de travaux, le système, les contrôles et les preuves à conserver.",
+		"Nabavke": "Achats et dépenses", "Korisnici": "Utilisateurs", "Zadaci i komunikacija": "Tâches et communication", "Dokumenti i slike": "Documents et photos", "Devis i chantiers": "Devis et chantiers", "Chantier kontrole": "Contrôles chantier", "Odjava": "Se déconnecter",
+		"Prijavljen korisnik": "Utilisateur connecté", "Izaberite aktivni chantier da biste videli rizik.": "Sélectionnez un chantier pour afficher les priorités.", "NEMA CHANTIER": "AUCUN CHANTIER", "Aucun chantier": "Aucun chantier", "Nema chantier-a": "Aucun chantier",
+		"zavrseno": "terminé", "kontrola zavrseno": "contrôles terminés", "Kontrola": "Contrôle", "Nedostaje dokaz:": "Preuve manquante :", "Kontrola je ažurirana.": "Le contrôle a été mis à jour.", "Kontrola nije ažurirana.": "Le contrôle n’a pas été mis à jour.", "Završi": "Terminer", "Vrati na ispravku": "Renvoyer pour correction",
+		"Budžet:": "Budget :", "Nabavke:": "Achats :", "Rad:": "Travail :", "Ukupno potrošeno:": "Total dépensé :", "Preostalo:": "Solde restant :", "Devis nije sačuvan": "Le devis n’a pas été enregistré", "Devis i budžet su sačuvani.": "Le devis et le budget ont été enregistrés.", "Devis i chantier su sačuvani.": "Le devis et le chantier ont été enregistrés.", "Devis et chantier enregistrés.": "Devis et chantier enregistrés.",
+		"Nema promena za izabrani chantier.": "Aucune modification pour ce chantier.", "Nema poruka.": "Aucun message.", "Nema troškova.": "Aucune dépense.", "Nema sačuvanih dokumenata.": "Aucun document enregistré.", "Nema registrovanih chantiers.": "Aucun chantier enregistré.", "Nema unosa rada u ovom mesecu": "Aucune saisie de temps ce mois-ci", "Nema RDV/odsustva u izabranom mesecu.": "Aucun rendez-vous ni absence ce mois-ci.",
+		"Radno vreme": "Temps de travail", "Radni dani": "Jours travaillés", "Sati": "Heures", "Dnevnica:": "Tarif journalier :", "Satnica:": "Tarif horaire :", "Obračun:": "Calcul :", "Obracun ovog unosa:": "Calcul de cette saisie :", "Radni dan je oznacen u kalendaru.": "La journée a été ajoutée au calendrier.",
+		"Radnik dobija email poziv": "Le travailleur reçoit une invitation e-mail", "Dodaj radnika": "Ajouter un travailleur", "Radnik je obrisan.": "Le travailleur a été supprimé.", "Radnik nije obrisan.": "Le travailleur n’a pas été supprimé.", "Radnik je preimenovan.": "Le travailleur a été renommé.", "Radnik nije izmijenjen.": "Le travailleur n’a pas été modifié.",
+		"Mesec pregleda": "Mois affiché", "Mjesec pregleda": "Mois affiché", "Radni dani i RDV": "Jours travaillés et rendez-vous", "Plata i status": "Paiement et statut", "Nema zahteva": "Aucune demande", "Rok nije određen": "Aucune échéance", "Zahtev je poslat · čeka pregled": "Demande envoyée · en attente de vérification", "Nema zahteva za isplatu": "Aucune demande de paiement",
+		"Izaberite aktivni chantier pre čuvanja proizvodnje.": "Sélectionnez un chantier avant d’enregistrer la production.", "Izaberite aktivni chantier pre slanja poruke.": "Sélectionnez un chantier avant d’envoyer le message.", "Izaberite aktivni chantier pre slanja RDV-a.": "Sélectionnez un chantier avant d’envoyer le rendez-vous.", "Prvo izaberite ili uploadujte sliku koju hocete mjeriti.": "Sélectionnez d’abord une photo à mesurer.", "Selektujte fajl pre snimanja.": "Sélectionnez un fichier avant l’enregistrement.",
+		"S?lectionnez un fichier avant l?enregistrement.": "Sélectionnez un fichier avant l’enregistrement.", "Dokument je sa?uvan i automatski analiziran.": "Le document a été enregistré et analysé.", "Dokument non enregistr?": "Document non enregistré", "Devis non enregistr?": "Devis non enregistré", "Trošak nije sačuvan.": "La dépense n’a pas été enregistrée.", "Trošak i PDF faktura su sačuvani; Devis je automatski ažuriran.": "La dépense et la facture PDF ont été enregistrées ; le devis est à jour.",
+		"Tražim firmu po SIRET/SIREN...": "Recherche de l’entreprise par SIRET/SIREN…", "Firma nije pronađena automatski; unesite ime firme ručno.": "Entreprise introuvable automatiquement ; saisissez le nom manuellement.", "Email/telefon ili password nisu tačni.": "E-mail/téléphone ou mot de passe incorrect.", "Izabrani profil ne odgovara ovom nalogu.": "Le profil sélectionné ne correspond pas à ce compte.", "Password i potvrda se razlikuju.": "Les mots de passe ne correspondent pas.", "Nalog je kreiran za": "Compte créé pour", "Lozinka je poslata na": "Le lien a été envoyé à", "Kliknite dalje kada želite da unesete password.": "Continuez pour définir le mot de passe.", "Pristup je spreman.": "L’accès est prêt.", "Kreiraj pristup": "Créer l’accès",
+		"Planovi i fiches techniques u PDF-u, fotografije sa gradilišta · 25 Mo maksimum": "Plans et fiches techniques PDF, photos de chantier · 25 Mo maximum", "Telephone (optionnel)": "Téléphone (facultatif)", "Nema registrovanih chantier-a": "Aucun chantier enregistré", "Učitavanje": "Chargement", "Učitavanje...": "Chargement…", "Dodaj radnika": "Ajouter un travailleur", "Pošalji email poziv": "Envoyer l’invitation e-mail", "Pitaj na osnovu dokumentacije": "Poser la question", "Sačuvaj i automatski analiziraj": "Enregistrer et analyser", "Kalendar radnih dana se ucitava...": "Chargement du calendrier des jours travaillés…", "Kalendar radnih dana se ucitava": "Chargement du calendrier des jours travaillés…"
+	});
+	const localeVersion = 'fr-first-v1';
+	if (localStorage.getItem('ibra-locale-version') !== localeVersion) { localStorage.setItem('ibra-locale-version', localeVersion); localStorage.setItem('ibra-language', 'fr'); }
 	let language = localStorage.getItem('ibra-language') || 'fr';
 	let rgeQualibatKnowledge;
 	const originalText = new Map();
@@ -100,6 +135,71 @@ document.addEventListener('DOMContentLoaded', () => {
 		try { companyProfileState = await request('/company/profile'); }
 		catch { companyProfileState = null; }
 		renderCompanyIdentity();
+	}
+	const workerProfilePanel = document.querySelector('#worker-profile-panel');
+	const workerProfileAvatar = document.querySelector('#worker-profile-avatar');
+	const workerProfileCamera = document.querySelector('#worker-profile-camera');
+	const workerProfileFile = document.querySelector('#worker-profile-file');
+	const workerProfileRemove = document.querySelector('#worker-profile-remove');
+	const workerProfileStatus = document.querySelector('#worker-profile-status');
+	let workerProfilePreviewUrl = '';
+	function renderWorkerSelfProfile() {
+		if (!workerProfilePanel) return;
+		const visible = Boolean(currentUser && isWorkerRole(currentUser.role));
+		workerProfilePanel.hidden = !visible;
+		if (!visible) return;
+		paintIdentityToken(workerProfileAvatar, currentUser.avatarUrl || '', currentUser.name || '');
+		if (workerProfileRemove) workerProfileRemove.hidden = !currentUser.avatarUrl;
+	}
+	function setWorkerProfileStatus(message, state = '') {
+		if (!workerProfileStatus) return;
+		workerProfileStatus.textContent = message;
+		workerProfileStatus.dataset.state = state;
+	}
+	async function saveWorkerSelfAvatar(file) {
+		if (!file || !isWorkerRole(currentUser?.role)) return;
+		if (!['image/jpeg', 'image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) {
+			setWorkerProfileStatus('Choisissez une photo JPG ou PNG de 5 Mo maximum.', 'error');
+			return;
+		}
+		if (workerProfilePreviewUrl) URL.revokeObjectURL(workerProfilePreviewUrl);
+		workerProfilePreviewUrl = URL.createObjectURL(file);
+		if (workerProfileAvatar) workerProfileAvatar.innerHTML = `<img src="${escapeHtml(workerProfilePreviewUrl)}" alt="" />`;
+		setWorkerProfileStatus('Enregistrement de votre photo…', 'loading');
+		const body = new FormData(); body.set('avatar', file, file.name);
+		try {
+			const response = await fetch(`${api}/me/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			const result = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(result.error || 'Photo non enregistrée.');
+			currentUser.avatarUrl = result.avatarUrl || '';
+			renderWorkerSelfProfile();
+			setWorkerProfileStatus('Photo enregistrée. Elle est visible par votre équipe.', 'success');
+		} catch (error) {
+			renderWorkerSelfProfile();
+			setWorkerProfileStatus(error.message || 'La photo n’a pas pu être enregistrée.', 'error');
+		} finally {
+			if (workerProfileCamera) workerProfileCamera.value = '';
+			if (workerProfileFile) workerProfileFile.value = '';
+		}
+	}
+	function setupWorkerSelfProfile() {
+		if (!workerProfilePanel || workerProfilePanel.dataset.wired === 'true') { renderWorkerSelfProfile(); return; }
+		workerProfilePanel.dataset.wired = 'true';
+		workerProfileCamera?.addEventListener('change', () => saveWorkerSelfAvatar(workerProfileCamera.files[0]));
+		workerProfileFile?.addEventListener('change', () => saveWorkerSelfAvatar(workerProfileFile.files[0]));
+		workerProfileRemove?.addEventListener('click', async () => {
+			if (!isWorkerRole(currentUser?.role)) return;
+			setWorkerProfileStatus('Suppression de la photo…', 'loading');
+			try {
+				const response = await fetch(`${api}/me/avatar`, { method: 'DELETE', headers: { Authorization: `Bearer ${token()}` } });
+				const result = await response.json().catch(() => ({}));
+				if (!response.ok) throw new Error(result.error || 'Photo non supprimée.');
+				currentUser.avatarUrl = result.avatarUrl || '';
+				renderWorkerSelfProfile();
+				setWorkerProfileStatus('Photo supprimée.', 'success');
+			} catch (error) { setWorkerProfileStatus(error.message || 'La photo n’a pas pu être supprimée.', 'error'); }
+		});
+		renderWorkerSelfProfile();
 	}
 	function renderCompanyIdentity() {
 		const strip = document.querySelector('#company-identity-strip');
@@ -1324,7 +1424,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!localStorage.getItem('ibra-auth-token')) return;
 		try {
 			const result = await request('/me');
-			currentUser = result.user; applyRole(currentUser.role); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
+			currentUser = result.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
 			await loadInitialData();
 		} catch { localStorage.removeItem('ibra-auth-token'); }
 	};
@@ -1352,7 +1452,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (loginForm.elements.role && data.role) loginForm.elements.role.value = data.role;
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
-		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
+		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'Email/telefon ili password nisu tačni.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
 	document.querySelector('#forgot-password')?.addEventListener('click', () => { document.querySelector('#reset-request-panel')?.removeAttribute('hidden'); document.querySelector('#reset-contact')?.focus(); });
 	document.querySelector('#send-reset')?.addEventListener('click', async () => {
 			const contact = String(document.querySelector('#reset-contact')?.value || '').trim();
@@ -1372,7 +1472,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = true; resetForm.hidden = false;
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
-	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
+	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); const projectId = currentProjectId(); if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; } try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
 	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = formValues(event.currentTarget); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
