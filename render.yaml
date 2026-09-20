@@ -72,7 +72,7 @@ services:
     runtime: node
     branch: main
     plan: free
-    buildCommand: npm ci; npx prisma generate; npm run build --workspace @ibra-ba/api
+    buildCommand: npm ci --include=dev; npx prisma generate; npm run build --workspace @ibra-ba/api
     startCommand: npm run start --workspace @ibra-ba/api
     healthCheckPath: /api/health
     envVars:
@@ -131,7 +131,7 @@ services:
     runtime: node
     branch: main
     plan: free
-    buildCommand: npm ci; npm run build --workspace @ibra-ba/web
+    buildCommand: npm ci --include=dev; npm run build --workspace @ibra-ba/web
     startCommand: npm run start --workspace @ibra-ba/web
     healthCheckPath: /
     envVars:
