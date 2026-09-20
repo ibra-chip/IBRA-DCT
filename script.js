@@ -245,7 +245,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let lastUserEditorTrigger;
 	const userEditModal = document.querySelector('#user-edit-modal');
 	const userEditForm = document.querySelector('#user-edit-form');
-	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
+	const closeUserEditor = () => { if (!userEditModal) return; userEditModal.hidden = true; userEditModal.setAttribute('hidden', ''); userEditModal.setAttribute('aria-hidden', 'true'); const trigger = lastUserEditorTrigger; lastUserEditorTrigger = null; trigger?.focus(); };
 	const openUserEditor = (user, trigger) => {
 		if (!userEditModal || !userEditForm || !user) return;
 		lastUserEditorTrigger = trigger;
@@ -267,6 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		userEditForm.querySelector('#user-edit-project-help').textContent = isWorkerRole(user.role) ? 'Sélectionnez les chantiers accessibles à cet utilisateur.' : 'Les chantiers d’un gérant suivent l’accès société.';
 		userEditForm.querySelector('#user-edit-message').textContent = '';
 		userEditModal.hidden = false;
+		userEditModal.removeAttribute('hidden');
 		userEditModal.setAttribute('aria-hidden', 'false');
 		userEditForm.elements.name.focus();
 	};
