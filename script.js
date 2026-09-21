@@ -35,14 +35,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		popover.innerHTML = html;
 		document.body.append(popover);
 		const rect = anchor.getBoundingClientRect();
-		const top = window.scrollY + rect.bottom + 6;
+		const spaceBelow = window.innerHeight - rect.bottom;
+		const openAbove = spaceBelow < popover.offsetHeight + 16 && rect.top > popover.offsetHeight + 16;
+		const top = openAbove ? window.scrollY + rect.top - popover.offsetHeight - 6 : window.scrollY + rect.bottom + 6;
+		const clampedTop = Math.max(window.scrollY + 8, Math.min(top, window.scrollY + window.innerHeight - popover.offsetHeight - 8));
 		const left = Math.max(8, Math.min(window.scrollX + rect.left, window.scrollX + document.documentElement.clientWidth - popover.offsetWidth - 8));
-		popover.style.top = `${top}px`;
+		popover.style.top = `${clampedTop}px`;
 		popover.style.left = `${left}px`;
 		wire(popover);
 		closeQuickEditOutsideHandler = (event) => { if (!event.target.closest('.quick-edit-popover') && !event.target.closest('[data-quick-hours],[data-quick-rdv]')) closeQuickEditPopover(); };
 		closeQuickEditEscHandler = (event) => { if (event.key === 'Escape') closeQuickEditPopover(); };
 		setTimeout(() => { document.addEventListener('click', closeQuickEditOutsideHandler, true); document.addEventListener('keydown', closeQuickEditEscHandler); }, 0);
+		popover.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 		popover.querySelector('input')?.focus();
 	}
 	function openHoursQuickEdit(anchor, entryId, currentHours, onSaved) {
