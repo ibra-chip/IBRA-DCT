@@ -788,7 +788,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			await loadProjectOptions();
 			const [users, entries, rendezvous, payouts] = await Promise.all([request('/contacts'), request('/time-entries'), request('/rendezvous'), request('/payout-requests')]);
 			workerRosterState.users = users; workerRosterState.entries = entries; workerRosterState.rendezvous = rendezvous; workerRosterState.payouts = payouts; workerRosterState.loading = false; workerRosterState.error = null; renderWorkerRoster();
-			const currentUserId = currentUser?.id || currentUser?.sub; const recipient = document.querySelector('#recipient'); if (recipient) recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join('');
+			const currentUserId = currentUser?.id || currentUser?.sub; const recipient = document.querySelector('#recipient'); if (recipient) { const previousValue = recipient.value; recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join(''); if (previousValue && [...recipient.options].some((option) => option.value === previousValue)) recipient.value = previousValue; renderChatThread(); }
 			if (workerRosterState.detailWorkerId) renderWorkerDetail();
 		} catch (error) { workerRosterState.loading = false; workerRosterState.error = error; renderWorkerRoster(); }
 	}
@@ -897,7 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (recipientSelect && selectedId) recipientSelect.value = selectedId;
 		}
 		const thread = chatMessages.filter((item) => (item.senderId === currentUserId && item.recipientId === selectedId) || (item.senderId === selectedId && item.recipientId === currentUserId)).sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
-		const canDelete = (item) => item.senderId === currentUserId || isOwner();
+		const canDelete = (item) => !item.optimistic && (item.senderId === currentUserId || isOwner());
 		target.innerHTML = thread.length ? thread.map((item) => {
 			const mine = item.senderId === currentUserId;
 			const time = new Date(item.createdAt).toLocaleString(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
@@ -1675,7 +1675,31 @@ document.addEventListener('DOMContentLoaded', () => {
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
 	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
-	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); const projectId = currentProjectId(); if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; } if (!event.currentTarget.elements.recipientId.value) { toast('Izaberite sagovornika.'); return; } try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId }) }); event.currentTarget.elements.text.value = ''; await refreshActiveView(); } catch { toast('Poruka nije poslata.'); } });
+	document.querySelector('#message-form').addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const projectId = currentProjectId();
+		if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; }
+		const recipientId = form.elements.recipientId.value;
+		if (!recipientId) { toast('Izaberite sagovornika.'); return; }
+		const text = form.elements.text.value.trim();
+		if (!text) return;
+		const submitButton = form.querySelector('button[type="submit"], button.primary');
+		const currentUserId = currentUser?.id || currentUser?.sub;
+		const optimistic = { id: `optimistic-${Date.now()}`, senderId: currentUserId, senderName: currentUser?.name || '', recipientId, projectId, text, createdAt: new Date().toISOString(), optimistic: true };
+		latestChatMessages = [...latestChatMessages, optimistic];
+		renderChatThread();
+		form.elements.text.value = '';
+		if (submitButton) { submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); }
+		try {
+			await request('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipientId, text, projectId }) });
+			await loadMessages();
+		} catch {
+			latestChatMessages = latestChatMessages.filter((item) => item.id !== optimistic.id);
+			renderChatThread();
+			toast('Poruka nije poslata.');
+		} finally { if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } }
+	});
 	document.querySelector('#recipient')?.addEventListener('change', renderChatThread);
 	document.querySelector('#messages')?.addEventListener('click', async (event) => {
 		const deleteButton = event.target.closest('[data-delete-message]'); if (!deleteButton) return;

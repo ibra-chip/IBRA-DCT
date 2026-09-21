@@ -503,25 +503,34 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 	const rightEdge = pageSize[0] - marginX;
 	let y = 800;
 	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	const headerTop = y;
+	let brandY = headerTop;
 	if (logoBuffer) {
 		try {
 			let image;
 			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
-			const maxWidth = 110; const maxHeight = 55;
+			const maxWidth = 100; const maxHeight = 50;
 			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
 			const width = image.width * scale; const height = image.height * scale;
-			page.drawImage(image, { x: rightEdge - width, y: y - height + 20, width, height });
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
 		} catch { /* logo unreadable, continue without it */ }
 	}
-	page.drawText("Bulletin d'heures", { x: marginX, y, size: 18, font: fontBold });
-	y -= 24;
-	if (companyName) { page.drawText(companyName, { x: marginX, y, size: 11, font }); y -= 14; }
-	if (companyAddress) { page.drawText(companyAddress, { x: marginX, y, size: 9, font, color: rgb(0.45, 0.45, 0.45) }); y -= 18; }
-	y -= 6;
-	page.drawText(`Travailleur : ${worker.name || ''}`, { x: marginX, y, size: 11, font: fontBold });
-	y -= 16;
-	page.drawText(`Mois : ${formatMonthFrench(month)}`, { x: marginX, y, size: 11, font });
-	y -= 24;
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(companyName, 11, fontBold);
+	drawRight(truncate(companyAddress, 50), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText("Bulletin d'heures", { x: marginX, y: leftY, size: 18, font: fontBold });
+	leftY -= 30;
+	page.drawText(`Travailleur : ${worker.name || ''}`, { x: marginX, y: leftY, size: 11, font: fontBold });
+	leftY -= 16;
+	page.drawText(`Mois : ${formatMonthFrench(month)}`, { x: marginX, y: leftY, size: 11, font });
+	y = Math.min(leftY, brandY) - 14;
 	const columns = [{ label: 'Date', x: marginX }, { label: 'Chantier / Adresse', x: marginX + 65 }, { label: 'Heures', x: marginX + 285 }, { label: 'Taux', x: marginX + 340 }, { label: 'Montant', x: rightEdge - 65 }];
 	const drawHeader = () => {
 		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
