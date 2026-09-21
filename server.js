@@ -1129,9 +1129,21 @@ app.post('/api/time-entries', auth, async (request, response) => {
 	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
 	let context;
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === request.body.projectId && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
+	if (isDuplicate && request.body.confirmDuplicate !== 'true') return response.status(409).json({ error: 'An identical entry already exists for this worker, chantier, date and hours', duplicate: true });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
 	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
+});
+app.delete('/api/time-entries/:id', auth, async (request, response) => {
+	const data = await readData();
+	const entry = data.timeEntries.find((item) => item.id === request.params.id);
+	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
+	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can delete an approved entry' });
+	data.timeEntries = data.timeEntries.filter((item) => item.id !== entry.id);
+	await writeData(data);
+	response.json({ deleted: true, id: entry.id });
 });
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	const month = String(request.body.month || previousMonthKey());

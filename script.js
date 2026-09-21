@@ -1067,7 +1067,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		localStorage.setItem(timePrefsKey(), JSON.stringify({ workerId: form.elements.workerId?.value || '', start: form.elements.start?.value || '08:00', end: form.elements.end?.value || '17:00', breakMinutes: form.elements.breakMinutes?.value || '60', rateType: form.elements.rateType?.value || 'daily', rate: form.elements.rate?.value || '' }));
 	};
 	const saveTimeEntryFromForm = async (form) => {
-		await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(new FormData(form).entries())) });
+		const values = Object.fromEntries(new FormData(form).entries());
+		try {
+			await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) });
+		} catch (error) {
+			let details; try { details = JSON.parse(error.message); } catch { details = null; }
+			if (details?.duplicate && window.confirm('Identičan unos (isti radnik, chantier, datum i sati) već postoji. Sačuvati ipak?')) {
+				await request('/time-entries', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...values, confirmDuplicate: 'true' }) });
+			} else {
+				throw error;
+			}
+		}
 		saveTimePrefs(form);
 	};
 	const calculateTimeDraft = () => {
@@ -1271,8 +1281,24 @@ document.addEventListener('DOMContentLoaded', () => {
 		renderWorkCalendar(latestOwnTimeEntries, selectedDate, latestRendezvous);
 		renderWorkerMonthSummary(selectedMonth);
 		const canApprove = isOwner();
-		document.querySelector('#time-entries').innerHTML = selectedEntries.length ? selectedEntries.map((item) => `<div class="list-item"><strong>${item.workerName} ? ${Number(item.hours || 0).toFixed(2)} h ? ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} ? ${item.start}-${item.end} ? ${item.status}</small>${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}</div>`).join('') : '<small>Aucune saisie de temps de travail pour ce travailleur.</small>';
+		const canDeleteEntry = (item) => canApprove || item.status !== 'approved';
+		const entryRow = (item) => `<div class="list-item"><strong>${item.workerName} · ${Number(item.hours || 0).toFixed(2)} h · ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} · ${item.start}-${item.end} · ${item.status}</small><div class="time-entry-actions">${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}${canDeleteEntry(item) ? `<button class="secondary delete-time" data-time="${item.id}">Obriši</button>` : ''}</div></div>`;
+		const entriesByMonth = new Map();
+		selectedEntries.slice().sort((first, second) => String(second.date || '').localeCompare(String(first.date || ''))).forEach((item) => {
+			const month = monthKeyFromDate(item.date);
+			if (!entriesByMonth.has(month)) entriesByMonth.set(month, []);
+			entriesByMonth.get(month).push(item);
+		});
+		const months = [...entriesByMonth.keys()].sort((first, second) => second.localeCompare(first));
+		const currentMonthKey = monthKeyFromDate(new Date().toISOString().slice(0, 10));
+		document.querySelector('#time-entries').innerHTML = months.length ? months.map((month) => {
+			const monthItems = entriesByMonth.get(month);
+			const totalHours = monthItems.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+			const totalAmount = monthItems.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
+			return `<details class="time-month-group"${month === currentMonthKey ? ' open' : ''}><summary>${formatMonthLabel(month)} · ${monthItems.length} j · ${totalHours.toFixed(2)} h · ${formatEUR(totalAmount)}</summary>${monthItems.map(entryRow).join('')}</details>`;
+		}).join('') : '<small>Aucune saisie de temps de travail pour ce travailleur.</small>';
 		document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); }));
+		document.querySelectorAll('.delete-time').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm('Obrisati ovaj unos radnog vremena?')) return; try { await request(`/time-entries/${button.dataset.time}`, { method:'DELETE' }); await refreshActiveView(); toast('Unos je obrisan.'); } catch { toast('Unos nije obrisan.'); } }));
 	}
 	async function loadPayroll() { try { const result = await request('/payroll/summary'); document.querySelector('#payroll-total').textContent = `${Number(result.total || 0).toFixed(2)} EUR`; } catch { document.querySelector('#payroll-total').textContent = 'Nedostupno'; } }
 	async function loadFinancialSummary() {
