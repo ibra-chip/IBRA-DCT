@@ -10,6 +10,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
+import { attachReferenceLinks } from './lib/reference-library.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
@@ -1261,6 +1262,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		const french = language === 'fr';
 		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
+	attachReferenceLinks(autoAnalysis);
 	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
