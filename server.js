@@ -280,6 +280,57 @@ ${String(text || '').slice(0, 18000)}`;
 		return null;
 	}
 }
+async function answerQuestionWithGemini({ question, sources, language }) {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_MODEL || process.env.GEMINI_VISION_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const languageName = language === 'fr' ? 'francuskom' : language === 'bs' ? 'bosanskom' : 'srpskom';
+	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
+	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan na ${languageName} jeziku. Pitanje: ${question}\n\n${sourceText}`;
+	const parts = [{ text: prompt }];
+	for (const source of sources.filter((item) => item.image)) {
+		const match = /^data:([^;]+);base64,(.+)$/.exec(source.image);
+		if (match) parts.push({ inlineData: { mimeType: match[1], data: match[2] } });
+	}
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ generationConfig: { temperature: 0 }, contents: [{ role: 'user', parts }] }),
+		signal: AbortSignal.timeout(25000)
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini technical-answer rejected', geminiResponse.status, details.slice(0, 500));
+		return null;
+	}
+	const result = await geminiResponse.json();
+	const answer = result.candidates?.[0]?.content?.parts?.[0]?.text;
+	return answer ? String(answer).trim() : null;
+}
+async function answerWorkSequenceWithGemini({ sourceText }) {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_MODEL || process.env.GEMINI_VISION_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`;
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({ generationConfig: { temperature: 0, responseMimeType: 'application/json' }, contents: [{ role: 'user', parts: [{ text: prompt }] }] }),
+		signal: AbortSignal.timeout(25000)
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini work-sequence rejected', geminiResponse.status, details.slice(0, 500));
+		return null;
+	}
+	const result = await geminiResponse.json();
+	try {
+		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '{}').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		return Array.isArray(parsed.steps) ? parsed.steps : [];
+	} catch {
+		return null;
+	}
+}
 async function auth(request, response, next) {
 	try {
 		const payload = jwt.verify(tokenFrom(request), secret);
@@ -1327,6 +1378,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	if (!projectId) return response.status(400).json({ error: 'A chantier is required' });
 	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
 	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	const data = await readData();
 	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
@@ -1350,49 +1402,66 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 		return response.json({ status: 'no_source', answer: 'Nije pronađen plan, fiche technique ili fotografija za ovaj chantier.', sources: [], requiresHumanConfirmation: true });
 	}
 	const cached = (data.aiAnswers || []).find((item) => item.key === cacheKey);
-	if (!aiApiKey && cached) return response.json({ ...cached, status: 'cached', cached: true });
-	if (!aiApiKey) {
-		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) {
-			const answer = formatOfflineFacadeAnswer(localEntries, responseLanguage);
-			await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: sources.map(({ file, type, page }) => ({ file, type, page })), requiresHumanConfirmation: false, savedAt: new Date().toISOString(), mode: 'offline_grounded' });
-			return response.json({
-				status: 'offline_grounded',
-				answer,
-				sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))),
-				knowledgeBase: facadeKnowledge.title,
-				requiresHumanConfirmation: false
-			});
-		}
-		return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite OPENAI_API_KEY ili lokalni AI server u .env fajlu. Lokalna baza nema dovoljno podataka za ovo pitanje.', sources: [], requiresHumanConfirmation: false });
-	}
-	const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
-	const languageName = responseLanguage === 'fr' ? 'francuskom' : responseLanguage === 'bs' ? 'bosanskom' : 'srpskom';
-	const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan na ${languageName} jeziku. Pitanje: ${question}\n\n${sourceText}`;
-	const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
-	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
-	if (!aiResponse.ok) {
-		const providerStatus = aiResponse.status; const providerBody = await aiResponse.text();
-		console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500));
-		if (cached) return response.json({ ...cached, status: 'cached', cached: true });
-		const localEntries = findFacadeKnowledge(facadeKnowledge, question);
-		if (localEntries.length) return response.json({ status: 'offline_grounded', answer: formatOfflineFacadeAnswer(localEntries, responseLanguage), sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
-		return response.status(502).json({ error: 'AI provider unavailable', providerStatus });
-	}
-	const result = await aiResponse.json();
-	const answer = result.choices?.[0]?.message?.content || 'Nema odgovora.';
 	const responseSources = sources.map(({ file, type, page }) => ({ file, type, page }));
-	await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: responseSources, requiresHumanConfirmation: false, savedAt: new Date().toISOString() });
-	response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
+	if (geminiApiKey) {
+		try {
+			const answer = await answerQuestionWithGemini({ question, sources, language: responseLanguage });
+			if (answer) {
+				await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: responseSources, requiresHumanConfirmation: false, savedAt: new Date().toISOString() });
+				return response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
+			}
+		} catch (error) { console.error('Gemini technical-answer threw', error.message); }
+	}
+	if (aiApiKey) {
+		const sourceText = sources.filter((source) => source.text).map((source) => `SOURCE: ${source.file} | TYPE: ${source.type} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
+		const languageName = responseLanguage === 'fr' ? 'francuskom' : responseLanguage === 'bs' ? 'bosanskom' : 'srpskom';
+		const prompt = `Odgovori samo na osnovu dostavljenog SOURCE teksta i fotografija. Ne izmišljaj mere, tolerancije ili pravila. Ako podatak nije jasno vidljiv ili naveden, reci: "Podatak nije pronađen u dokumentaciji ili fotografiji." Uvek navedi source file i page ako postoji. Odgovor treba da bude tehnički jasan na ${languageName} jeziku. Pitanje: ${question}\n\n${sourceText}`;
+		const userContent = [{ type: 'text', text: prompt }, ...sources.filter((source) => source.image).map((source) => ({ type: 'text', text: `PHOTO SOURCE: ${source.file} | TYPE: ${source.type}` })), ...sources.filter((source) => source.image).map((source) => ({ type: 'image_url', image_url: { url: source.image, detail: 'high' } }))];
+		try {
+			const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, messages: [{ role: 'system', content: 'Ti si tehnički pomoćnik za chantier. Radiš isključivo sa dostavljenim izvorima i fotografijama i nikada ne nagađaš.' }, { role: 'user', content: userContent }] }) });
+			if (aiResponse.ok) {
+				const result = await aiResponse.json();
+				const answer = result.choices?.[0]?.message?.content || 'Nema odgovora.';
+				await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: responseSources, requiresHumanConfirmation: false, savedAt: new Date().toISOString() });
+				return response.json({ status: 'grounded', answer, sources: responseSources, requiresHumanConfirmation: false, cached: false });
+			}
+			const providerStatus = aiResponse.status; const providerBody = await aiResponse.text();
+			console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500));
+		} catch (error) { console.error('OpenAI technical-answer threw', error.message); }
+	}
+	if (cached) return response.json({ ...cached, status: 'cached', cached: true });
+	const localEntries = findFacadeKnowledge(facadeKnowledge, question);
+	if (localEntries.length) {
+		const answer = formatOfflineFacadeAnswer(localEntries, responseLanguage);
+		await saveCachedAnswer(data, { key: cacheKey, userId: request.user.sub, projectId, question, answer, sources: responseSources, requiresHumanConfirmation: false, savedAt: new Date().toISOString(), mode: 'offline_grounded' });
+		return response.json({ status: 'offline_grounded', answer, sources: localEntries.flatMap((entry) => entry.sources.map((source) => ({ ...source, title: entry.id }))), knowledgeBase: facadeKnowledge.title, requiresHumanConfirmation: false });
+	}
+	return response.json({ status: 'not_configured', answer: 'AI nije konfigurisan. Podesite GEMINI_API_KEY ili OPENAI_API_KEY. Lokalna baza nema dovoljno podataka za ovo pitanje.', sources: [], requiresHumanConfirmation: false });
 });
 app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1'; const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY; if (!aiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Gerant-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
+	const aiBaseUrl = process.env.AI_BASE_URL || 'https://api.openai.com/v1';
+	const aiApiKey = process.env.OPENAI_API_KEY || process.env.AI_API_KEY;
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!aiApiKey && !geminiApiKey) return response.json({ status: 'not_configured', steps: [], answer: 'AI za redosled radova nije konfigurisan. Ne započinjite rad bez Gerant-a i plana potvrđenog od Gérant-a.', sources: [], requiresHumanConfirmation: true });
 	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && ['plan', 'fiche-technique'].includes(item.evidenceType) && item.mimeType.includes('pdf')); const sources = [];
 	for (const document of documents) { try { const buffer = await downloadFile(UPLOADS_BUCKET, document.storedName); const parsed = await parsePdf(buffer); parsed.text.split('\f').forEach((text, index) => { if (text.trim()) sources.push({ file: document.originalName, page: index + 1, text: text.slice(0, 12000) }); }); } catch (error) { console.warn('Skipping unavailable work-sequence source', document.storedName, error.message); } }
 	if (!sources.length) return response.json({ status: 'no_source', steps: [], answer: 'Nije pronađen plan ili fiche technique PDF. Redosled radova ne može biti određen.', sources: [], requiresHumanConfirmation: true });
-	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n'); const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) }); if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected technical-answer request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); } const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; } response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: sources.map(({ file, page }) => ({ file, page })), requiresHumanConfirmation: true });
+	const sourceText = sources.map((source) => `SOURCE: ${source.file} | PAGE: ${source.page}\n${source.text}`).join('\n\n');
+	const responseSources = sources.map(({ file, page }) => ({ file, page }));
+	if (geminiApiKey) {
+		try {
+			const steps = await answerWorkSequenceWithGemini({ sourceText });
+			if (steps) return response.json({ status: 'grounded', steps, answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: responseSources, requiresHumanConfirmation: true });
+		} catch (error) { console.error('Gemini work-sequence threw', error.message); }
+	}
+	if (!aiApiKey) return response.status(502).json({ error: 'AI provider unavailable' });
+	const prompt = `Na osnovu isključivo SOURCE teksta napravi redosled izvođenja radova. Vrati JSON sa steps nizom; svaki korak mora imati order, title, instruction, requiredEvidence i sourcePage. Ne izmišljaj radove. Ako podatak nije u izvoru, navedi da nije pronađen. Gerant mora potvrditi svaki korak.\n\n${sourceText}`;
+	const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Ti si pomoćnik za pravilno izvođenje chantier radova i radiš samo iz izvora.' }, { role: 'user', content: prompt }] }) });
+	if (!aiResponse.ok) { const providerStatus = aiResponse.status; const providerBody = await aiResponse.text(); console.error('AI provider rejected work-sequence request', providerStatus, providerBody.slice(0, 500)); return response.status(502).json({ error: 'AI provider unavailable', providerStatus }); }
+	const result = await aiResponse.json(); let parsed; try { parsed = JSON.parse(result.choices?.[0]?.message?.content || '{}'); } catch { parsed = {}; }
+	response.json({ status: 'grounded', steps: Array.isArray(parsed.steps) ? parsed.steps : [], answer: 'Redosled je izveden iz dostavljene dokumentacije. Gerant potvrđuje svaki korak.', sources: responseSources, requiresHumanConfirmation: true });
 });
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
