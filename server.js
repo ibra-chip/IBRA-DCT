@@ -15,6 +15,7 @@ import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
@@ -484,16 +485,77 @@ function buildPayoutPdf(item) {
 	const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`;
 	return Buffer.from(pdf, 'utf8');
 }
-function buildHoursPdf({ workerName, month, entries, total }) {
-	const escapePdf = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
-	const lines = ['IBRA-BA - EVIDENCIJA RADNIH SATI', `Radnik: ${workerName}`, `Mesec: ${month}`, ...entries.map((entry) => `${entry.date} | ${entry.projectId} | ${Number(entry.hours || 0).toFixed(2)} h | ${entry.rateType === 'hourly' ? 'Satnica' : 'Dnevnica'} ${Number(entry.rate || 0).toFixed(2)} EUR | ${Number(entry.workAmount || 0).toFixed(2)} EUR`), `UKUPNO: ${Number(total || 0).toFixed(2)} EUR`];
-	const commands = ['BT', '/F1 10 Tf', '40 780 Td', ...lines.flatMap((line, index) => [index ? '0 -24 Td' : '', `(${escapePdf(line)}) Tj`]).filter(Boolean), 'ET'].join('\n');
-	const objects = ['<< /Type /Catalog /Pages 2 0 R >>', '<< /Type /Pages /Kids [3 0 R] /Count 1 >>', '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>', `<< /Length ${Buffer.byteLength(commands, 'utf8')} >>\nstream\n${commands}\nendstream`, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>'];
-	let pdf = '%PDF-1.4\n'; const offsets = [0]; objects.forEach((object, index) => { offsets[index + 1] = Buffer.byteLength(pdf, 'utf8'); pdf += `${index + 1} 0 obj\n${object}\nendobj\n`; }); const xref = Buffer.byteLength(pdf, 'utf8'); pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n `).join('\n')}\ntrailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF`; return Buffer.from(pdf, 'utf8');
+const frenchMonthNames = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
+const formatMonthFrench = (month) => {
+	const match = String(month || '').match(/^(\d{4})-(\d{2})$/);
+	if (!match) return String(month || '');
+	const [, year, monthNumber] = match;
+	const name = frenchMonthNames[Number(monthNumber) - 1];
+	return name ? `${name} ${year}` : String(month);
+};
+async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, month, entries, total }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 110; const maxHeight = 55;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: y - height + 20, width, height });
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	page.drawText("Bulletin d'heures", { x: marginX, y, size: 18, font: fontBold });
+	y -= 24;
+	if (companyName) { page.drawText(companyName, { x: marginX, y, size: 11, font }); y -= 14; }
+	if (companyAddress) { page.drawText(companyAddress, { x: marginX, y, size: 9, font, color: rgb(0.45, 0.45, 0.45) }); y -= 18; }
+	y -= 6;
+	page.drawText(`Travailleur : ${worker.name || ''}`, { x: marginX, y, size: 11, font: fontBold });
+	y -= 16;
+	page.drawText(`Mois : ${formatMonthFrench(month)}`, { x: marginX, y, size: 11, font });
+	y -= 24;
+	const columns = [{ label: 'Date', x: marginX }, { label: 'Chantier / Adresse', x: marginX + 65 }, { label: 'Heures', x: marginX + 285 }, { label: 'Taux', x: marginX + 340 }, { label: 'Montant', x: rightEdge - 65 }];
+	const drawHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	drawHeader();
+	for (const entry of entries) {
+		if (y < 70) { page = doc.addPage(pageSize); y = 800; drawHeader(); }
+		page.drawText(entry.date || '', { x: columns[0].x, y, size: 9, font });
+		page.drawText(truncate(entry.projectLabel, 42), { x: columns[1].x, y, size: 9, font });
+		page.drawText(`${Number(entry.hours || 0).toFixed(2)} h`, { x: columns[2].x, y, size: 9, font });
+		page.drawText(`${entry.rateType === 'hourly' ? 'Horaire' : 'Journalier'} ${Number(entry.rate || 0).toFixed(2)} €`, { x: columns[3].x, y, size: 8, font });
+		page.drawText(`${Number(entry.workAmount || 0).toFixed(2)} €`, { x: columns[4].x, y, size: 9, font });
+		y -= 16;
+	}
+	y -= 8;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 22;
+	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} €`, { x: marginX, y, size: 13, font: fontBold });
+	return Buffer.from(await doc.save());
 }
 const previousMonthKey = (date = new Date()) => {
 	const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
 	return previous.toISOString().slice(0, 7);
+};
+const projectLabelFor = (data, projectId) => { const project = projectById(data, projectId); return project ? [project.name, project.location].filter(Boolean).join(' - ') : String(projectId || ''); };
+const companyBrandingForPdf = async (data, worker) => {
+	const profile = companyProfileForUser(data, worker);
+	const owner = companyOwnerForUser(data, worker);
+	let logoBuffer = null;
+	if (profile.logoFile) { try { logoBuffer = await downloadFile(IDENTITY_BUCKET, profile.logoFile); } catch { logoBuffer = null; } }
+	return { companyName: profile.name || worker?.employerCompany || worker?.company || '', companyAddress: owner?.companyAddress || '', logoBuffer };
 };
 
 app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
@@ -1207,10 +1269,11 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email && (user.id === worker?.invitedBy || (ownerSiret && cleanSiret(user.siret) === cleanSiret(ownerSiret))));
 	const recipients = managers.length ? managers : data.users.filter((user) => isOwnerRole(user.role) && user.email);
 	if (!recipients.length) return response.status(503).json({ error: 'No owner email is configured' });
-	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) }));
+	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker), projectLabel: projectLabelFor(data, entry.projectId) }));
 	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
 	const days = new Set(detailedEntries.map((entry) => entry.date)).size;
-	const pdf = buildHoursPdf({ workerName: request.user.name, month, entries: detailedEntries, total });
+	const branding = await companyBrandingForPdf(data, worker);
+	const pdf = await buildHoursPdf({ worker: { name: request.user.name }, ...branding, month, entries: detailedEntries, total });
 	const results = await Promise.all(recipients.map((owner) => sendMailSafe({
 		to: owner.email,
 		subject: `IBRA-BA - lista dana ${request.user.name} - ${month}`,
@@ -1230,9 +1293,10 @@ app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
 	const worker = data.users.find((user) => user.id === requestedWorkerId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	const entries = data.timeEntries.filter((entry) => entry.workerId === requestedWorkerId && entry.date.startsWith(month) && entry.status === 'approved');
-	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) }));
+	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker), projectLabel: projectLabelFor(data, entry.projectId) }));
 	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
-	const pdf = buildHoursPdf({ workerName: worker.name, month, entries: detailedEntries, total });
+	const branding = await companyBrandingForPdf(data, worker);
+	const pdf = await buildHoursPdf({ worker, ...branding, month, entries: detailedEntries, total });
 	response.setHeader('Content-Type', 'application/pdf');
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-lista-plate-${month}-${worker.name.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
 	response.send(pdf);
