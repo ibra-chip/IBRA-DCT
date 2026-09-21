@@ -1118,6 +1118,28 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	await writeData(data);
 	response.status(201).json(item);
 });
+app.patch('/api/rendezvous/:id', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
+	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	const absenceDate = String(request.body.absenceDate || request.body.date || item.absenceDate).trim();
+	const time = String(request.body.time || item.time).trim();
+	const reason = request.body.reason !== undefined ? String(request.body.reason).trim() : item.reason;
+	if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !absenceDate) return response.status(400).json({ error: 'A valid date and time are required' });
+	item.absenceDate = absenceDate; item.date = absenceDate; item.time = time; item.reason = reason; item.updatedBy = request.user.sub; item.updatedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(item);
+});
+app.delete('/api/rendezvous/:id', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
+	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	data.rendezvous = (data.rendezvous || []).filter((entry) => entry.id !== item.id);
+	await writeData(data);
+	response.json({ deleted: true, id: item.id });
+});
 app.get('/api/time-entries', auth, async (request, response) => {
 	const data = await readData();
 	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
@@ -1152,14 +1174,23 @@ app.patch('/api/time-entries/:id', auth, async (request, response) => {
 	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
 	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can edit an approved entry' });
 	const date = request.body.date || entry.date;
-	const start = request.body.start || entry.start;
-	const end = request.body.end || entry.end;
 	const breakMinutes = request.body.breakMinutes !== undefined ? Number(request.body.breakMinutes || 0) : entry.breakMinutes;
 	const rateType = ['daily', 'hourly'].includes(request.body.rateType) ? request.body.rateType : entry.rateType;
 	const rate = request.body.rate !== undefined ? Number(request.body.rate) : entry.rate;
-	const [startH, startM] = String(start || '').split(':').map(Number);
-	const [endH, endM] = String(end || '').split(':').map(Number);
-	const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(breakMinutes || 0)) / 60;
+	let start = request.body.start || entry.start;
+	let end = request.body.end || entry.end;
+	let hours;
+	if (request.body.hours !== undefined && request.body.start === undefined && request.body.end === undefined) {
+		hours = Number(request.body.hours);
+		const [startH, startM] = String(start || '08:00').split(':').map(Number);
+		const endMinutesTotal = (startH * 60 + startM) + hours * 60 + Number(breakMinutes || 0);
+		start = start || '08:00';
+		end = `${String(Math.floor((endMinutesTotal / 60) % 24)).padStart(2, '0')}:${String(Math.round(endMinutesTotal % 60)).padStart(2, '0')}`;
+	} else {
+		const [startH, startM] = String(start || '').split(':').map(Number);
+		const [endH, endM] = String(end || '').split(':').map(Number);
+		hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(breakMinutes || 0)) / 60;
+	}
 	if (!date || !hours || hours < 0 || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, work time, and a positive rate are required' });
 	entry.date = date; entry.start = start; entry.end = end; entry.breakMinutes = Number(breakMinutes || 0); entry.rateType = rateType; entry.rate = rate; entry.hours = hours; entry.workAmount = rateType === 'hourly' ? hours * rate : rate;
 	entry.editedBy = request.user.sub; entry.editedAt = new Date().toISOString();

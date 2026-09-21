@@ -617,7 +617,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	function openWorkerDetail(workerId, trigger) { const user = workerRosterState.users.find((item) => item.id === workerId); if (!user || !workerDetailModal) return; closeWorkerActionMenus(); lastWorkerDetailTrigger = trigger; workerRosterState.detailWorkerId = workerId; workerRosterState.detailMonth = workerRosterState.detailMonth || workerRosterState.month; workerRosterState.detailSelectedDate = ''; workerDetailModal.hidden = false; workerDetailModal.setAttribute('aria-hidden', 'false'); renderWorkerDetail(); document.querySelector('#worker-detail-close')?.focus(); }
 	function renderWorkerDetailCalendar(snapshot, month) {
 		const target = document.querySelector('#worker-detail-calendar'); if (!target) return;
-		const [year, monthNumber] = month.split('-').map(Number); const first = new Date(year, monthNumber - 1, 1); const last = new Date(year, monthNumber, 0); const entryByDate = new Map(snapshot.entries.map((entry) => [entry.date, entry])); const rendezvousByDate = new Map(); snapshot.rendezvous.forEach((item) => { const date = item.absenceDate || item.date; const list = rendezvousByDate.get(date) || []; list.push(item); rendezvousByDate.set(date, list); }); let cells = ''; for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty" aria-hidden="true"></span>'; for (let day = 1; day <= last.getDate(); day += 1) { const date = `${month}-${String(day).padStart(2, '0')}`; const weekday = new Date(year, monthNumber - 1, day).getDay(); const weekend = weekday === 0 || weekday === 6; const entry = entryByDate.get(date); const rdv = rendezvousByDate.get(date) || []; const title = [entry ? `${Number(entry.hours || 0).toFixed(2)} h · ${formatEUR(workerEntryAmount(entry, snapshot.user))}` : '', rdv.map((item) => `RDV ${item.time || ''} · ${item.reason || ''}`).join(' | ')].filter(Boolean).join(' · ') || 'Bez unosa'; const marker = [entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '', ...rdv.map((item) => `<span class="calendar-rendezvous" title="${escapeHtml(item.reason || '')}">RDV ${escapeHtml(item.time || '')}</span>`)].join('') || '<small>—</small>'; const entryStatusClass = entry ? ` entry-${entry.status === 'approved' ? 'approved' : entry.status === 'rejected' ? 'rejected' : 'pending'}` : ''; cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${rdv.length ? ' has-rendezvous' : ''}" data-detail-date="${date}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</button>`; }
+		const [year, monthNumber] = month.split('-').map(Number); const first = new Date(year, monthNumber - 1, 1); const last = new Date(year, monthNumber, 0); const entryByDate = new Map(snapshot.entries.map((entry) => [entry.date, entry])); const rendezvousByDate = new Map(); snapshot.rendezvous.forEach((item) => { const date = item.absenceDate || item.date; const list = rendezvousByDate.get(date) || []; list.push(item); rendezvousByDate.set(date, list); }); let cells = ''; for (let pad = 0; pad < (first.getDay() || 7) - 1; pad += 1) cells += '<span class="calendar-cell empty" aria-hidden="true"></span>'; for (let day = 1; day <= last.getDate(); day += 1) { const date = `${month}-${String(day).padStart(2, '0')}`; const weekday = new Date(year, monthNumber - 1, day).getDay(); const weekend = weekday === 0 || weekday === 6; const entry = entryByDate.get(date); const rdv = rendezvousByDate.get(date) || []; const title = [entry ? `${Number(entry.hours || 0).toFixed(2)} h · ${formatEUR(workerEntryAmount(entry, snapshot.user))}` : '', rdv.map((item) => `RDV ${item.time || ''} · ${item.reason || ''}`).join(' | ')].filter(Boolean).join(' · ') || 'Bez unosa'; const hoursButton = entry ? `<button type="button" class="calendar-quick-edit" data-quick-hours="${entry.id}" data-quick-hours-value="${Number(entry.hours || 0)}" title="Klikni da izmeniš sate">${Number(entry.hours || 0).toFixed(1)}h</button>` : ''; const rdvButtons = rdv.map((item) => `<button type="button" class="calendar-quick-edit calendar-rendezvous" data-quick-rdv="${item.id}" data-quick-rdv-time="${escapeHtml(item.time || '')}" title="Klikni da izmeniš/obrišeš RDV">RDV ${escapeHtml(item.time || '')}</button>`).join(''); const marker = (hoursButton + rdvButtons) || '<small>—</small>'; const entryStatusClass = entry ? ` entry-${entry.status === 'approved' ? 'approved' : entry.status === 'rejected' ? 'rejected' : 'pending'}` : ''; cells += `<div class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${rdv.length ? ' has-rendezvous' : ''}" data-detail-date="${date}" tabindex="0" role="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</div>`; }
 		const workedDays = new Set(snapshot.entries.map((entry) => entry.date)).size; const hours = snapshot.entries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0); const rdvDays = rendezvousByDate.size; target.className = `work-calendar worker-detail-calendar payment-${snapshot.paymentState}`; const clickableCalendarBadge = isOwner() && snapshot.entries.length; const calendarBadge = `<button type="button" class="worker-status ${workerStatusMeta[snapshot.paymentState].className}"${clickableCalendarBadge ? ` data-cycle-status data-cycle-status-worker="${escapeHtml(snapshot.user.id)}" data-cycle-status-month="${escapeHtml(snapshot.month)}" data-cycle-status-state="${snapshot.paymentState}"` : ' disabled'}><span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}</button>`; target.innerHTML = `<div class="work-calendar-head"><strong>${escapeHtml(formatMonthLabel(month))}</strong>${calendarBadge}<small>${workedDays} radnih dana · ${hours.toFixed(2)} h · ${rdvDays} RDV</small></div><p class="calendar-hint">Žuto = čeka odobrenje gazde · zeleno = odobreno · crveno = odbijeno. Klikni datum za evidenciju tog dana.</p><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Čet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
 	}
 	function renderWorkerDetail() {
@@ -663,10 +663,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function cycleWorkerPaymentStatus(userId, month, currentState, trigger) {
 		await setWorkerPaymentStatus(userId, month, cyclePaymentState(currentState), trigger);
 	}
+	workerDetailModal?.addEventListener('keydown', (event) => { if (event.key !== 'Enter' && event.key !== ' ') return; const cell = event.target.closest('[data-detail-date]'); if (!cell || event.target !== cell) return; event.preventDefault(); cell.click(); });
 	workerDetailModal?.addEventListener('click', async (event) => {
 		if (event.target === workerDetailModal) { closeWorkerDetail(); return; }
 		const cycleButton = event.target.closest('[data-cycle-status]'); if (cycleButton && !cycleButton.disabled) { await cycleWorkerPaymentStatus(cycleButton.dataset.cycleStatusWorker, cycleButton.dataset.cycleStatusMonth, cycleButton.dataset.cycleStatusState, cycleButton); return; }
 		const swatchButton = event.target.closest('[data-set-status]'); if (swatchButton) { await setWorkerPaymentStatus(swatchButton.dataset.setStatusWorker, swatchButton.dataset.setStatusMonth, swatchButton.dataset.setStatus, swatchButton); return; }
+		const quickHoursButton = event.target.closest('[data-quick-hours]'); if (quickHoursButton) { const input = window.prompt('Nove sati za ovaj dan:', quickHoursButton.dataset.quickHoursValue); if (input === null) return; const hours = Number(String(input).replace(',', '.')); if (!Number.isFinite(hours) || hours <= 0) { toast('Unesi ispravan broj sati.'); return; } try { await request(`/time-entries/${encodeURIComponent(quickHoursButton.dataset.quickHours)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) }); await loadUsers(); renderWorkerDetail(); toast('Sati su izmenjeni.'); } catch { toast('Sati nisu izmenjeni.'); } return; }
+		const quickRdvButton = event.target.closest('[data-quick-rdv]'); if (quickRdvButton) { const rdvId = quickRdvButton.dataset.quickRdv; const action = window.prompt(`RDV ${quickRdvButton.dataset.quickRdvTime} — upiši novo vreme (HH:MM) da izmeniš, ili napiši "obrisi" da obrišeš:`, quickRdvButton.dataset.quickRdvTime); if (action === null) return; if (action.trim().toLowerCase() === 'obrisi') { if (!window.confirm('Obrisati ovaj RDV/odsustvo?')) return; try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'DELETE' }); await loadUsers(); renderWorkerDetail(); toast('RDV je obrisan.'); } catch { toast('RDV nije obrisan.'); } return; } if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(action.trim())) { toast('Unesi vreme u formatu HH:MM.'); return; } try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ time: action.trim() }) }); await loadUsers(); renderWorkerDetail(); toast('RDV je izmenjen.'); } catch { toast('RDV nije izmenjen.'); } return; }
 		const dateButton = event.target.closest('[data-detail-date]'); if (dateButton) { workerRosterState.detailSelectedDate = dateButton.dataset.detailDate; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		if (event.target.closest('[data-detail-clear]')) { workerRosterState.detailSelectedDate = ''; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		const editStartButton = event.target.closest('[data-edit-entry-start]'); if (editStartButton) { workerRosterState.editingEntryId = editStartButton.dataset.editEntryStart; renderWorkerDetail(); return; }
@@ -1256,9 +1259,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			const dayRendezvous = rendezvousByDate.get(date) || [];
 			const rendezvousLabel = dayRendezvous.map((item) => `RDV ${item.time || ''}${item.reason ? ` · ${item.reason}` : ''}`).join(' | ');
 			const title = [entry ? `${Number(entry.hours || 0).toFixed(2)} h · ${formatEUR(entry.workAmount || 0)}` : '', rendezvousLabel, entry || dayRendezvous.length ? '' : `Oznaci sate za ${date}`].filter(Boolean).join(' · ');
-			const marker = [entry ? `<small>${Number(entry.hours || 0).toFixed(1)}h</small>` : '', ...dayRendezvous.map((item) => `<span class="calendar-rendezvous" title="${escapeHtml(item.reason || '')}">RDV ${escapeHtml(item.time || '')}</span>`)].join('') || '<small>+</small>';
+			const hoursButton = entry ? `<button type="button" class="calendar-quick-edit" data-quick-hours="${entry.id}" data-quick-hours-value="${Number(entry.hours || 0)}" title="Klikni da izmeniš sate">${Number(entry.hours || 0).toFixed(1)}h</button>` : '';
+			const rdvButtons = dayRendezvous.map((item) => `<button type="button" class="calendar-quick-edit calendar-rendezvous" data-quick-rdv="${item.id}" data-quick-rdv-time="${escapeHtml(item.time || '')}" data-quick-rdv-reason="${escapeHtml(item.reason || '')}" title="Klikni da izmeniš/obrišeš RDV">RDV ${escapeHtml(item.time || '')}</button>`).join('');
+			const marker = (hoursButton + rdvButtons) || '<small>+</small>';
 			const entryStatusClass = entry ? ` entry-${entry.status === 'approved' ? 'approved' : entry.status === 'rejected' ? 'rejected' : 'pending'}` : '';
-			cells += `<button type="button" class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${dayRendezvous.length ? ' has-rendezvous' : ''}" data-work-date="${date}" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</button>`;
+			cells += `<div class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${dayRendezvous.length ? ' has-rendezvous' : ''}" data-work-date="${date}" tabindex="0" role="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}</strong>${marker}</div>`;
 		}
 		const workedDays = new Set(monthEntries.map((entry) => entry.date)).size;
 		const monthHours = monthEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
@@ -1266,15 +1271,43 @@ document.addEventListener('DOMContentLoaded', () => {
 		const rendezvousDays = rendezvousByDate.size;
 		const monthLabel = formatMonthLabel(month);
 		target.innerHTML = `<div class="work-calendar-head"><strong>Kalendar radnih dana · ${escapeHtml(monthLabel)}</strong><small>Radnih dana: ${workingDays} · Uneseno: ${workedDays} · ${monthHours.toFixed(2)} h · ${formatEUR(monthAmount)} · RDV: ${rendezvousDays}</small></div><div class="calendar-hint">Klikni dan da oznacis sate direktno iz kalendara. Zuto = ceka odobrenje gazde, zeleno = odobreno. <span class="calendar-legend"><span class="legend-work">Rad</span> · <span class="legend-rendezvous">RDV / odsustvo</span></span></div><div class="calendar-weekdays"><span>Pon</span><span>Uto</span><span>Sri</span><span>Cet</span><span>Pet</span><span>Sub</span><span>Ned</span></div><div class="calendar-grid">${cells}</div>`;
-		target.querySelectorAll('[data-work-date]').forEach((button) => button.addEventListener('click', async () => {
-			const form = document.querySelector('#time-form');
-			if (!form) return;
-			form.elements.date.value = button.dataset.workDate;
-			updateTimeLiveCalculation();
-			const draft = calculateTimeDraft();
-			if (!draft.valid) { form.elements.start?.focus(); toast('Unesi pocetak, kraj, pauzu i cijenu pa opet klikni dan.'); return; }
-			if (!window.confirm(`Sacuvati ${button.dataset.workDate}: ${draft.hours.toFixed(2)} h ? ${formatEUR(draft.amount)}?`)) return;
-			try { await saveTimeEntryFromForm(form); await refreshActiveView(); toast('Radni dan je oznacen u kalendaru.'); } catch { toast('Radni dan nije sacuvan.'); }
+		target.querySelectorAll('[data-work-date]').forEach((cell) => {
+			const selectDay = async () => {
+				const form = document.querySelector('#time-form');
+				if (!form) return;
+				form.elements.date.value = cell.dataset.workDate;
+				updateTimeLiveCalculation();
+				const draft = calculateTimeDraft();
+				if (!draft.valid) { form.elements.start?.focus(); toast('Unesi pocetak, kraj, pauzu i cijenu pa opet klikni dan.'); return; }
+				if (!window.confirm(`Sacuvati ${cell.dataset.workDate}: ${draft.hours.toFixed(2)} h ? ${formatEUR(draft.amount)}?`)) return;
+				try { await saveTimeEntryFromForm(form); await refreshActiveView(); toast('Radni dan je oznacen u kalendaru.'); } catch { toast('Radni dan nije sacuvan.'); }
+			};
+			cell.addEventListener('click', selectDay);
+			cell.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectDay(); } });
+		});
+		target.querySelectorAll('[data-quick-hours]').forEach((button) => button.addEventListener('click', async (event) => {
+			event.stopPropagation();
+			const input = window.prompt('Nove sati za ovaj dan:', button.dataset.quickHoursValue);
+			if (input === null) return;
+			const hours = Number(String(input).replace(',', '.'));
+			if (!Number.isFinite(hours) || hours <= 0) { toast('Unesi ispravan broj sati.'); return; }
+			try { await request(`/time-entries/${encodeURIComponent(button.dataset.quickHours)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) }); await refreshActiveView(); toast('Sati su izmenjeni.'); }
+			catch { toast('Sati nisu izmenjeni.'); }
+		}));
+		target.querySelectorAll('[data-quick-rdv]').forEach((button) => button.addEventListener('click', async (event) => {
+			event.stopPropagation();
+			const rdvId = button.dataset.quickRdv;
+			const action = window.prompt(`RDV ${button.dataset.quickRdvTime} — upiši novo vreme (HH:MM) da izmeniš, ili napiši "obrisi" da obrišeš:`, button.dataset.quickRdvTime);
+			if (action === null) return;
+			if (action.trim().toLowerCase() === 'obrisi') {
+				if (!window.confirm('Obrisati ovaj RDV/odsustvo?')) return;
+				try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'DELETE' }); await refreshActiveView(); toast('RDV je obrisan.'); }
+				catch { toast('RDV nije obrisan.'); }
+				return;
+			}
+			if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(action.trim())) { toast('Unesi vreme u formatu HH:MM.'); return; }
+			try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ time: action.trim() }) }); await refreshActiveView(); toast('RDV je izmenjen.'); }
+			catch { toast('RDV nije izmenjen.'); }
 		}));
 	}
 	function ensureWorkerMonthSummaryPanel() {
@@ -1349,6 +1382,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#time-summary').textContent = `${monthHours.toFixed(2)} h`;
 		document.querySelector('#time-days').textContent = `Jours : ${monthDays}`;
 		document.querySelector('#time-money').textContent = `Calcul : ${formatEUR(monthAmount)}`;
+		const selectedYear = selectedDate.slice(0, 4);
+		const yearEntries = selectedEntries.filter((entry) => String(entry.date || '').startsWith(selectedYear));
+		const yearHours = yearEntries.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+		const yearDays = new Set(yearEntries.map((item) => item.date)).size;
+		const yearAmount = yearEntries.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
+		const yearTarget = document.querySelector('#time-year-summary');
+		if (yearTarget) yearTarget.innerHTML = `<strong>${escapeHtml(selectedYear)} · ${yearDays} jours · ${yearHours.toFixed(2)} h</strong><small>Total annuel : ${formatEUR(yearAmount)}</small>`;
 		latestOwnTimeEntries = entries;
 		ensureTimeAutoCalculation(selectedWorker);
 		renderWorkCalendar(latestOwnTimeEntries, selectedDate, latestRendezvous);
