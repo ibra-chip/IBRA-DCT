@@ -896,12 +896,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		const thread = chatMessages.filter((item) => (item.senderId === currentUserId && item.recipientId === selectedId) || (item.senderId === selectedId && item.recipientId === currentUserId)).sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
 		const canDelete = (item) => !item.optimistic && (item.senderId === currentUserId || isOwner());
+		const avatarFor = (item, mine) => { const user = mine ? currentUser : workerRosterState.users.find((candidate) => candidate.id === item.senderId); return identityTokenHtml(user?.avatarUrl || '', item.senderName || user?.name || '', 'worker-avatar chat-avatar'); };
 		target.innerHTML = thread.length ? thread.map((item) => {
 			const mine = item.senderId === currentUserId;
-			const time = new Date(item.createdAt).toLocaleString(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
-			return `<div class="chat-bubble ${mine ? 'sent' : 'received'}"><div class="chat-bubble-text">${escapeHtml(item.text)}</div><div class="chat-bubble-meta"><small>${time}</small>${canDelete(item) ? `<button type="button" class="chat-delete" data-delete-message="${item.id}" title="Supprimer le message" aria-label="Supprimer le message">✕</button>` : ''}</div></div>`;
-		}).join('') : '<small class="chat-empty">Nema poruka u ovoj konverzaciji.</small>';
+			const time = new Date(item.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+			const ticks = mine && !item.optimistic ? `<span class="chat-ticks${item.read ? ' read' : ''}" title="${item.read ? 'Vu' : 'Envoyé'}">${item.read ? '✓✓' : '✓'}</span>` : '';
+			return `<div class="chat-bubble-row ${mine ? 'sent' : 'received'}">${avatarFor(item, mine)}<div class="chat-bubble ${mine ? 'sent' : 'received'}"><div class="chat-bubble-text">${escapeHtml(item.text)}</div><div class="chat-bubble-meta"><small>${time}</small>${ticks}${canDelete(item) ? `<button type="button" class="chat-delete" data-delete-message="${item.id}" title="Supprimer le message" aria-label="Supprimer le message">✕</button>` : ''}</div></div></div>`;
+		}).join('') : '<small class="chat-empty">Aucun message dans cette conversation.</small>';
 		target.scrollTop = target.scrollHeight;
+		const unreadFromPartner = thread.filter((item) => item.senderId === selectedId && item.recipientId === currentUserId && !item.read);
+		if (unreadFromPartner.length && selectedId) {
+			request('/messages/read', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partnerId: selectedId }) })
+				.then(() => { unreadFromPartner.forEach((item) => { item.read = true; }); }).catch(() => {});
+		}
 	}
 	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); latestChatMessages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); renderChatThread(); await loadRendezvous(); }
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);

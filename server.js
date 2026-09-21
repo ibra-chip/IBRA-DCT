@@ -1156,6 +1156,16 @@ app.delete('/api/messages/:id', auth, async (request, response) => {
 	await writeData(data);
 	response.json({ deleted: true, id: message.id });
 });
+app.post('/api/messages/read', auth, async (request, response) => {
+	const partnerId = String(request.body.partnerId || '');
+	const data = await readData();
+	const updatedIds = [];
+	(data.messages || []).forEach((item) => {
+		if (item.recipientId === request.user.sub && item.senderId === partnerId && !item.read) { item.read = true; updatedIds.push(item.id); }
+	});
+	if (updatedIds.length) await writeData(data);
+	response.json({ updated: updatedIds });
+});
 const dateOnlyTimestamp = (value) => {
 	const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
 	if (!match) return Number.NaN;
