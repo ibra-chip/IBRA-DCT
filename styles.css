@@ -86,6 +86,8 @@ select[data-project-assignment][multiple]:focus-visible{outline:2px solid var(--
 .calendar-cell small{font-size:.68rem;color:var(--green)}
 .calendar-cell.weekend{opacity:.5;background:#ffffff05}
 .calendar-cell.worked{border-color:#31d3a466;background:#31d3a418;color:#dffcf4}
+.calendar-cell.worked.entry-pending{border-color:#f4c86f88;background:#f4c86f22;color:#fff6df}
+.calendar-cell.worked.entry-rejected{border-color:#f77d7d88;background:#f77d7d22;color:#ffe1e1}
 .calendar-cell.has-rendezvous{border-color:#f4c86f99;background:#f4c86f12}
 .calendar-cell.has-rendezvous.worked{background:linear-gradient(135deg,#31d3a418,#f4c86f18)}
 .calendar-rendezvous{display:block;max-width:100%;overflow:hidden;color:var(--yellow);font-size:.64rem;font-weight:900;line-height:1.1;text-overflow:ellipsis;white-space:nowrap}
