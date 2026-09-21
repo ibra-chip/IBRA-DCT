@@ -1476,7 +1476,31 @@ document.addEventListener('DOMContentLoaded', () => {
 	const userFormAvatarPreview = document.querySelector('#user-form-avatar-preview');
 	userFormAvatarInput?.addEventListener('change', () => { const file = userFormAvatarInput.files[0]; if (!file || !userFormAvatarPreview) return; userFormAvatarPreview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`; });
 		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(formValues(event.currentTarget)) }); let avatarWarning = ''; const avatarFile = userFormAvatarInput?.files[0]; if (avatarFile && created.id) { const avatarBody = new FormData(); avatarBody.set('avatar', avatarFile); try { const avatarResponse = await fetch(`${api}/users/${encodeURIComponent(created.id)}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: avatarBody }); if (!avatarResponse.ok) throw new Error(); } catch { avatarWarning = ' Fotografija nije sačuvana; probajte iz izmene profila.'; } } event.currentTarget.reset(); if (userFormAvatarPreview) userFormAvatarPreview.innerHTML = '?'; updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.${avatarWarning}`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
-	document.querySelector('#upload-form').addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#file-input').files[0]; if (!file) { toast('Sélectionnez un fichier avant l’enregistrement.'); return; } const body = new FormData(event.currentTarget); body.set('file', file, file.name); body.set('responseLanguage', language); try { const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); const result = await response.json().catch(() => ({})); if (!response.ok) throw new Error(result.error || `${response.status}`); event.currentTarget.reset(); await refreshActiveView(); if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); } toast(result.autoAnalysis ? 'Document enregistré et analysé automatiquement.' : 'Le document a été enregistré sur le serveur.'); } catch (error) { toast(`Document non enregistré : ${error.message || 'erreur inconnue'}`); } });
+	document.querySelector('#upload-form').addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const file = document.querySelector('#file-input').files[0];
+		const message = document.querySelector('#upload-form-message') || (() => { const p = document.createElement('p'); p.id = 'upload-form-message'; p.className = 'error'; form.append(p); return p; })();
+		message.textContent = '';
+		if (!file) { message.textContent = 'Sélectionnez un fichier avant l’enregistrement.'; return; }
+		const projectId = form.elements.projectId.value;
+		if (!projectId) { message.textContent = 'Choisissez un chantier dans la liste avant d’enregistrer. Si la liste est vide, créez d’abord un chantier dans l’onglet Devis.'; return; }
+		const body = new FormData(form);
+		body.set('file', file, file.name);
+		body.set('responseLanguage', language);
+		try {
+			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body });
+			const result = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(result.error || `${response.status}`);
+			form.reset();
+			await refreshActiveView();
+			if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); }
+			toast(result.autoAnalysis ? 'Document enregistré et analysé automatiquement.' : 'Le document a été enregistré sur le serveur.');
+		} catch (error) {
+			message.textContent = `Document non enregistré : ${error.message || 'erreur inconnue'}`;
+			toast('Document non enregistré. Voir le message sous le formulaire.');
+		}
+	});
 	document.querySelector('#goto-documents-button')?.addEventListener('click', () => showView('documents-view'));
 	document.querySelector('#ai-form')?.addEventListener('submit', async (event) => {
 		event.preventDefault();
