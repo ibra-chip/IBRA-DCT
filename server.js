@@ -1208,6 +1208,27 @@ app.post('/api/payout-requests', auth, async (request, response) => {
 	const month = String(request.body.month || ''); const days = Number(request.body.days || 0); if (!/^\d{4}-\d{2}$/.test(month) || !Number.isInteger(days) || days < 0) return response.status(400).json({ error: 'Month and a non-negative integer number of days are required' });
 	const data = await readData(); const duplicate = (data.payoutRequests || []).find((item) => item.userId === request.user.sub && item.month === month && item.status !== 'rejected'); if (duplicate) return response.status(409).json({ error: 'Payout request already exists for this month' }); const user = data.users.find((item) => item.id === request.user.sub); const amount = days * Number(user?.dailyRate || 0); const item = { id: `payout-${Date.now()}`, userId: request.user.sub, userName: request.user.name, month, days, dailyRate: Number(user?.dailyRate || 0), amount, submissionDate: `${month}-01`, paymentDate: `${month}-15`, status: 'pending', createdAt: new Date().toISOString() }; data.payoutRequests = [...(data.payoutRequests || []), item]; await writeData(data); response.status(201).json(item);
 });
+app.post('/api/payout-requests/mark-paid', auth, manager, async (request, response) => {
+	const userId = String(request.body.userId || '');
+	const month = String(request.body.month || '');
+	if (!userId || !/^\d{4}-\d{2}$/.test(month)) return response.status(400).json({ error: 'A worker and month are required' });
+	const data = await readData();
+	const worker = data.users.find((item) => item.id === userId);
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
+	const days = new Set(entries.map((entry) => entry.date)).size;
+	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
+	let item = (data.payoutRequests || []).find((entry) => entry.userId === userId && entry.month === month && entry.status !== 'rejected');
+	const today = new Date().toISOString().slice(0, 10);
+	if (item) {
+		item.status = 'paid'; item.amount = amount || item.amount; item.days = days || item.days; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); item.paymentDate = today;
+	} else {
+		item = { id: `payout-${Date.now()}`, userId, userName: worker.name, month, days, dailyRate: Number(worker.dailyRate || 0), amount, submissionDate: `${month}-01`, paymentDate: today, status: 'paid', createdAt: new Date().toISOString(), reviewedBy: request.user.sub, reviewedAt: new Date().toISOString() };
+		data.payoutRequests = [...(data.payoutRequests || []), item];
+	}
+	await writeData(data);
+	response.json(item);
+});
 app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
 	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
 	if (!item || (!isOwnerRole(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
