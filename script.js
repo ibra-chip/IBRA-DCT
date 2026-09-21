@@ -896,7 +896,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		const thread = chatMessages.filter((item) => (item.senderId === currentUserId && item.recipientId === selectedId) || (item.senderId === selectedId && item.recipientId === currentUserId)).sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
 		const canDelete = (item) => !item.optimistic && (item.senderId === currentUserId || isOwner());
-		const avatarFor = (item, mine) => { const user = mine ? currentUser : workerRosterState.users.find((candidate) => candidate.id === item.senderId); return identityTokenHtml(user?.avatarUrl || '', item.senderName || user?.name || '', 'worker-avatar chat-avatar'); };
+		const avatarFor = (item, mine) => { const user = mine ? currentUser : workerRosterState.users.find((candidate) => candidate.id === item.senderId); return identityTokenHtml(user?.avatarUrl || user?.companyLogoUrl || '', item.senderName || user?.name || '', 'worker-avatar chat-avatar'); };
 		target.innerHTML = thread.length ? thread.map((item) => {
 			const mine = item.senderId === currentUserId;
 			const time = new Date(item.createdAt).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
