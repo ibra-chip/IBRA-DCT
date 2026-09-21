@@ -1402,7 +1402,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			target.innerHTML = `<small>${french ? 'Aucun utilisateur travailleur.' : 'Nema dodatih korisnika.'}</small>`;
 			return;
 		}
-		const labels = french ? { worker: 'Utilisateur', workDays: 'Jours travaillés', hours: 'Heures', rendezvous: 'RDV / absences' } : { worker: 'Korisnik', workDays: 'Radni dani', hours: 'Sati', rendezvous: 'RDV / odsustva' };
+		const labels = french ? { worker: 'Ouvrier', workDays: 'Jours travaillés', hours: 'Heures', rendezvous: 'RDV / absences' } : { worker: 'Radnik', workDays: 'Radni dani', hours: 'Sati', rendezvous: 'RDV / odsustva' };
 		target.innerHTML = `<div class="worker-month-summary-table-wrap"><table class="worker-month-summary-table"><caption class="visually-hidden">${escapeHtml(`${french ? 'Résumé des utilisateurs pour' : 'Sažetak korisnika za'} ${formatMonthLabel(month)}`)}</caption><thead><tr><th scope="col">${labels.worker}</th><th scope="col">${labels.workDays}</th><th scope="col">${labels.hours}</th><th scope="col">${labels.rendezvous}</th></tr></thead><tbody>${workers.map((worker) => { const summary = summarizeWorkerMonth(worker.id, month); return `<tr><th scope="row">${escapeHtml(worker.name)}</th><td>${summary.workDays}</td><td>${summary.hours.toFixed(2)}</td><td>${summary.rendezvousDays}${summary.rendezvousCount > summary.rendezvousDays ? ` <small>(${summary.rendezvousCount} ${french ? 'termin.' : 'termina'})</small>` : ''}</td></tr>`; }).join('')}</tbody></table></div>`;
 	}
 	async function loadTime() {
@@ -1462,7 +1462,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 		const months = [...entriesByMonth.keys()].sort((first, second) => second.localeCompare(first));
 		const currentMonthKey = monthKeyFromDate(new Date().toISOString().slice(0, 10));
-		document.querySelector('#time-entries').innerHTML = months.length ? months.map((month) => {
+		const timeEntriesTarget = document.querySelector('#time-entries');
+		timeEntriesTarget.hidden = canApprove;
+		if (!canApprove) timeEntriesTarget.innerHTML = months.length ? months.map((month) => {
 			const monthItems = entriesByMonth.get(month);
 			const totalHours = monthItems.reduce((sum, item) => sum + Number(item.hours || 0), 0);
 			const totalAmount = monthItems.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
