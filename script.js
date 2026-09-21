@@ -700,7 +700,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		const actions = isOwner() && snapshot.entries.length ? `<div class="detail-payment-actions status-swatches">${swatch('pending', 'pending', 'Na čekanju (žuto)')}${swatch('critical', 'critical', 'Kritično (crveno)')}${swatch('paid', 'good', 'Plaćeno (zeleno)')}</div>` : '';
 		const clickable = isOwner() && snapshot.entries.length;
 		const badge = `<button type="button" class="worker-status ${workerStatusMeta[snapshot.paymentState].className}"${clickable ? ` data-cycle-status data-cycle-status-worker="${escapeHtml(snapshot.user.id)}" data-cycle-status-month="${escapeHtml(snapshot.month)}" data-cycle-status-state="${snapshot.paymentState}"` : ' disabled'}><span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}</button>`;
-		target.innerHTML = `<div class="detail-payment-status ${workerStatusMeta[snapshot.paymentState].className}"><div>${badge}<strong>${formatEUR(snapshot.amount)}</strong></div><p>${escapeHtml(snapshot.paymentDetail)}</p><small>${escapeHtml(due)}</small>${actions}</div>`;
+		const downloadButton = `<button type="button" class="secondary" data-download-pdf data-download-pdf-worker="${escapeHtml(snapshot.user.id)}" data-download-pdf-month="${escapeHtml(snapshot.month)}" data-download-pdf-name="${escapeHtml(snapshot.user.name || '')}">Télécharger PDF (${escapeHtml(formatMonthLabel(snapshot.month))})</button>`;
+		target.innerHTML = `<div class="detail-payment-status ${workerStatusMeta[snapshot.paymentState].className}"><div>${badge}<strong>${formatEUR(snapshot.amount)}</strong></div><p>${escapeHtml(snapshot.paymentDetail)}</p><small>${escapeHtml(due)}</small>${actions}<div class="detail-payment-actions">${downloadButton}</div></div>`;
 	}
 	function renderWorkerDetailRendezvous(snapshot) { const target = document.querySelector('#worker-detail-rendezvous'); if (!target) return; target.innerHTML = snapshot.rendezvous.length ? snapshot.rendezvous.slice().sort((first, second) => `${first.absenceDate || first.date} ${first.time}`.localeCompare(`${second.absenceDate || second.date} ${second.time}`)).map((item) => `<div class="detail-list-item"><strong>${escapeHtml(formatRosterDate(item.absenceDate || item.date))} · ${escapeHtml(item.time || '')}</strong><small>${escapeHtml(item.reason || 'Bez razloga')} · ${escapeHtml(assignedWorkerProjects({ projectIds: [item.projectId] })[0] || item.projectId || '')}</small></div>`).join('') : '<small>Nema RDV/odsustva u izabranom mesecu.</small>'; }
 	function renderWorkerDetailEntries(snapshot) {
@@ -713,6 +714,23 @@ document.addEventListener('DOMContentLoaded', () => {
 		const editForm = (item) => `<form class="detail-list-item detail-entry-edit" data-edit-entry="${item.id}"><div class="form-row"><label>Début<input type="time" name="start" value="${escapeHtml(item.start || '')}" required /></label><label>Fin<input type="time" name="end" value="${escapeHtml(item.end || '')}" required /></label></div><div class="form-row"><label>Pause (min)<input type="number" name="breakMinutes" min="0" value="${Number(item.breakMinutes || 0)}" /></label><label>Tarif<select name="rateType"><option value="daily"${item.rateType === 'daily' ? ' selected' : ''}>Dnevnica</option><option value="hourly"${item.rateType === 'hourly' ? ' selected' : ''}>Satnica</option></select></label></div><div class="form-row"><label>Montant EUR<input type="number" name="rate" min="0.01" step="0.01" value="${Number(item.rate || 0)}" required /></label></div><div class="detail-list-filter"><button class="primary" type="submit">Enregistrer</button><button class="secondary" type="button" data-cancel-edit>Annuler</button></div></form>`;
 		const viewRow = (item) => `<div class="detail-list-item"><strong>${escapeHtml(formatRosterDate(item.date))} · ${Number(item.hours || 0).toFixed(2)} h · ${formatEUR(workerEntryAmount(item, snapshot.user))}</strong><small>${escapeHtml(item.start || '')}${item.end ? `–${escapeHtml(item.end)}` : ''} · ${item.rateType === 'hourly' ? 'Satnica' : 'Dnevnica'} · ${item.status === 'approved' ? 'Odobreno' : item.status === 'rejected' ? 'Odbijeno' : 'Čeka pregled'}</small>${canEdit(item) ? `<div class="detail-list-filter"><button class="secondary" type="button" data-edit-entry-start="${item.id}">Modifier</button><button class="secondary" type="button" data-delete-entry="${item.id}">Supprimer</button></div>` : ''}</div>`;
 		target.innerHTML = `${heading}${entries.length ? entries.map((item) => workerRosterState.editingEntryId === item.id ? editForm(item) : viewRow(item)).join('') : '<small>Nema unosa za ovaj dan.</small>'}`;
+	}
+	async function downloadHoursPdf(workerId, month, workerName, trigger) {
+		if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
+		try {
+			const response = await fetch(`${api}/time-entries/pdf/download?workerId=${encodeURIComponent(workerId)}&month=${encodeURIComponent(month)}`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = `ibra-lista-plate-${month}-${(workerName || 'radnik').replace(/\s+/g, '-')}.pdf`;
+			document.body.append(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch { toast('PDF nije preuzet.'); }
+		finally { if (trigger) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); } }
 	}
 	async function markWorkerPaid(userId, month, trigger) {
 		if (!window.confirm('Označiti ovaj mesec kao plaćen?')) return;
@@ -735,6 +753,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (event.target === workerDetailModal) { closeWorkerDetail(); return; }
 		const cycleButton = event.target.closest('[data-cycle-status]'); if (cycleButton && !cycleButton.disabled) { await cycleWorkerPaymentStatus(cycleButton.dataset.cycleStatusWorker, cycleButton.dataset.cycleStatusMonth, cycleButton.dataset.cycleStatusState, cycleButton); return; }
 		const swatchButton = event.target.closest('[data-set-status]'); if (swatchButton) { await setWorkerPaymentStatus(swatchButton.dataset.setStatusWorker, swatchButton.dataset.setStatusMonth, swatchButton.dataset.setStatus, swatchButton); return; }
+		const downloadPdfButton = event.target.closest('[data-download-pdf]'); if (downloadPdfButton) { await downloadHoursPdf(downloadPdfButton.dataset.downloadPdfWorker, downloadPdfButton.dataset.downloadPdfMonth, downloadPdfButton.dataset.downloadPdfName, downloadPdfButton); return; }
 		const quickHoursButton = event.target.closest('[data-quick-hours]'); if (quickHoursButton) { openHoursQuickEdit(quickHoursButton, quickHoursButton.dataset.quickHours, quickHoursButton.dataset.quickHoursValue, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const quickRdvButton = event.target.closest('[data-quick-rdv]'); if (quickRdvButton) { openRdvQuickEdit(quickRdvButton, quickRdvButton.dataset.quickRdv, quickRdvButton.dataset.quickRdvTime, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const addRdvButton = event.target.closest('[data-add-rdv]'); if (addRdvButton) { const snapshot = workerRosterState.detailSnapshot; openRdvCreateQuickEdit(addRdvButton, { date: addRdvButton.dataset.addRdv, projectId: snapshot?.user?.projectIds?.[0], workerId: snapshot?.user?.id }, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
@@ -1034,7 +1053,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
-		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail realise<input name="photo" type="file" accept="image/*" required /></label><label>Date<input name="date" type="date" required /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec camera AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Gerant ou du Gerant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
+		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail realise (opciono)<input name="photo" type="file" accept="image/*" /></label><label>Date (opciono)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec camera AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Gerant ou du Gerant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
 		panel.after(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
@@ -1094,7 +1113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!form || document.querySelector('#capture-metadata')) return;
 		const block = document.createElement('div');
 		block.id = 'capture-metadata';
-		block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo<input name="captureTime" type="time" required /></label><label>Lieu de la photo (opciono)<input name="locationName" placeholder="Nije obavezno" /></label><small id="capture-status">Lokacija je opciona.</small>`;
+		block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="locationName" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo (opciono)<input name="captureTime" type="time" /></label>`;
 		form.querySelector('fieldset')?.append(block);
 		const quantityInput = form.elements.quantity;
 		form.elements.photo.addEventListener('change', () => {
@@ -1104,15 +1123,6 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.elements.m2Source.value = '';
 			form.elements.quantityM2.value = '';
 			quantityInput.value = '';
-			const status = block.querySelector('#capture-status');
-			if (!navigator.geolocation) { status.textContent = 'GPS indisponible sur cet appareil.'; return; }
-			status.textContent = 'Obtention de la position GPS...';
-			navigator.geolocation.getCurrentPosition((position) => {
-				form.elements.latitude.value = position.coords.latitude;
-				form.elements.longitude.value = position.coords.longitude;
-				if (!form.elements.locationName.value) form.elements.locationName.value = `GPS ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
-				status.textContent = `Photo captur?e le ${now.toLocaleDateString('fr-FR')} ? ${form.elements.captureTime.value}, avec position GPS.`;
-			}, () => { status.textContent = 'Localisation non disponible. Vous pouvez continuer sans.'; }, { enableHighAccuracy: true, timeout: 10000 });
 		});
 	}
 	async function loadProduction() {

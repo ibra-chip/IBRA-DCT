@@ -1222,6 +1222,21 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	await writeData(data);
 	response.json({ message: 'Hours PDF sent to owner', month, days, amount: total, recipients: recipients.map((user) => user.email) });
 });
+app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
+	const month = String(request.query.month || previousMonthKey());
+	const requestedWorkerId = String(request.query.workerId || request.user.sub);
+	if (requestedWorkerId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	const data = await readData();
+	const worker = data.users.find((user) => user.id === requestedWorkerId);
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	const entries = data.timeEntries.filter((entry) => entry.workerId === requestedWorkerId && entry.date.startsWith(month) && entry.status === 'approved');
+	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker) }));
+	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
+	const pdf = buildHoursPdf({ workerName: worker.name, month, entries: detailedEntries, total });
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="ibra-lista-plate-${month}-${worker.name.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
+	response.send(pdf);
+});
 app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
 	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can approve time' });
 	const data = await readData(); const entry = data.timeEntries.find((item) => item.id === request.params.id);
@@ -1381,14 +1396,16 @@ For m² use visible height x width of executed work. For ml use visible linear l
 	if (!aiResponse.ok) return response.status(502).json({ error: 'Vision AI provider unavailable' }); const result = await aiResponse.json(); return response.json(normalizeEstimate(parseEstimate(result.choices?.[0]?.message?.content), 'estimated'));
 });
 app.post('/api/work-reports', auth, upload.single('photo'), async (request, response) => {
-	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const date = String(request.body.date || ''); const capturedAt = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitudeInput = request.body.latitude !== undefined && request.body.latitude !== '' ? Number(request.body.latitude) : null; const longitudeInput = request.body.longitude !== undefined && request.body.longitude !== '' ? Number(request.body.longitude) : null; const latitude = Number.isFinite(latitudeInput) && latitudeInput >= -90 && latitudeInput <= 90 ? latitudeInput : null; const longitude = Number.isFinite(longitudeInput) && longitudeInput >= -180 && longitudeInput <= 180 ? longitudeInput : null; const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
-	if (!projectId || !request.file || !request.file.mimetype.startsWith('image/') || !description || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAt) || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitRate) || unitRate < 0) return response.status(400).json({ error: 'Photo, date, time, description, AI quantity estimate, and unit rate are required' });
+	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const dateInput = String(request.body.date || ''); const capturedAtInput = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitudeInput = request.body.latitude !== undefined && request.body.latitude !== '' ? Number(request.body.latitude) : null; const longitudeInput = request.body.longitude !== undefined && request.body.longitude !== '' ? Number(request.body.longitude) : null; const latitude = Number.isFinite(latitudeInput) && latitudeInput >= -90 && latitudeInput <= 90 ? latitudeInput : null; const longitude = Number.isFinite(longitudeInput) && longitudeInput >= -180 && longitudeInput <= 180 ? longitudeInput : null; const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
+	const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput) ? dateInput : new Date().toISOString().slice(0, 10);
+	const capturedAt = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAtInput) ? capturedAtInput : new Date().toISOString();
+	if (!projectId || (request.file && !request.file.mimetype.startsWith('image/')) || !description || !Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(unitRate) || unitRate < 0) return response.status(400).json({ error: 'Chantier, description, AI quantity estimate, and unit rate are required' });
 	const data = await readData(); const user = data.users.find((item) => item.id === request.user.sub);
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, user); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const photoFile = storageKeyFor(request.file.originalname);
-	try { await uploadFile(UPLOADS_BUCKET, photoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
-	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file.originalname, aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const photoFile = request.file ? storageKeyFor(request.file.originalname) : null;
+	if (request.file) { try { await uploadFile(UPLOADS_BUCKET, photoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); } }
+	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file?.originalname || '', aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
