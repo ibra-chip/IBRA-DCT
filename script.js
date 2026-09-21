@@ -625,7 +625,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			else if (missingRate || overdue) paymentState = 'critical';
 			else paymentState = 'pending';
 		}
-		const paymentDetail = paymentState === 'empty' ? 'Nema unosa rada u ovom mesecu' : paymentState === 'critical' ? (payout?.manualOverride ? 'Ručno označeno kao kritično' : missingRate ? 'Nedostaje tarifa za jedan ili više unosa' : 'Kasni preko mesec dana · nije plaćeno') : paymentState === 'good' ? `Isplaćeno${payout?.paymentDate ? ` · ${formatRosterDate(payout.paymentDate)}` : ''}` : (payout?.manualOverride ? 'Ručno označeno · na čekanju' : 'Na čekanju isplate');
+		const paymentDetail = paymentState === 'empty' ? 'Nema unosa rada u ovom mesecu' : paymentState === 'critical' ? (missingRate ? 'Nedostaje tarifa za jedan ili više unosa' : 'Kasni preko mesec dana · nije plaćeno') : paymentState === 'good' ? `Isplaćeno${payout?.paymentDate ? ` · ${formatRosterDate(payout.paymentDate)}` : ''}` : 'Na čekanju isplate';
 		return { user, month, entries, rendezvous, payout, workedDays, hours, amount, nextRendezvous: nextWorkerRendezvous(allRendezvous), paymentState, paymentDetail, assignedProjects: assignedWorkerProjects(user), rateMissing: missingRate };
 	}
 	const cyclePaymentState = (state) => state === 'good' ? 'pending' : state === 'critical' ? 'paid' : 'critical';
