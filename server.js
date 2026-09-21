@@ -18,6 +18,22 @@ import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFil
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
 const parsePdf = async (buffer) => { const parser = new PDFParse({ data: buffer }); return parser.getText(); };
+const extractPdfImages = async (buffer, { maxImages = 6 } = {}) => {
+	const parser = new PDFParse({ data: buffer });
+	try {
+		const result = await parser.getImage({ imageThreshold: 120 });
+		const images = [];
+		for (const page of result.pages || []) {
+			for (const image of page.images || []) {
+				images.push({ page: page.pageNumber, dataUrl: image.dataUrl, width: image.width, height: image.height });
+				if (images.length >= maxImages) return images;
+			}
+		}
+		return images;
+	} finally {
+		await parser.destroy();
+	}
+};
 
 const app = express();
 const root = process.env.IBRA_APP_ROOT ? path.resolve(process.env.IBRA_APP_ROOT) : process.cwd();
@@ -1245,6 +1261,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 			} else if (!autoAnalysis.answer) {
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+			}
+			try {
+				const images = await extractPdfImages(buffer, { maxImages: 6 });
+				if (images.length) autoAnalysis.referenceImages = images;
+			} catch (error) {
+				console.error('PDF image extraction failed:', error.message);
 			}
 		} else if (request.file.mimetype.startsWith('image/')) {
 			const buffer = request.file.buffer;
