@@ -1250,6 +1250,28 @@ app.post('/api/payout-requests/mark-paid', auth, manager, async (request, respon
 	await writeData(data);
 	response.json(item);
 });
+app.post('/api/payout-requests/set-status', auth, manager, async (request, response) => {
+	const userId = String(request.body.userId || '');
+	const month = String(request.body.month || '');
+	const status = String(request.body.status || '');
+	if (!userId || !/^\d{4}-\d{2}$/.test(month) || !['pending', 'critical', 'paid'].includes(status)) return response.status(400).json({ error: 'A worker, month and valid status (pending, critical, paid) are required' });
+	const data = await readData();
+	const worker = data.users.find((item) => item.id === userId);
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
+	const days = new Set(entries.map((entry) => entry.date)).size;
+	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
+	let item = (data.payoutRequests || []).find((entry) => entry.userId === userId && entry.month === month && entry.status !== 'rejected');
+	const today = new Date().toISOString().slice(0, 10);
+	if (item) {
+		item.status = status; item.manualOverride = true; item.amount = amount || item.amount; item.days = days || item.days; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); if (status === 'paid') item.paymentDate = today;
+	} else {
+		item = { id: `payout-${Date.now()}`, userId, userName: worker.name, month, days, dailyRate: Number(worker.dailyRate || 0), amount, submissionDate: `${month}-01`, paymentDate: status === 'paid' ? today : '', status, manualOverride: true, createdAt: new Date().toISOString(), reviewedBy: request.user.sub, reviewedAt: new Date().toISOString() };
+		data.payoutRequests = [...(data.payoutRequests || []), item];
+	}
+	await writeData(data);
+	response.json(item);
+});
 app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
 	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
 	if (!item || (!isOwnerRole(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });

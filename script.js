@@ -553,11 +553,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		const overdue = Boolean(entries.length && !isPaid && Number.isFinite(overdueThreshold) && Date.now() >= overdueThreshold);
 		let paymentState = 'empty';
 		if (entries.length) {
-			if (isPaid) paymentState = 'good';
+			if (payout?.manualOverride && payout.status !== 'paid') paymentState = payout.status === 'critical' ? 'critical' : 'pending';
+			else if (isPaid) paymentState = 'good';
 			else if (missingRate || overdue) paymentState = 'critical';
 			else paymentState = 'pending';
 		}
-		const paymentDetail = paymentState === 'empty' ? 'Nema unosa rada u ovom mesecu' : paymentState === 'critical' ? (missingRate ? 'Nedostaje tarifa za jedan ili više unosa' : 'Kasni preko mesec dana · nije plaćeno') : paymentState === 'good' ? `Isplaćeno${payout?.paymentDate ? ` · ${formatRosterDate(payout.paymentDate)}` : ''}` : 'Na čekanju isplate';
+		const paymentDetail = paymentState === 'empty' ? 'Nema unosa rada u ovom mesecu' : paymentState === 'critical' ? (payout?.manualOverride ? 'Ručno označeno kao kritično' : missingRate ? 'Nedostaje tarifa za jedan ili više unosa' : 'Kasni preko mesec dana · nije plaćeno') : paymentState === 'good' ? `Isplaćeno${payout?.paymentDate ? ` · ${formatRosterDate(payout.paymentDate)}` : ''}` : (payout?.manualOverride ? 'Ručno označeno · na čekanju' : 'Na čekanju isplate');
 		return { user, month, entries, rendezvous, payout, workedDays, hours, amount, nextRendezvous: nextWorkerRendezvous(allRendezvous), paymentState, paymentDetail, assignedProjects: assignedWorkerProjects(user), rateMissing: missingRate };
 	}
 	const renderRosterStatus = (snapshot) => { const meta = workerStatusMeta[snapshot.paymentState] || workerStatusMeta.empty; return `<span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><small class="worker-status-detail">${escapeHtml(snapshot.paymentDetail)}</small>`; };
@@ -611,7 +612,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#worker-detail-summary').innerHTML = `<div><small>Radni dani</small><strong>${snapshot.workedDays}</strong><span>${escapeHtml(formatMonthLabel(month))}</span></div><div><small>Sati</small><strong>${snapshot.hours.toFixed(2)}</strong><span>ukupno</span></div><div><small>Dnevnica</small><strong>${formatEUR(user.dailyRate || 0)}</strong><span>po danu</span></div><div><small>Satnica</small><strong>${formatEUR(user.hourlyRate || 0)}</strong><span>po satu</span></div><div class="detail-summary-amount"><small>Obračunato</small><strong>${formatEUR(snapshot.amount)}</strong><span>${snapshot.entries.length} unosa</span></div>`;
 		renderWorkerDetailCalendar(snapshot, month); renderWorkerDetailPayment(snapshot); renderWorkerDetailRendezvous(snapshot); renderWorkerDetailEntries(snapshot);
 	}
-	function renderWorkerDetailPayment(snapshot) { const target = document.querySelector('#worker-detail-payment'); if (!target) return; const payout = snapshot.payout; const due = payout?.paymentDate && snapshot.paymentState === 'good' ? `Plaćeno : ${formatRosterDate(payout.paymentDate)}` : 'Još nije plaćeno'; const actions = isOwner() && snapshot.entries.length && snapshot.paymentState !== 'good' ? `<button class="primary" data-mark-paid="${escapeHtml(snapshot.user.id)}" data-mark-paid-month="${escapeHtml(snapshot.month)}">Marquer comme payé</button>` : ''; target.innerHTML = `<div class="detail-payment-status ${workerStatusMeta[snapshot.paymentState].className}"><div><span class="worker-status ${workerStatusMeta[snapshot.paymentState].className}"><span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}</span><strong>${formatEUR(snapshot.amount)}</strong></div><p>${escapeHtml(snapshot.paymentDetail)}</p><small>${escapeHtml(due)}</small>${actions ? `<div class="detail-payment-actions">${actions}</div>` : ''}</div>`; }
+	function renderWorkerDetailPayment(snapshot) {
+		const target = document.querySelector('#worker-detail-payment'); if (!target) return;
+		const payout = snapshot.payout;
+		const due = payout?.paymentDate && snapshot.paymentState === 'good' ? `Plaćeno : ${formatRosterDate(payout.paymentDate)}` : 'Još nije plaćeno';
+		const swatch = (value, stateName, label) => `<button type="button" class="status-swatch status-swatch-${value}${snapshot.paymentState === stateName ? ' active' : ''}" data-set-status="${value}" data-set-status-worker="${escapeHtml(snapshot.user.id)}" data-set-status-month="${escapeHtml(snapshot.month)}" title="${label}" aria-label="${label}"></button>`;
+		const actions = isOwner() && snapshot.entries.length ? `<div class="detail-payment-actions status-swatches">${swatch('pending', 'pending', 'Na čekanju (žuto)')}${swatch('critical', 'critical', 'Kritično (crveno)')}${swatch('paid', 'good', 'Plaćeno (zeleno)')}</div>` : '';
+		target.innerHTML = `<div class="detail-payment-status ${workerStatusMeta[snapshot.paymentState].className}"><div><span class="worker-status ${workerStatusMeta[snapshot.paymentState].className}"><span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}</span><strong>${formatEUR(snapshot.amount)}</strong></div><p>${escapeHtml(snapshot.paymentDetail)}</p><small>${escapeHtml(due)}</small>${actions}</div>`;
+	}
 	function renderWorkerDetailRendezvous(snapshot) { const target = document.querySelector('#worker-detail-rendezvous'); if (!target) return; target.innerHTML = snapshot.rendezvous.length ? snapshot.rendezvous.slice().sort((first, second) => `${first.absenceDate || first.date} ${first.time}`.localeCompare(`${second.absenceDate || second.date} ${second.time}`)).map((item) => `<div class="detail-list-item"><strong>${escapeHtml(formatRosterDate(item.absenceDate || item.date))} · ${escapeHtml(item.time || '')}</strong><small>${escapeHtml(item.reason || 'Bez razloga')} · ${escapeHtml(assignedWorkerProjects({ projectIds: [item.projectId] })[0] || item.projectId || '')}</small></div>`).join('') : '<small>Nema RDV/odsustva u izabranom mesecu.</small>'; }
 	function renderWorkerDetailEntries(snapshot) {
 		const target = document.querySelector('#worker-detail-entries'); if (!target) return;
@@ -631,8 +639,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		catch { toast('Plaćanje nije označeno.'); }
 		finally { if (trigger) trigger.disabled = false; }
 	}
+	async function setWorkerPaymentStatus(userId, month, status, trigger) {
+		if (trigger) trigger.disabled = true;
+		try { await request('/payout-requests/set-status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId, month, status }) }); await loadUsers(); renderWorkerDetail(); toast('Status plaćanja je promenjen.'); }
+		catch { toast('Status nije promenjen.'); }
+		finally { if (trigger) trigger.disabled = false; }
+	}
 	workerDetailModal?.addEventListener('click', async (event) => {
 		if (event.target === workerDetailModal) { closeWorkerDetail(); return; }
+		const swatchButton = event.target.closest('[data-set-status]'); if (swatchButton) { await setWorkerPaymentStatus(swatchButton.dataset.setStatusWorker, swatchButton.dataset.setStatusMonth, swatchButton.dataset.setStatus, swatchButton); return; }
 		const dateButton = event.target.closest('[data-detail-date]'); if (dateButton) { workerRosterState.detailSelectedDate = dateButton.dataset.detailDate; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		if (event.target.closest('[data-detail-clear]')) { workerRosterState.detailSelectedDate = ''; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		const editStartButton = event.target.closest('[data-edit-entry-start]'); if (editStartButton) { workerRosterState.editingEntryId = editStartButton.dataset.editEntryStart; renderWorkerDetail(); return; }
