@@ -985,6 +985,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				form.elements.quantity.value = value.toFixed(2);
 				form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 				form.elements.m2Source.value = `ar-${unit}`;
+				form.elements.quantity.dispatchEvent(new Event('input'));
 				status.textContent = `AR mjera: ${value.toFixed(2)} ${unit}. Prenez maintenant une photo comme preuve et enregistrez le rapport.`;
 				await close();
 				if (!form.elements.photo.files.length) form.elements.photo.click();
@@ -1088,6 +1089,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.elements.quantity.value = value.toFixed(2);
 			form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 			form.elements.m2Source.value = `photo-calibrated-${unit}`;
+			form.elements.quantity.dispatchEvent(new Event('input'));
 			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Sacuvajte izvjestaj ako je tacno.`;
 			close();
 		};
@@ -1103,7 +1105,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
-		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail realise (opciono)<input name="photo" type="file" accept="image/*" /></label><label>Date (opciono)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unite a calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - metre lineaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec camera AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantite IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unite EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><small>La validation humaine du Gerant ou du Gerant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
+		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail réalisé (optionnel)<input name="photo" type="file" accept="image/*" /></label><label>Date (optionnel)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unité à calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - mètre linéaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec caméra AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantité IA ou AR</span><input name="quantity" type="number" min="0" step="0.01" value="" required readonly /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unité EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><div id="production-live-calc" class="production-live-calc">0.00 × 0,00 € = 0,00 €</div><small>La validation humaine du Gérant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
 		panel.after(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
@@ -1113,8 +1115,18 @@ document.addEventListener('DOMContentLoaded', () => {
 			section.querySelector('[data-rate-label]').textContent = unit === 'ml' ? 'Prix par ml EUR' : 'Prix par m2 EUR';
 			section.querySelector('#estimate-area').textContent = unit === 'ml' ? 'Estimer les ml avec l’IA' : 'Estimer les m2 avec l’IA';
 		};
-		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); });
+		const liveCalcTarget = section.querySelector('#production-live-calc');
+		const updateLiveCalc = () => {
+			const unit = form.elements.quantityUnit.value;
+			const quantity = Number(quantityInput.value) || 0;
+			const rate = Number(form.elements.unitRate.value) || 0;
+			liveCalcTarget.textContent = `${quantity.toFixed(2)} ${unit} × ${formatEUR(rate)} = ${formatEUR(quantity * rate)}`;
+		};
+		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); updateLiveCalc(); });
+		form.elements.unitRate.addEventListener('input', updateLiveCalc);
+		quantityInput.addEventListener('input', updateLiveCalc);
 		updateUnitLabels();
+		updateLiveCalc();
 		section.querySelector('#ar-meter').addEventListener('click', () => startArMeter(form, section.querySelector('#area-estimate-status')));
 		section.querySelector('#photo-meter').addEventListener('click', () => startPhotoMeter(form, section.querySelector('#area-estimate-status')));
 		section.querySelector('#estimate-area').addEventListener('click', async () => {
@@ -1135,6 +1147,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				quantityInput.value = result.estimatedQuantity;
 				form.elements.quantityM2.value = unit === 'm2' ? result.estimatedQuantity : '';
 				form.elements.m2Source.value = `ai-${unit}`;
+				updateLiveCalc();
 				status.textContent = `Proposition IA : ${result.estimatedQuantity} ${unit}. Confiance ${Math.round(Number(result.confidence || 0) * 100)}%. Verifiez et confirmez avant l'enregistrement. ${result.answer || ''}`;
 			} catch (error) {
 				status.textContent = `Estimation indisponible : ${error.message || 'erreur inconnue'}`;
