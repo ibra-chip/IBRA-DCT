@@ -1145,6 +1145,27 @@ app.delete('/api/time-entries/:id', auth, async (request, response) => {
 	await writeData(data);
 	response.json({ deleted: true, id: entry.id });
 });
+app.patch('/api/time-entries/:id', auth, async (request, response) => {
+	const data = await readData();
+	const entry = data.timeEntries.find((item) => item.id === request.params.id);
+	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
+	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can edit an approved entry' });
+	const date = request.body.date || entry.date;
+	const start = request.body.start || entry.start;
+	const end = request.body.end || entry.end;
+	const breakMinutes = request.body.breakMinutes !== undefined ? Number(request.body.breakMinutes || 0) : entry.breakMinutes;
+	const rateType = ['daily', 'hourly'].includes(request.body.rateType) ? request.body.rateType : entry.rateType;
+	const rate = request.body.rate !== undefined ? Number(request.body.rate) : entry.rate;
+	const [startH, startM] = String(start || '').split(':').map(Number);
+	const [endH, endM] = String(end || '').split(':').map(Number);
+	const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(breakMinutes || 0)) / 60;
+	if (!date || !hours || hours < 0 || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, work time, and a positive rate are required' });
+	entry.date = date; entry.start = start; entry.end = end; entry.breakMinutes = Number(breakMinutes || 0); entry.rateType = rateType; entry.rate = rate; entry.hours = hours; entry.workAmount = rateType === 'hourly' ? hours * rate : rate;
+	entry.editedBy = request.user.sub; entry.editedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(entry);
+});
 app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	const month = String(request.body.month || previousMonthKey());
 	const data = await readData();
