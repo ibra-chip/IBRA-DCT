@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { attachReferenceLinks } from './lib/reference-library.js';
+import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
@@ -18,10 +19,10 @@ import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFil
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
 const parsePdf = async (buffer) => { const parser = new PDFParse({ data: buffer }); return parser.getText(); };
-const extractPdfImages = async (buffer, { maxImages = 6 } = {}) => {
+const extractPdfImages = async (buffer, { maxImages = 6, maxPages = 12 } = {}) => {
 	const parser = new PDFParse({ data: buffer });
 	try {
-		const result = await parser.getImage({ imageThreshold: 120 });
+		const result = await parser.getImage({ imageThreshold: 120, first: maxPages });
 		const images = [];
 		for (const page of result.pages || []) {
 			for (const image of page.images || []) {
@@ -34,6 +35,10 @@ const extractPdfImages = async (buffer, { maxImages = 6 } = {}) => {
 		await parser.destroy();
 	}
 };
+const extractPdfImagesWithTimeout = (buffer, options, timeoutMs = 8000) => Promise.race([
+	extractPdfImages(buffer, options),
+	new Promise((resolve) => setTimeout(() => resolve([]), timeoutMs))
+]);
 
 const app = express();
 const root = process.env.IBRA_APP_ROOT ? path.resolve(process.env.IBRA_APP_ROOT) : process.cwd();
@@ -1262,8 +1267,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 			} else if (!autoAnalysis.answer) {
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 			}
+			if (parsed.text) {
+				const rules = extractPdfRules(parsed.text, { max: 10 });
+				if (rules.length) autoAnalysis.extractedRules = rules;
+			}
 			try {
-				const images = await extractPdfImages(buffer, { maxImages: 6 });
+				const images = await extractPdfImagesWithTimeout(buffer, { maxImages: 6, maxPages: 12 });
 				if (images.length) autoAnalysis.referenceImages = images;
 			} catch (error) {
 				console.error('PDF image extraction failed:', error.message);
