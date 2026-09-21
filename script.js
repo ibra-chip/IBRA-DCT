@@ -862,44 +862,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 	});
 	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && workerAssignmentModal && !workerAssignmentModal.hidden) closeWorkerAssignmentDrawer(); });
-	function ensureRendezvousForm() {
-		if (document.querySelector('#rendezvous-form')) return;
-		const panel = document.querySelector('#tasks-view .panel');
-		if (!panel) return;
-		const form = document.createElement('form');
-		form.id = 'rendezvous-form';
-		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru u aplikaciji.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog (opciono)<textarea name="reason"></textarea></label><button class="secondary" type="submit">Sacuvaj RDV</button>`;
-		panel.append(form);
-		const minimumDate = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
-		form.elements.absenceDate.min = minimumDate;
-		form.addEventListener('submit', async (event) => {
-			event.preventDefault();
-			const values = Object.fromEntries(new FormData(form).entries());
-			values.date = values.absenceDate;
-			values.projectId = currentProjectId();
-			if (!values.projectId) { toast('Izaberite aktivni chantier pre slanja RDV-a.'); return; }
-			try {
-				await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(values) });
-				form.reset();
-				form.elements.absenceDate.min = minimumDate;
-				await refreshActiveView();
-				toast('Odsustvo/RDV je sacuvano. Gazda ga vidi u kalendaru.');
-			} catch (error) { toast(`RDV nije poslat: ${error.message || 'greska'}`); }
-		});
-	}
 	async function loadRendezvous(items) {
 		const activeProject = currentProjectId();
 		latestRendezvous = (items || await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
-		const panel = document.querySelector('#tasks-view .panel');
-		if (!panel) return;
-		const target = document.querySelector('#rendezvous-list') || (() => { const element = document.createElement('div'); element.id = 'rendezvous-list'; element.className = 'list'; panel.append(element); return element; })();
-		const french = language === 'fr';
-		const sorted = latestRendezvous.slice().sort((first, second) => `${first.absenceDate} ${first.time}`.localeCompare(`${second.absenceDate} ${second.time}`));
-		target.innerHTML = sorted.length ? `<h3>${french ? 'RDV / absences' : 'RDV / odsustva'}</h3>${sorted.map((item) => `<div class="list-item rendezvous-list-item"><strong>${escapeHtml(item.absenceDate)} · ${escapeHtml(item.time)}</strong><small>${escapeHtml(item.workerName || '')} · chantier ${escapeHtml(item.projectId || '')}</small><div>${escapeHtml(item.reason || '')}</div></div>`).join('')}` : `<small>${french ? 'Aucun RDV/absence.' : 'Nema RDV/odsustva.'}</small>`;
 	}
-	async function loadMessages() { await loadProjectOptions(); ensureRendezvousForm(); const activeProject = currentProjectId(); const messages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
-	function ensurePayoutPanel() { if (!isOwner()) return; if (document.querySelector('#payout-form')) return; const panel = document.querySelector('#tasks-view .panel'); if (!panel) return; const section = document.createElement('section'); section.className = 'panel payout-panel'; section.innerHTML = `<div class="section-head"><div><h2>Demandes de paiement</h2><small>Les jours sont envoyés le 1er du mois. Le paiement est prévu le 15.</small></div></div><form id="payout-form"><label>Mois à payer<input name="month" type="month" required /></label><label>Nombre de jours à payer<input name="days" type="number" min="0" step="1" required /></label><button class="primary" type="submit">Envoyer la demande au Gérant</button></form><div id="payout-list" class="list"></div></section>`; section.querySelector('#payout-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await request('/payout-requests', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(Object.fromEntries(new FormData(event.currentTarget).entries())) }); event.currentTarget.reset(); await loadPayouts(); toast('La demande du 1er a été envoyée au Gérant. Paiement prévu le 15.'); } catch (error) { toast(`Demande non enregistrée : ${error.message || 'erreur inconnue'}`); } }); panel.after(section); }
-	async function loadPayouts() { if (!isOwner()) { document.querySelector('.payout-panel')?.remove(); return; } ensurePayoutPanel(); const items = await request('/payout-requests'); const target = document.querySelector('#payout-list'); if (!target) return; const managerView = isOwner(); target.innerHTML = items.length ? `<h3>${managerView ? 'Demandes reçues' : 'Mes demandes'}</h3>${items.slice().reverse().map((item) => `<div class="list-item"><strong>${item.month} · ${item.userName} · ${item.days} jours</strong><small>${managerView ? `${formatEUR(item.amount)} · ` : ''}Demande le ${item.submissionDate} · Paiement le ${item.paymentDate} · ${item.status}</small>${managerView && item.status === 'pending' ? `<button class="secondary payout-status" data-payout="${item.id}" data-status="approved">Approuver</button><button class="secondary payout-status" data-payout="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucune demande de paiement.</small>'; document.querySelectorAll('.payout-status').forEach((button) => button.addEventListener('click', async () => { await request(`/payout-requests/${button.dataset.payout}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadPayouts(); })); }
+	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); const messages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);
 	const polygonArea3d = (points) => {
 		if (points.length < 3) return 0;
@@ -1127,7 +1094,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!form || document.querySelector('#capture-metadata')) return;
 		const block = document.createElement('div');
 		block.id = 'capture-metadata';
-		block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo<input name="captureTime" type="time" required /></label><label>Lieu de la photo<input name="locationName" placeholder="Autorisation GPS requise" required /></label><small id="capture-status">La photo doit avoir une date, une heure et une position GPS.</small>`;
+		block.innerHTML = `<input name="capturedAt" type="hidden" /><input name="latitude" type="hidden" /><input name="longitude" type="hidden" /><input name="m2Source" type="hidden" value="" /><label>Heure de la photo<input name="captureTime" type="time" required /></label><label>Lieu de la photo (opciono)<input name="locationName" placeholder="Nije obavezno" /></label><small id="capture-status">Lokacija je opciona.</small>`;
 		form.querySelector('fieldset')?.append(block);
 		const quantityInput = form.elements.quantity;
 		form.elements.photo.addEventListener('change', () => {
@@ -1145,7 +1112,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				form.elements.longitude.value = position.coords.longitude;
 				if (!form.elements.locationName.value) form.elements.locationName.value = `GPS ${position.coords.latitude.toFixed(6)}, ${position.coords.longitude.toFixed(6)}`;
 				status.textContent = `Photo captur?e le ${now.toLocaleDateString('fr-FR')} ? ${form.elements.captureTime.value}, avec position GPS.`;
-			}, () => { status.textContent = 'Autorisez la localisation pour enregistrer la photo.'; }, { enableHighAccuracy: true, timeout: 10000 });
+			}, () => { status.textContent = 'Localisation non disponible. Vous pouvez continuer sans.'; }, { enableHighAccuracy: true, timeout: 10000 });
 		});
 	}
 	async function loadProduction() {
@@ -1454,7 +1421,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		renderWorkerMonthSummary(selectedMonth);
 		const canApprove = isOwner();
 		const canDeleteEntry = (item) => canApprove || item.status !== 'approved';
-		const entryRow = (item) => `<div class="list-item"><strong>${item.workerName} · ${Number(item.hours || 0).toFixed(2)} h · ${formatEUR(item.workAmount || 0)}</strong><small>${item.date} · ${item.start}-${item.end} · ${item.status}</small><div class="time-entry-actions">${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}${canDeleteEntry(item) ? `<button class="secondary delete-time" data-time="${item.id}">Obriši</button>` : ''}</div></div>`;
+		const statusLabel = (status) => status === 'approved' ? 'Odobreno' : status === 'rejected' ? 'Odbijeno' : 'Na čekanju';
+		const entryRow = (item) => `<tr><td data-label="Datum">${escapeHtml(item.date || '')}</td><td data-label="Radnik">${escapeHtml(item.workerName || '')}</td><td data-label="Vreme">${escapeHtml(item.start || '')}–${escapeHtml(item.end || '')}</td><td data-label="Sati">${Number(item.hours || 0).toFixed(2)} h</td><td data-label="Iznos">${formatEUR(item.workAmount || 0)}</td><td data-label="Status"><span class="entry-status-pill entry-status-${item.status}">${statusLabel(item.status)}</span></td><td data-label="Akcije"><div class="time-entry-actions">${canApprove && item.status === 'pending' ? `<button class="secondary approve-time" data-time="${item.id}" data-status="approved">Odobri</button><button class="secondary approve-time" data-time="${item.id}" data-status="rejected">Odbij</button>` : ''}${canDeleteEntry(item) ? `<button class="secondary delete-time" data-time="${item.id}">Obriši</button>` : ''}</div></td></tr>`;
 		const entriesByMonth = new Map();
 		selectedEntries.slice().sort((first, second) => String(second.date || '').localeCompare(String(first.date || ''))).forEach((item) => {
 			const month = monthKeyFromDate(item.date);
@@ -1467,7 +1435,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const monthItems = entriesByMonth.get(month);
 			const totalHours = monthItems.reduce((sum, item) => sum + Number(item.hours || 0), 0);
 			const totalAmount = monthItems.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
-			return `<details class="time-month-group"${month === currentMonthKey ? ' open' : ''}><summary>${formatMonthLabel(month)} · ${monthItems.length} j · ${totalHours.toFixed(2)} h · ${formatEUR(totalAmount)}</summary>${monthItems.map(entryRow).join('')}</details>`;
+			return `<details class="time-month-group"${month === currentMonthKey ? ' open' : ''}><summary>${formatMonthLabel(month)} · ${monthItems.length} j · ${totalHours.toFixed(2)} h · ${formatEUR(totalAmount)}</summary><div class="time-entries-scroll"><table class="time-entries-table"><thead><tr><th>Datum</th><th>Radnik</th><th>Vreme</th><th>Sati</th><th>Iznos</th><th>Status</th><th>Akcije</th></tr></thead><tbody>${monthItems.map(entryRow).join('')}</tbody></table></div></details>`;
 		}).join('') : '<small>Aucune saisie de temps de travail pour ce travailleur.</small>';
 		document.querySelectorAll('.approve-time').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/time-entries/${button.dataset.time}/status`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status:button.dataset.status }) }); await refreshActiveView(); toast(button.dataset.status === 'approved' ? 'Radno vreme je odobreno.' : 'Radno vreme je odbijeno.'); } catch { toast('Status nije promenjen.'); button.disabled = false; button.removeAttribute('aria-busy'); } }));
 		document.querySelectorAll('.delete-time').forEach((button) => button.addEventListener('click', async () => { if (!window.confirm('Obrisati ovaj unos radnog vremena?')) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/time-entries/${button.dataset.time}`, { method:'DELETE' }); await refreshActiveView(); toast('Unos je obrisan.'); } catch { toast('Unos nije obrisan.'); button.disabled = false; button.removeAttribute('aria-busy'); } }));
@@ -1604,7 +1572,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const showLogin = () => { if (authChoice) authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); };
 	const showRegistration = () => { authChoice.hidden = true; loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; };
 	const loadInitialData = async () => {
-		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadPayouts(), loadCompanyProfile()];
+		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadCompanyProfile()];
 		const results = await Promise.allSettled(loads);
 		results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('Initial load failed', result.reason));
 		ensureHoursPdfButton();
@@ -1618,7 +1586,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
-			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadPayouts()]),
+			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction()]),
 			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()])
 		};
 		await (refreshers[active]?.() || loadInitialData());
