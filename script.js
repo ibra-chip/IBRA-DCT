@@ -1488,17 +1488,32 @@ document.addEventListener('DOMContentLoaded', () => {
 		const body = new FormData(form);
 		body.set('file', file, file.name);
 		body.set('responseLanguage', language);
+		const submitButton = form.querySelector('button');
+		const submitButtonLabel = submitButton?.textContent;
+		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement et analyse en cours (peut prendre jusqu’à 30 s)…'; }
+		message.textContent = 'Enregistrement et analyse en cours, veuillez patienter…';
+		message.classList.remove('error');
 		try {
-			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body });
+			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(45000) });
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(result.error || `${response.status}`);
 			form.reset();
+			message.textContent = '';
 			await refreshActiveView();
-			if (result.autoAnalysis) { showView('evidence-summary-view'); renderAutoAnalysis(document.querySelector('#ai-answer'), result.autoAnalysis); }
-			toast(result.autoAnalysis ? 'Document enregistré et analysé automatiquement.' : 'Le document a été enregistré sur le serveur.');
+			showView('evidence-summary-view');
+			const answerTarget = document.querySelector('#ai-answer');
+			if (result.autoAnalysis && renderAutoAnalysis(answerTarget, result.autoAnalysis)) {
+				toast('Document enregistré et analysé automatiquement.');
+			} else if (answerTarget) {
+				answerTarget.innerHTML = `<div class="list-item auto-analysis"><strong>Document enregistré, analyse indisponible</strong><p>Le serveur n’a renvoyé aucune analyse pour ce document. Réponse reçue : ${escapeHtml(JSON.stringify(result).slice(0, 400))}</p></div>`;
+				toast('Document enregistré, mais sans analyse automatique.');
+			}
 		} catch (error) {
-			message.textContent = `Document non enregistré : ${error.message || 'erreur inconnue'}`;
-			toast('Document non enregistré. Voir le message sous le formulaire.');
+			message.classList.add('error');
+			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'Le serveur met trop de temps à répondre (plus de 45 s). Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
+			toast('Document non enregistré ou sans réponse. Voir le message sous le formulaire.');
+		} finally {
+			if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButtonLabel; }
 		}
 	});
 	document.querySelector('#goto-documents-button')?.addEventListener('click', () => showView('documents-view'));
