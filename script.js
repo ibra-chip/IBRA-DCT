@@ -74,12 +74,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 	function openRdvCreateQuickEdit(anchor, { date, projectId, workerId }, onSaved) {
-		openQuickEditPopover(anchor, `<strong>Novi RDV / odsustvo</strong><small>${escapeHtml(date)}</small><label>Vreme<input type="time" name="time" required /></label><label>Razlog<textarea name="reason" required></textarea></label><div class="quick-edit-actions"><button type="button" class="primary" data-qe-save>Sačuvaj</button><button type="button" class="secondary" data-qe-cancel>Otkaži</button></div>`, (popover) => {
+		openQuickEditPopover(anchor, `<strong>Novi RDV / odsustvo</strong><small>${escapeHtml(date)}</small><label>Vreme<input type="time" name="time" required /></label><label>Razlog (opciono)<textarea name="reason"></textarea></label><div class="quick-edit-actions"><button type="button" class="primary" data-qe-save>Sačuvaj</button><button type="button" class="secondary" data-qe-cancel>Otkaži</button></div>`, (popover) => {
 			popover.querySelector('[data-qe-save]').addEventListener('click', async () => {
 				const time = popover.querySelector('input[name="time"]').value;
 				const reason = popover.querySelector('textarea[name="reason"]').value.trim();
 				if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) { toast('Unesi ispravno vreme.'); return; }
-				if (!reason) { toast('Unesi razlog.'); return; }
 				if (!projectId) { toast('Izaberi aktivni chantier pre dodavanja RDV-a.'); return; }
 				try {
 					await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, absenceDate: date, date, time, reason, ...(workerId ? { workerId } : {}) }) });
@@ -869,7 +868,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const form = document.createElement('form');
 		form.id = 'rendezvous-form';
-		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru u aplikaciji.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog<textarea name="reason" required></textarea></label><button class="secondary" type="submit">Sacuvaj RDV</button>`;
+		form.innerHTML = `<h3>RDV / odsustvo sa posla</h3><small>Radnik ovdje javlja da nece doci na posao. Mora poslati najmanje 3 dana ranije. Gazda vidi termin u kalendaru u aplikaciji.</small><label>Datum odsustva<input name="absenceDate" type="date" required /></label><label>Sat RDV / odsustva<input name="time" type="time" required /></label><label>Motif / razlog (opciono)<textarea name="reason"></textarea></label><button class="secondary" type="submit">Sacuvaj RDV</button>`;
 		panel.append(form);
 		const minimumDate = new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10);
 		form.elements.absenceDate.min = minimumDate;

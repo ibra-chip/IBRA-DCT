@@ -1104,7 +1104,7 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	const absenceTimestamp = dateOnlyTimestamp(absenceDate);
 	const dateTimestamp = dateOnlyTimestamp(date);
 	const days = Number.isFinite(absenceTimestamp) && Number.isFinite(todayTimestamp) ? Math.floor((absenceTimestamp - todayTimestamp) / 86400000) : -1;
-	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (!isOwnerActor && days < 3)) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
+	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (!isOwnerActor && days < 3)) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
 	if (!isOwnerActor && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const data = await readData();
 	const worker = isOwnerActor && request.body.workerId ? data.users.find((user) => user.id === request.body.workerId) : data.users.find((user) => user.id === request.user.sub);
