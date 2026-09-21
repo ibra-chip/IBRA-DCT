@@ -21,6 +21,58 @@ document.addEventListener('DOMContentLoaded', () => {
 	const isOwner = (role = currentUser?.role) => ownerRoles.includes(role);
 	const isWorkerRole = (role) => workerRoles.includes(role);
 	const toast = (message) => { const french = { 'Korisnik je dodat.': 'Utilisateur enregistré.', 'Poruka je sačuvana.': 'Message enregistré.', 'Radno vreme je sačuvano.': 'Temps de travail enregistré.', 'Radno vreme nije sačuvano.': 'Temps de travail non enregistré.', 'Korisnik nije dodat.': 'Utilisateur non enregistré.', 'Trošak nije sačuvan.': 'Dépense non enregistrée.', 'Devis nije sačuvan.': 'Devis non enregistré.', 'Devis i budžet su sačuvani.': 'Devis et budget enregistrés.' }; const translated = french[message] || String(message).replace('Dokument je obrisan.', 'Document supprimé.').replace('Dokument je preimenovan.', 'Document renommé.').replace('Kopija dokumenta je dodata.', 'Copie du document ajoutée.'); const el = document.querySelector('#toast'); el.textContent = translated; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
+	let closeQuickEditOutsideHandler = null;
+	let closeQuickEditEscHandler = null;
+	function closeQuickEditPopover() {
+		document.querySelector('.quick-edit-popover')?.remove();
+		if (closeQuickEditOutsideHandler) { document.removeEventListener('click', closeQuickEditOutsideHandler, true); closeQuickEditOutsideHandler = null; }
+		if (closeQuickEditEscHandler) { document.removeEventListener('keydown', closeQuickEditEscHandler); closeQuickEditEscHandler = null; }
+	}
+	function openQuickEditPopover(anchor, html, wire) {
+		closeQuickEditPopover();
+		const popover = document.createElement('div');
+		popover.className = 'quick-edit-popover';
+		popover.innerHTML = html;
+		document.body.append(popover);
+		const rect = anchor.getBoundingClientRect();
+		const top = window.scrollY + rect.bottom + 6;
+		const left = Math.max(8, Math.min(window.scrollX + rect.left, window.scrollX + document.documentElement.clientWidth - popover.offsetWidth - 8));
+		popover.style.top = `${top}px`;
+		popover.style.left = `${left}px`;
+		wire(popover);
+		closeQuickEditOutsideHandler = (event) => { if (!event.target.closest('.quick-edit-popover') && !event.target.closest('[data-quick-hours],[data-quick-rdv]')) closeQuickEditPopover(); };
+		closeQuickEditEscHandler = (event) => { if (event.key === 'Escape') closeQuickEditPopover(); };
+		setTimeout(() => { document.addEventListener('click', closeQuickEditOutsideHandler, true); document.addEventListener('keydown', closeQuickEditEscHandler); }, 0);
+		popover.querySelector('input')?.focus();
+	}
+	function openHoursQuickEdit(anchor, entryId, currentHours, onSaved) {
+		openQuickEditPopover(anchor, `<strong>Sati</strong><label>Broj sati<input type="number" min="0.25" step="0.25" value="${currentHours}" name="hours" /></label><div class="quick-edit-actions"><button type="button" class="primary" data-qe-save>Sačuvaj</button><button type="button" class="danger" data-qe-delete>Obriši</button><button type="button" class="secondary" data-qe-cancel>Otkaži</button></div>`, (popover) => {
+			popover.querySelector('[data-qe-save]').addEventListener('click', async () => {
+				const hours = Number(popover.querySelector('input[name="hours"]').value);
+				if (!Number.isFinite(hours) || hours <= 0) { toast('Unesi ispravan broj sati.'); return; }
+				try { await request(`/time-entries/${encodeURIComponent(entryId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) }); closeQuickEditPopover(); await onSaved(); toast('Sati su izmenjeni.'); } catch { toast('Sati nisu izmenjeni.'); }
+			});
+			popover.querySelector('[data-qe-delete]').addEventListener('click', async () => {
+				if (!window.confirm('Obrisati ovaj unos radnog vremena?')) return;
+				try { await request(`/time-entries/${encodeURIComponent(entryId)}`, { method: 'DELETE' }); closeQuickEditPopover(); await onSaved(); toast('Unos je obrisan.'); } catch { toast('Unos nije obrisan.'); }
+			});
+			popover.querySelector('[data-qe-cancel]').addEventListener('click', closeQuickEditPopover);
+		});
+	}
+	function openRdvQuickEdit(anchor, rdvId, currentTime, onSaved) {
+		openQuickEditPopover(anchor, `<strong>RDV / odsustvo</strong><label>Vreme<input type="time" value="${escapeHtml(currentTime || '')}" name="time" /></label><div class="quick-edit-actions"><button type="button" class="primary" data-qe-save>Sačuvaj</button><button type="button" class="danger" data-qe-delete>Obriši</button><button type="button" class="secondary" data-qe-cancel>Otkaži</button></div>`, (popover) => {
+			popover.querySelector('[data-qe-save]').addEventListener('click', async () => {
+				const time = popover.querySelector('input[name="time"]').value;
+				if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) { toast('Unesi ispravno vreme.'); return; }
+				try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ time }) }); closeQuickEditPopover(); await onSaved(); toast('RDV je izmenjen.'); } catch { toast('RDV nije izmenjen.'); }
+			});
+			popover.querySelector('[data-qe-delete]').addEventListener('click', async () => {
+				if (!window.confirm('Obrisati ovaj RDV/odsustvo?')) return;
+				try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'DELETE' }); closeQuickEditPopover(); await onSaved(); toast('RDV je obrisan.'); } catch { toast('RDV nije obrisan.'); }
+			});
+			popover.querySelector('[data-qe-cancel]').addEventListener('click', closeQuickEditPopover);
+		});
+	}
 	const formatEUR = (value) => new Intl.NumberFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { style: 'currency', currency: 'EUR', maximumFractionDigits: 2 }).format(Number(value || 0));
 	const translations = { 'Dashboard':'Tableau de bord','Devis':'Devis','Nabavke':'Achats','Chantier kontrole':'Contrôles chantier','RGE / QUALIBAT':'RGE / QUALIBAT','Dokumenti i slike':'Documents et photos','Zadaci i komunikacija':'Tâches et communication','Korisnici':'Utilisateurs','Dokazni paket':'Dossier de preuves','Odjava':'Déconnexion','Kontrola pravilnog izvođenja radova':'Contrôle de la bonne exécution des travaux','Plan, fiche technique, fotografije i potvrda Gerant-a u jednom toku.':'Plan, fiche technique, photos et validation du Gerant dans un seul parcours.','Otvorene kontrole':'Contrôles ouverts','Radno vreme':'Temps de travail','Trošak rada ovog meseca':'Coût du travail ce mois-ci','Preostali budžet':'Budget restant','Materijal, alat i mašine':'Matériaux, outils et machines','Radnici':'Travailleurs','Sous-traitance':'Sous-traitance','Nema Devis-a':'Aucun devis','Bez kašnjenja':'Aucun retard','Début de travaux i rok':'Début des travaux et délai','Début de travaux: nije unet':'Début des travaux : non renseigné','Planirani rok: nije unet · Prilagođeni rok: nije izračunat':'Échéance prévue : non renseignée · Échéance ajustée : non calculée','Chantier kontrole':'Contrôles chantier','Dokumenti i slike':'Documents et photos','AIDE RGE / QUALIBAT':'AIDE RGE / QUALIBAT','ITE - znanje, kontrole i odgovori':'ITE - connaissances, contrôles et réponses','Za učenje i chantier provjeru':'Pour apprendre et contrôler le chantier','Pretraga pitanja i odgovora':'Recherche questions/réponses',"Traži po riječi, npr. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov":"Rechercher par mot-clé, ex. RGE, pare-vapeur, BAR-EN-102, lame d'air, MaPrimeRenov",'Upiši pojam...':'Saisir un terme...','RGE kontrolna lista':'Liste de contrôle RGE','Kompletno znanje po temama':'Connaissance complète par thèmes','Francuski tehnički termini su ostavljeni da odgovaraju RGE/QUALIBAT dokumentaciji.':'Les termes techniques français sont conservés pour correspondre à la documentation RGE/QUALIBAT.' };
 	const runtimeFrench = {
@@ -668,8 +720,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (event.target === workerDetailModal) { closeWorkerDetail(); return; }
 		const cycleButton = event.target.closest('[data-cycle-status]'); if (cycleButton && !cycleButton.disabled) { await cycleWorkerPaymentStatus(cycleButton.dataset.cycleStatusWorker, cycleButton.dataset.cycleStatusMonth, cycleButton.dataset.cycleStatusState, cycleButton); return; }
 		const swatchButton = event.target.closest('[data-set-status]'); if (swatchButton) { await setWorkerPaymentStatus(swatchButton.dataset.setStatusWorker, swatchButton.dataset.setStatusMonth, swatchButton.dataset.setStatus, swatchButton); return; }
-		const quickHoursButton = event.target.closest('[data-quick-hours]'); if (quickHoursButton) { const input = window.prompt('Nove sati za ovaj dan:', quickHoursButton.dataset.quickHoursValue); if (input === null) return; const hours = Number(String(input).replace(',', '.')); if (!Number.isFinite(hours) || hours <= 0) { toast('Unesi ispravan broj sati.'); return; } try { await request(`/time-entries/${encodeURIComponent(quickHoursButton.dataset.quickHours)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) }); await loadUsers(); renderWorkerDetail(); toast('Sati su izmenjeni.'); } catch { toast('Sati nisu izmenjeni.'); } return; }
-		const quickRdvButton = event.target.closest('[data-quick-rdv]'); if (quickRdvButton) { const rdvId = quickRdvButton.dataset.quickRdv; const action = window.prompt(`RDV ${quickRdvButton.dataset.quickRdvTime} — upiši novo vreme (HH:MM) da izmeniš, ili napiši "obrisi" da obrišeš:`, quickRdvButton.dataset.quickRdvTime); if (action === null) return; if (action.trim().toLowerCase() === 'obrisi') { if (!window.confirm('Obrisati ovaj RDV/odsustvo?')) return; try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'DELETE' }); await loadUsers(); renderWorkerDetail(); toast('RDV je obrisan.'); } catch { toast('RDV nije obrisan.'); } return; } if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(action.trim())) { toast('Unesi vreme u formatu HH:MM.'); return; } try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ time: action.trim() }) }); await loadUsers(); renderWorkerDetail(); toast('RDV je izmenjen.'); } catch { toast('RDV nije izmenjen.'); } return; }
+		const quickHoursButton = event.target.closest('[data-quick-hours]'); if (quickHoursButton) { openHoursQuickEdit(quickHoursButton, quickHoursButton.dataset.quickHours, quickHoursButton.dataset.quickHoursValue, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
+		const quickRdvButton = event.target.closest('[data-quick-rdv]'); if (quickRdvButton) { openRdvQuickEdit(quickRdvButton, quickRdvButton.dataset.quickRdv, quickRdvButton.dataset.quickRdvTime, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const dateButton = event.target.closest('[data-detail-date]'); if (dateButton) { workerRosterState.detailSelectedDate = dateButton.dataset.detailDate; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		if (event.target.closest('[data-detail-clear]')) { workerRosterState.detailSelectedDate = ''; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		const editStartButton = event.target.closest('[data-edit-entry-start]'); if (editStartButton) { workerRosterState.editingEntryId = editStartButton.dataset.editEntryStart; renderWorkerDetail(); return; }
@@ -1285,29 +1337,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			cell.addEventListener('click', selectDay);
 			cell.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectDay(); } });
 		});
-		target.querySelectorAll('[data-quick-hours]').forEach((button) => button.addEventListener('click', async (event) => {
+		target.querySelectorAll('[data-quick-hours]').forEach((button) => button.addEventListener('click', (event) => {
 			event.stopPropagation();
-			const input = window.prompt('Nove sati za ovaj dan:', button.dataset.quickHoursValue);
-			if (input === null) return;
-			const hours = Number(String(input).replace(',', '.'));
-			if (!Number.isFinite(hours) || hours <= 0) { toast('Unesi ispravan broj sati.'); return; }
-			try { await request(`/time-entries/${encodeURIComponent(button.dataset.quickHours)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) }); await refreshActiveView(); toast('Sati su izmenjeni.'); }
-			catch { toast('Sati nisu izmenjeni.'); }
+			openHoursQuickEdit(button, button.dataset.quickHours, button.dataset.quickHoursValue, refreshActiveView);
 		}));
-		target.querySelectorAll('[data-quick-rdv]').forEach((button) => button.addEventListener('click', async (event) => {
+		target.querySelectorAll('[data-quick-rdv]').forEach((button) => button.addEventListener('click', (event) => {
 			event.stopPropagation();
-			const rdvId = button.dataset.quickRdv;
-			const action = window.prompt(`RDV ${button.dataset.quickRdvTime} — upiši novo vreme (HH:MM) da izmeniš, ili napiši "obrisi" da obrišeš:`, button.dataset.quickRdvTime);
-			if (action === null) return;
-			if (action.trim().toLowerCase() === 'obrisi') {
-				if (!window.confirm('Obrisati ovaj RDV/odsustvo?')) return;
-				try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'DELETE' }); await refreshActiveView(); toast('RDV je obrisan.'); }
-				catch { toast('RDV nije obrisan.'); }
-				return;
-			}
-			if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(action.trim())) { toast('Unesi vreme u formatu HH:MM.'); return; }
-			try { await request(`/rendezvous/${encodeURIComponent(rdvId)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ time: action.trim() }) }); await refreshActiveView(); toast('RDV je izmenjen.'); }
-			catch { toast('RDV nije izmenjen.'); }
+			openRdvQuickEdit(button, button.dataset.quickRdv, button.dataset.quickRdvTime, refreshActiveView);
 		}));
 	}
 	function ensureWorkerMonthSummaryPanel() {
