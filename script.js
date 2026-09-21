@@ -995,8 +995,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		const meterStatus = overlay.querySelector('#photo-meter-status');
 		const close = () => { URL.revokeObjectURL(url); overlay.remove(); };
 		const fit = () => {
-			if (canvas.width !== window.innerWidth) canvas.width = window.innerWidth;
-			if (canvas.height !== window.innerHeight) canvas.height = window.innerHeight;
+			const displayWidth = canvas.clientWidth;
+			const displayHeight = canvas.clientHeight;
+			if (canvas.width !== displayWidth) canvas.width = displayWidth;
+			if (canvas.height !== displayHeight) canvas.height = displayHeight;
 			const scale = Math.min(canvas.width / image.width, canvas.height / image.height);
 			return { scale, x: (canvas.width - image.width * scale) / 2, y: (canvas.height - image.height * scale) / 2 };
 		};
