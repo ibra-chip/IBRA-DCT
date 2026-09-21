@@ -1030,7 +1030,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		reportTarget.innerHTML = reports.length ? `<h3>Rapports de production</h3>${reports.slice().reverse().map((item) => `<div class="list-item"><strong>${item.date} ? ${item.workerName} ? ${quantityLabel(item)}</strong><small>${item.description} ? ${managerView ? `${formatEUR(item.calculatedAmount)} ? ` : ''}${item.status} ? ${item.aiStatus} ? ${item.capturedAt} ? ${item.locationName}</small>${canReview && item.status === 'pending' ? `<button class="secondary production-status" data-report="${item.id}" data-status="approved">Approuver</button><button class="secondary production-status" data-report="${item.id}" data-status="rejected">Refuser</button>` : ''}</div>`).join('')}` : '<small>Aucun rapport de production.</small>';
 		document.querySelectorAll('.production-status').forEach((button) => button.addEventListener('click', async () => { await request(`/work-reports/${button.dataset.report}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: button.dataset.status }) }); await loadProduction(); }));
 	}
-	async function loadWorkSequence() { const panel = document.querySelector('.ai-panel'); if (!panel || document.querySelector('#work-sequence')) return; const section = document.createElement('div'); section.id = 'work-sequence'; section.className = 'list'; section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse de la documentation...</small>'; panel.append(section); const projectId = currentProjectId(); if (!projectId) { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Sélectionnez d’abord un chantier actif.</small>'; return; } try { const result = await request(`/projects/${projectId}/work-sequence`); section.innerHTML = `<h3>Ordre des travaux selon les plans</h3><small>${result.answer}</small>${result.steps?.length ? result.steps.map((step) => `<div class="list-item"><strong>${step.order}. ${step.title}</strong><small>${step.instruction} · Preuve requise : ${step.requiredEvidence || 'à confirmer'} · Source : ${step.sourcePage || 'à confirmer'}</small></div>`).join('') : '<small>La séquence ne peut pas être affichée sans documentation source et configuration AI.</small>'}`; } catch { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse indisponible. Ajoutez un plan ou une fiche technique PDF.</small>'; } }
+	async function loadWorkSequence() { const panel = document.querySelector('#ai-form')?.closest('.ai-panel'); if (!panel || document.querySelector('#work-sequence')) return; const section = document.createElement('div'); section.id = 'work-sequence'; section.className = 'list'; section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse de la documentation...</small>'; panel.append(section); const projectId = currentProjectId(); if (!projectId) { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Sélectionnez d’abord un chantier actif.</small>'; return; } try { const result = await request(`/projects/${projectId}/work-sequence`); section.innerHTML = `<h3>Ordre des travaux selon les plans</h3><small>${result.answer}</small>${result.steps?.length ? result.steps.map((step) => `<div class="list-item"><strong>${step.order}. ${step.title}</strong><small>${step.instruction} · Preuve requise : ${step.requiredEvidence || 'à confirmer'} · Source : ${step.sourcePage || 'à confirmer'}</small></div>`).join('') : '<small>La séquence ne peut pas être affichée sans documentation source et configuration AI.</small>'}`; } catch { section.innerHTML = '<h3>Ordre des travaux selon les plans</h3><small>Analyse indisponible. Ajoutez un plan ou une fiche technique PDF.</small>'; } }
 	function renderAutoAnalysis(target, analysis) {
 		if (!target || !analysis) return false;
 		const french = language === 'fr';
@@ -1476,23 +1476,20 @@ document.addEventListener('DOMContentLoaded', () => {
 	const userFormAvatarPreview = document.querySelector('#user-form-avatar-preview');
 	userFormAvatarInput?.addEventListener('change', () => { const file = userFormAvatarInput.files[0]; if (!file || !userFormAvatarPreview) return; userFormAvatarPreview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="" />`; });
 		document.querySelector('#user-form').addEventListener('submit', async (event) => { event.preventDefault(); try { const created = await request('/users', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(formValues(event.currentTarget)) }); let avatarWarning = ''; const avatarFile = userFormAvatarInput?.files[0]; if (avatarFile && created.id) { const avatarBody = new FormData(); avatarBody.set('avatar', avatarFile); try { const avatarResponse = await fetch(`${api}/users/${encodeURIComponent(created.id)}/avatar`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body: avatarBody }); if (!avatarResponse.ok) throw new Error(); } catch { avatarWarning = ' Fotografija nije sačuvana; probajte iz izmene profila.'; } } event.currentTarget.reset(); if (userFormAvatarPreview) userFormAvatarPreview.innerHTML = '?'; updateUserRoleFields(); await refreshActiveView(); const delivery = created.delivery === 'email' ? 'e-mail' : `lokalni link: ${created.setupUrl}`; toast(`Korisnik je dodat. Link za izbor passworda poslat preko ${delivery}.${avatarWarning}`); } catch (error) { let message = 'Korisnik nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'User already exists') message = 'Ovaj e-mail već postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery') || details.error?.includes('email')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; if (details.error === 'Access denied') message = 'Samo gazda može dodavati korisnike.'; } catch {} toast(message); } });
-	document.querySelector('#upload-form').addEventListener('submit', async (event) => {
-		event.preventDefault();
-		const form = event.currentTarget;
-		const file = document.querySelector('#file-input').files[0];
-		const message = document.querySelector('#upload-form-message') || (() => { const p = document.createElement('p'); p.id = 'upload-form-message'; p.className = 'error'; form.append(p); return p; })();
+	async function submitDocumentUpload({ form, fileInput, message, projectId, stay }) {
+		const file = fileInput.files[0];
 		message.textContent = '';
-		if (!file) { message.textContent = 'Sélectionnez un fichier avant l’enregistrement.'; return; }
-		const projectId = form.elements.projectId.value;
-		if (!projectId) { message.textContent = 'Choisissez un chantier dans la liste avant d’enregistrer. Si la liste est vide, créez d’abord un chantier dans l’onglet Devis.'; return; }
+		message.classList.remove('error');
+		if (!file) { message.classList.add('error'); message.textContent = 'Sélectionnez un fichier avant l’enregistrement.'; return; }
+		if (!projectId) { message.classList.add('error'); message.textContent = 'Choisissez un chantier dans la liste avant d’enregistrer. Si la liste est vide, créez d’abord un chantier dans l’onglet Devis.'; return; }
 		const body = new FormData(form);
 		body.set('file', file, file.name);
+		body.set('projectId', projectId);
 		body.set('responseLanguage', language);
 		const submitButton = form.querySelector('button');
 		const submitButtonLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement et analyse en cours (peut prendre jusqu’à 30 s)…'; }
 		message.textContent = 'Enregistrement et analyse en cours, veuillez patienter…';
-		message.classList.remove('error');
 		try {
 			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(45000) });
 			const result = await response.json().catch(() => ({}));
@@ -1500,7 +1497,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.reset();
 			message.textContent = '';
 			await refreshActiveView();
-			showView('evidence-summary-view');
+			if (!stay) showView('evidence-summary-view');
 			const answerTarget = document.querySelector('#ai-answer');
 			if (result.autoAnalysis && renderAutoAnalysis(answerTarget, result.autoAnalysis)) {
 				toast('Document enregistré et analysé automatiquement.');
@@ -1515,6 +1512,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		} finally {
 			if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButtonLabel; }
 		}
+	}
+	document.querySelector('#upload-form').addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const message = document.querySelector('#upload-form-message') || (() => { const p = document.createElement('p'); p.id = 'upload-form-message'; p.className = 'error'; form.append(p); return p; })();
+		await submitDocumentUpload({ form, fileInput: document.querySelector('#file-input'), message, projectId: form.elements.projectId.value, stay: false });
+	});
+	document.querySelector('#evidence-upload-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const message = document.querySelector('#evidence-upload-message');
+		await submitDocumentUpload({ form, fileInput: document.querySelector('#evidence-file-input'), message, projectId: currentProjectId(), stay: true });
 	});
 	document.querySelector('#goto-documents-button')?.addEventListener('click', () => showView('documents-view'));
 	document.querySelector('#ai-form')?.addEventListener('submit', async (event) => {
