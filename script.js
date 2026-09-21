@@ -919,13 +919,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		return area;
 	};
 	async function startArMeter(form, status) {
-		const unit = form.elements.quantityUnit.value;
 		if (!navigator.xr) { status.textContent = 'AR metar nije dostupan u ovom browseru. Probajte Android Chrome sa ARCore; na iPhone web AR mjerenje je ograniceno.'; return; }
 		const supported = await navigator.xr.isSessionSupported('immersive-ar').catch(() => false);
 		if (!supported) { status.textContent = 'Telefon/browser ne podrzava WebXR AR mjerenje. Probajte Android Chrome sa Google Play Services for AR.'; return; }
 		const overlay = document.createElement('div');
 		overlay.className = 'ar-meter-overlay';
-		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>AR metar - ${unit}</strong><small>${unit === 'ml' ? 'Dotaknite tacke po liniji/profilu. Minimum 2 tacke.' : 'Dotaknite uglove povrsine redom. Minimum 3 tacke.'}</small><span id="ar-meter-count">0 tacki</span><button class="primary" id="ar-meter-finish" type="button">Koristi mjeru</button><button class="secondary" id="ar-meter-cancel" type="button">Zatvori</button></div>`;
+		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>AR metar</strong><small>Dotaknite tačke redom: za ml minimum 2 tačke po liniji, za m² minimum 3 ugla površine. Zatim izaberite dole šta hoćeš da izračunaš.</small><span id="ar-meter-count">0 tacki</span><div class="photo-meter-finish-row"><button class="primary" id="ar-meter-finish-m2" type="button">Obračunaj m²</button><button class="primary" id="ar-meter-finish-ml" type="button">Obračunaj ml</button></div><button class="secondary" id="ar-meter-cancel" type="button">Zatvori</button></div>`;
 		document.body.append(overlay);
 		const canvas = overlay.querySelector('canvas');
 		const gl = canvas.getContext('webgl', { xrCompatible: true, alpha: true, antialias: true });
@@ -963,16 +962,20 @@ document.addEventListener('DOMContentLoaded', () => {
 				count.textContent = `${points.length} tacki`;
 			});
 			overlay.querySelector('#ar-meter-cancel').addEventListener('click', close);
-			overlay.querySelector('#ar-meter-finish').addEventListener('click', async () => {
+			const finish = async (unit) => {
 				const value = unit === 'ml' ? points.slice(1).reduce((sum, point, index) => sum + pointDistance(points[index], point), 0) : polygonArea3d(points);
 				if (!Number.isFinite(value) || value <= 0 || (unit === 'ml' && points.length < 2) || (unit === 'm2' && points.length < 3)) { count.textContent = unit === 'ml' ? 'Treba najmanje 2 tacke.' : 'Treba najmanje 3 tacke.'; return; }
+				form.elements.quantityUnit.value = unit;
+				form.elements.quantityUnit.dispatchEvent(new Event('change'));
 				form.elements.quantity.value = value.toFixed(2);
 				form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 				form.elements.m2Source.value = `ar-${unit}`;
 				status.textContent = `AR mjera: ${value.toFixed(2)} ${unit}. Sada slikajte posao kao dokaz i sacuvajte izvjestaj.`;
 				await close();
 				if (!form.elements.photo.files.length) form.elements.photo.click();
-			});
+			};
+			overlay.querySelector('#ar-meter-finish-m2').addEventListener('click', () => finish('m2'));
+			overlay.querySelector('#ar-meter-finish-ml').addEventListener('click', () => finish('ml'));
 		} catch (error) {
 			overlay.remove();
 			status.textContent = `AR metar nije pokrenut: ${error.message || 'browser nije dozvolio AR'}.`;
@@ -980,13 +983,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	function startPhotoMeter(form, status) {
 		const file = form.elements.photo.files[0];
-		const unit = form.elements.quantityUnit.value;
 		if (!file) { status.textContent = 'Prvo izaberite ili uploadujte sliku koju hocete mjeriti.'; form.elements.photo.click(); return; }
 		const image = new Image();
 		const url = URL.createObjectURL(file);
 		const overlay = document.createElement('div');
 		overlay.className = 'photo-meter-overlay';
-		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>Mjerenje iz uploadovane slike - ${unit}</strong><small>1) Upišite poznatu mjeru sa plana ili elementa. 2) Kliknite dvije tačke te poznate mjere. 3) Kliknite ${unit === 'ml' ? 'tačke linije/profila' : 'uglove površine'}.</small><label>Poznata mjera u metrima<input id="photo-meter-reference" type="number" min="0.01" step="0.01" placeholder="npr. 2.50" /></label><span id="photo-meter-status">Referenca: 0/2 tacke</span><button class="secondary" id="photo-meter-reset" type="button">Ponovi tacke</button><button class="primary" id="photo-meter-finish" type="button">Koristi mjeru</button><button class="secondary" id="photo-meter-cancel" type="button">Zatvori</button></div>`;
+		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>Mjerenje iz uploadovane slike</strong><small>1) Izaberite poznatu mjeru dole. 2) Kliknite dvije tačke te poznate mjere (žuto). 3) Kliknite tačke linije/uglove površine koju mjerite (zeleno). 4) Izaberite dole da li hoćeš m² ili ml.</small><label>Poznata mjera</label><div class="photo-meter-presets"><button type="button" class="secondary photo-meter-preset" data-value="2.10">Vrata 2.10m</button><button type="button" class="secondary photo-meter-preset" data-value="1.20">Prozor 1.20m</button><button type="button" class="secondary photo-meter-preset" data-value="0.25">Cigla 0.25m</button><button type="button" class="secondary photo-meter-preset" data-value="">Sopstveno</button></div><input id="photo-meter-reference" type="number" min="0.01" step="0.01" placeholder="Upiši svoju mjeru u metrima" /><span id="photo-meter-status">Referenca: 0/2 tacke</span><button class="secondary" id="photo-meter-reset" type="button">Ponovi tacke</button><div class="photo-meter-finish-row"><button class="primary" id="photo-meter-finish-m2" type="button">Obračunaj m²</button><button class="primary" id="photo-meter-finish-ml" type="button">Obračunaj ml</button></div><button class="secondary" id="photo-meter-cancel" type="button">Zatvori</button></div>`;
 		document.body.append(overlay);
 		const canvas = overlay.querySelector('canvas');
 		const context = canvas.getContext('2d');
@@ -1038,7 +1040,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			context.clearRect(0, 0, canvas.width, canvas.height);
 			context.drawImage(image, fitData.x, fitData.y, image.width * fitData.scale, image.height * fitData.scale);
 			drawLine(referencePoints, '#f4c86f');
-			drawLine(measurePoints, '#31d3a4', unit === 'm2' && measurePoints.length > 2);
+			drawLine(measurePoints, '#31d3a4');
 			referencePoints.forEach((point) => drawPoint(point, '#f4c86f'));
 			measurePoints.forEach((point) => drawPoint(point, '#31d3a4'));
 			meterStatus.textContent = referencePoints.length < 2 ? `Referenca: ${referencePoints.length}/2 tacke` : `Mjerenje: ${measurePoints.length} tacki`;
@@ -1050,21 +1052,32 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (referencePoints.length < 2) referencePoints.push(point); else measurePoints.push(point);
 			render();
 		});
+		const referenceInput = overlay.querySelector('#photo-meter-reference');
+		overlay.querySelectorAll('.photo-meter-preset').forEach((button) => button.addEventListener('click', () => {
+			overlay.querySelectorAll('.photo-meter-preset').forEach((other) => other.classList.remove('active'));
+			button.classList.add('active');
+			if (button.dataset.value) { referenceInput.value = button.dataset.value; referenceInput.readOnly = true; }
+			else { referenceInput.value = ''; referenceInput.readOnly = false; referenceInput.focus(); }
+		}));
 		overlay.querySelector('#photo-meter-reset').addEventListener('click', () => { referencePoints.length = 0; measurePoints.length = 0; render(); });
 		overlay.querySelector('#photo-meter-cancel').addEventListener('click', close);
-		overlay.querySelector('#photo-meter-finish').addEventListener('click', () => {
+		const finish = (unit) => {
 			const referenceLength = Number(overlay.querySelector('#photo-meter-reference').value);
 			if (!Number.isFinite(referenceLength) || referenceLength <= 0) { meterStatus.textContent = 'Upisite poznatu mjeru u metrima.'; return; }
 			if (referencePoints.length < 2) { meterStatus.textContent = 'Kliknite dvije tacke poznate mjere.'; return; }
 			if ((unit === 'ml' && measurePoints.length < 2) || (unit === 'm2' && measurePoints.length < 3)) { meterStatus.textContent = unit === 'ml' ? 'Za ml kliknite najmanje 2 tacke.' : 'Za m2 kliknite najmanje 3 ugla.'; return; }
 			const scale = referenceLength / distance2d(referencePoints[0], referencePoints[1]);
 			const value = unit === 'ml' ? measurePoints.slice(1).reduce((sum, point, index) => sum + distance2d(measurePoints[index], point), 0) * scale : polygonArea2d(measurePoints) * scale * scale;
+			form.elements.quantityUnit.value = unit;
+			form.elements.quantityUnit.dispatchEvent(new Event('change'));
 			form.elements.quantity.value = value.toFixed(2);
 			form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 			form.elements.m2Source.value = `photo-calibrated-${unit}`;
 			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Sacuvajte izvjestaj ako je tacno.`;
 			close();
-		});
+		};
+		overlay.querySelector('#photo-meter-finish-m2').addEventListener('click', () => finish('m2'));
+		overlay.querySelector('#photo-meter-finish-ml').addEventListener('click', () => finish('ml'));
 		window.addEventListener('resize', render, { once: true });
 		image.onload = render;
 		image.src = url;
