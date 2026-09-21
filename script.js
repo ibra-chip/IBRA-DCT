@@ -1523,15 +1523,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	async function loadPurchases() { const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], workers: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); }); const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join('') : '<small>Nema troškova.</small>'; }; render([...groups.material, ...groups.tools, ...groups.machines], 'purchase-material-tools', 'purchase-total-material-tools'); render(groups.workers, 'purchase-workers', 'purchase-total-workers'); render(groups.subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting'); }
 	function ensureHoursPdfButton() {
-		if (document.querySelector('#send-hours-pdf')) return;
+		if (document.querySelector('#download-hours-pdf')) return;
 		const form = document.querySelector('#time-form'); if (!form) return;
 		const previous = new Date(); previous.setMonth(previous.getMonth() - 1);
 		const defaultMonth = previous.toISOString().slice(0, 7);
 		const panel = document.createElement('div');
 		panel.className = 'hours-pdf-panel';
-		panel.innerHTML = `<label>PDF lista dana za gazdu (šalje se 1. u mjesecu)<input id="hours-pdf-month" type="month" value="${defaultMonth}" /></label><button class="secondary" id="send-hours-pdf" type="button">Pošalji PDF listu dana gazdi</button><small>Sadrži odobrene dane, sate i iznos za izabrani mjesec.</small>`;
+		panel.innerHTML = `<label>Preuzmi PDF listu dana<input id="hours-pdf-month" type="month" value="${defaultMonth}" /></label><button class="secondary" id="download-hours-pdf" type="button">Preuzmi PDF</button><small>Sadrži odobrene dane, sate i iznos za izabrani mjesec.</small>`;
 		form.append(panel);
-		panel.querySelector('#send-hours-pdf').addEventListener('click', async () => { try { const month = panel.querySelector('#hours-pdf-month').value || defaultMonth; const result = await request('/time-entries/pdf/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }) }); toast(`PDF lista dana je poslata gazdi: ${Number(result.amount || 0).toFixed(2)} EUR.`); } catch { toast('PDF lista dana nije poslata. Proverite odobrene dane i email podešavanja.'); } });
+		panel.querySelector('#download-hours-pdf').addEventListener('click', async (event) => { const month = panel.querySelector('#hours-pdf-month').value || defaultMonth; await downloadHoursPdf(currentUser?.id, month, currentUser?.name, event.currentTarget); });
 	}
 	let currentUser;
 	const registrationForm = document.querySelector('#registration-form');
