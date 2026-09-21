@@ -1318,7 +1318,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		const target = document.querySelector('#quick-workers');
 		if (!target) return;
 		const canManage = isOwner();
-		target.innerHTML = canManage && latestTimeWorkers.length ? `<h3>Radnici</h3>${latestTimeWorkers.map((worker) => `<div class="list-item"><strong>${escapeHtml(worker.name)}</strong><small>${escapeHtml(worker.email || worker.phone || 'sans contact')} · Chantier : ${escapeHtml(assignedProjectNames(worker) || 'non sélectionné')} · Dnevnica ${formatEUR(worker.dailyRate || 0)} · Satnica ${formatEUR(worker.hourlyRate || 0)}</small><div class="worker-actions"><button class="secondary rename-worker" data-worker="${worker.id}" type="button">Renommer</button><button class="secondary delete-worker" data-worker="${worker.id}" type="button">Supprimer</button></div></div>`).join('')}` : '';
+		if (!canManage || !latestTimeWorkers.length) { target.innerHTML = ''; return; }
+		const workerRow = (worker) => `<div class="list-item" data-worker-search="${escapeHtml((worker.name || '').toLowerCase())}"><strong>${escapeHtml(worker.name)}</strong><small>${escapeHtml(worker.email || worker.phone || 'sans contact')} · Chantier : ${escapeHtml(assignedProjectNames(worker) || 'non sélectionné')} · Tarif journalier ${formatEUR(worker.dailyRate || 0)} · Tarif horaire ${formatEUR(worker.hourlyRate || 0)}</small><div class="worker-actions"><button class="secondary rename-worker" data-worker="${worker.id}" type="button">Renommer</button><button class="secondary delete-worker" data-worker="${worker.id}" type="button">Supprimer</button></div></div>`;
+		target.innerHTML = `<details class="quick-workers-group"><summary>Ouvriers (${latestTimeWorkers.length})</summary><input type="search" class="quick-workers-search" placeholder="Rechercher un ouvrier..." /><div class="quick-workers-list">${latestTimeWorkers.map(workerRow).join('')}</div></details>`;
+		target.querySelector('.quick-workers-search')?.addEventListener('input', (event) => {
+			const query = event.target.value.trim().toLowerCase();
+			target.querySelectorAll('[data-worker-search]').forEach((row) => { row.hidden = Boolean(query) && !row.dataset.workerSearch.includes(query); });
+		});
 		target.querySelectorAll('.rename-worker').forEach((button) => button.addEventListener('click', async () => {
 			const worker = latestTimeWorkers.find((item) => item.id === button.dataset.worker);
 			if (!worker) return;
@@ -1326,8 +1332,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (!name?.trim()) return;
 			const contact = window.prompt('Telefon ili email:', worker.email || worker.phone || '');
 			if (!contact?.trim()) return;
-			const dailyRate = window.prompt('Dnevnica EUR:', worker.dailyRate || 0);
-			const hourlyRate = window.prompt('Satnica EUR:', worker.hourlyRate || 0);
+			const dailyRate = window.prompt('Tarif journalier EUR :', worker.dailyRate || 0);
+			const hourlyRate = window.prompt('Tarif horaire EUR :', worker.hourlyRate || 0);
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			try { await request(`/users/${worker.id}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name: name.trim(), contact: contact.trim(), dailyRate, hourlyRate }) }); await Promise.allSettled([loadTime(), loadUsers(), loadPayroll()]); toast('Radnik je preimenovan.'); }
 			catch { toast('Radnik nije izmijenjen.'); button.disabled = false; button.removeAttribute('aria-busy'); }
