@@ -1492,9 +1492,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		const submitButton = form.querySelector('button');
 		const submitButtonLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement et analyse en cours (peut prendre jusqu’à 30 s)…'; }
-		message.textContent = 'Enregistrement et analyse en cours, veuillez patienter…';
+		message.textContent = 'Enregistrement et analyse en cours, veuillez patienter (le serveur peut mettre jusqu’à 1 min à se réveiller)…';
 		try {
-			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(45000) });
+			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(90000) });
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(result.error || `${response.status}`);
 			form.reset();
@@ -1510,7 +1510,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		} catch (error) {
 			message.classList.add('error');
-			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'Le serveur met trop de temps à répondre (plus de 45 s). Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
+			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'Le serveur met trop de temps à répondre (plus de 90 s). Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
 			toast('Document non enregistré ou sans réponse. Voir le message sous le formulaire.');
 		} finally {
 			if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButtonLabel; }
