@@ -1225,31 +1225,41 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
 	const evidenceType = request.body.evidenceType || 'other';
 	const projectId = String(request.body.projectId || '');
+	console.log(`[documents/upload] evidenceType=${evidenceType} mimetype=${request.file.mimetype} name=${request.file.originalname}`);
 	const data = await readData();
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const storedName = storageKeyFor(request.file.originalname);
 	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
 	let autoAnalysis = null;
-	if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
-		const buffer = request.file.buffer;
-		const language = request.body.responseLanguage || 'sr';
-		let parsed = { text: '' };
-		try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
-		try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
-		if (!autoAnalysis) {
-			autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
-			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
-		} else if (!autoAnalysis.answer) {
+	const language = request.body.responseLanguage || 'sr';
+	try {
+		if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
+			const buffer = request.file.buffer;
+			let parsed = { text: '' };
+			try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
+			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
+			if (!autoAnalysis) {
+				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
+				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+			} else if (!autoAnalysis.answer) {
+				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+			}
+		} else if (request.file.mimetype.startsWith('image/')) {
+			const buffer = request.file.buffer;
+			let visionResult = { vision: null, status: 'not_configured' };
+			try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
+			autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 		}
-	} else if (request.file.mimetype.startsWith('image/')) {
-		const language = request.body.responseLanguage || 'sr';
-		const buffer = request.file.buffer;
-		let visionResult = { vision: null, status: 'not_configured' };
-		try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
-		autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
-		autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
+	} catch (error) {
+		console.error('Document auto-analysis failed unexpectedly:', error.message, error.stack);
+		autoAnalysis = null;
+	}
+	if (!autoAnalysis) {
+		console.warn(`[documents/upload] no analysis branch matched or all fallbacks failed for evidenceType=${evidenceType} mimetype=${request.file.mimetype}`);
+		const french = language === 'fr';
+		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
