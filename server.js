@@ -147,7 +147,7 @@ const assertProjectAccess = (data, requestUser, projectId, worker = null) => {
 	if (project.status === 'archived') { const error = new Error('This chantier is archived'); error.status = 400; throw error; }
 	const actorCanAccess = isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id);
 	const workerCanAccess = !worker || isOwnerRole(worker.role) || (worker.projectIds || []).includes(project.id);
-	if (!actorCanAccess || !workerCanAccess) { const error = new Error(`Le chantier sélectionné n’est pas accessible à ce travailleur: ${project.name}`); error.status = 403; throw error; }
+	if (!actorCanAccess || !workerCanAccess) { const error = new Error(`Le chantier sélectionné n’est pas accessible à cet ouvrier: ${project.name}`); error.status = 403; throw error; }
 	return project;
 };
 const tokenIssuedBeforePasswordChange = (payload, user) => { const changedAt = changedAtSeconds(user.passwordChangedAt); return Boolean(changedAt && Number(payload.iat || 0) < changedAt); };
@@ -527,7 +527,7 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 	let leftY = headerTop;
 	page.drawText("Bulletin d'heures", { x: marginX, y: leftY, size: 18, font: fontBold });
 	leftY -= 30;
-	page.drawText(`Travailleur : ${worker.name || ''}`, { x: marginX, y: leftY, size: 11, font: fontBold });
+	page.drawText(`Ouvrier : ${worker.name || ''}`, { x: marginX, y: leftY, size: 11, font: fontBold });
 	leftY -= 16;
 	page.drawText(`Mois : ${formatMonthFrench(month)}`, { x: marginX, y: leftY, size: 11, font });
 	y = Math.min(leftY, brandY) - 14;
@@ -703,7 +703,7 @@ app.post('/api/users/:id/avatar', auth, workerSelf, identityUploadMiddleware('av
 	const target = data.users.find((user) => user.id === request.params.id);
 	if (!target || !isWorkerRole(target.role)) return response.status(404).json({ error: 'Worker not found' });
 	if (request.user.role !== 'admin' && companyKeyForUser(companyOwnerForUser(data, target) || target) !== companyKeyForUser(companyOwnerForUser(data, request.userRecord) || request.userRecord)) return response.status(403).json({ error: 'Access denied for this worker' });
-	if (!request.file) return response.status(400).json({ error: 'Photo du travailleur requise' });
+	if (!request.file) return response.status(400).json({ error: 'Photo de l’ouvrier requise' });
 	if (target.avatarFile) await deleteFile(IDENTITY_BUCKET, target.avatarFile);
 	target.avatarFile = request.file.filename;
 	target.avatarUrl = identityFileUrl(target.avatarFile);
