@@ -1504,6 +1504,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(result.error || `${response.status}`);
 			form.reset();
+			if (form.elements.projectId) form.elements.projectId.value = projectId;
 			message.textContent = '';
 			await refreshActiveView();
 			if (!stay) showView('evidence-summary-view');
