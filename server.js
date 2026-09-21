@@ -1095,6 +1095,7 @@ app.get('/api/rendezvous', auth, async (request, response) => {
 	response.json((data.rendezvous || []).filter((item) => (canSeeAll || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
+	const isOwnerActor = isOwnerRole(request.user.role);
 	const absenceDate = String(request.body.absenceDate || request.body.date || '').trim();
 	const date = String(request.body.date || absenceDate).trim();
 	const time = String(request.body.time || '').trim();
@@ -1103,10 +1104,10 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	const absenceTimestamp = dateOnlyTimestamp(absenceDate);
 	const dateTimestamp = dateOnlyTimestamp(date);
 	const days = Number.isFinite(absenceTimestamp) && Number.isFinite(todayTimestamp) ? Math.floor((absenceTimestamp - todayTimestamp) / 86400000) : -1;
-	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || days < 3) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
-	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !reason || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (!isOwnerActor && days < 3)) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
+	if (!isOwnerActor && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const data = await readData();
-	const worker = data.users.find((user) => user.id === request.user.sub);
+	const worker = isOwnerActor && request.body.workerId ? data.users.find((user) => user.id === request.body.workerId) : data.users.find((user) => user.id === request.user.sub);
 	if (!worker) return response.status(404).json({ error: 'Worker account not found' });
 	let context;
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
