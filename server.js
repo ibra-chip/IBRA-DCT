@@ -1138,6 +1138,15 @@ app.post('/api/messages', auth, async (request, response) => {
 	data.messages.push(message); await writeData(data);
 	response.status(201).json(message);
 });
+app.delete('/api/messages/:id', auth, async (request, response) => {
+	const data = await readData();
+	const message = (data.messages || []).find((item) => item.id === request.params.id);
+	if (!message) return response.status(404).json({ error: 'Message not found' });
+	if (message.senderId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	data.messages = (data.messages || []).filter((item) => item.id !== message.id);
+	await writeData(data);
+	response.json({ deleted: true, id: message.id });
+});
 const dateOnlyTimestamp = (value) => {
 	const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
 	if (!match) return Number.NaN;

@@ -885,7 +885,27 @@ document.addEventListener('DOMContentLoaded', () => {
 		const activeProject = currentProjectId();
 		latestRendezvous = (items || await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
 	}
-	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); const messages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); document.querySelector('#messages').innerHTML = messages.length ? messages.map((item) => `<div class="list-item"><strong>${item.senderName} → ${item.recipientName}</strong><div>${item.text}</div><small>${item.projectId} · ${new Date(item.createdAt).toLocaleString()}</small></div>`).join('') : '<small>Nema poruka.</small>'; await loadRendezvous(); }
+	function renderChatThread() {
+		const target = document.querySelector('#messages'); if (!target) return;
+		const recipientSelect = document.querySelector('#recipient');
+		const currentUserId = currentUser?.id || currentUser?.sub;
+		const chatMessages = latestChatMessages.filter((item) => item.type !== 'rendezvous-notification');
+		let selectedId = recipientSelect?.value || '';
+		if (!selectedId) {
+			const lastPartner = chatMessages.slice().sort((first, second) => new Date(second.createdAt) - new Date(first.createdAt))[0];
+			selectedId = lastPartner ? (lastPartner.senderId === currentUserId ? lastPartner.recipientId : lastPartner.senderId) : (recipientSelect?.options[0]?.value || '');
+			if (recipientSelect && selectedId) recipientSelect.value = selectedId;
+		}
+		const thread = chatMessages.filter((item) => (item.senderId === currentUserId && item.recipientId === selectedId) || (item.senderId === selectedId && item.recipientId === currentUserId)).sort((first, second) => new Date(first.createdAt) - new Date(second.createdAt));
+		const canDelete = (item) => item.senderId === currentUserId || isOwner();
+		target.innerHTML = thread.length ? thread.map((item) => {
+			const mine = item.senderId === currentUserId;
+			const time = new Date(item.createdAt).toLocaleString(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+			return `<div class="chat-bubble ${mine ? 'sent' : 'received'}"><div class="chat-bubble-text">${escapeHtml(item.text)}</div><div class="chat-bubble-meta"><small>${time}</small>${canDelete(item) ? `<button type="button" class="chat-delete" data-delete-message="${item.id}" title="Obriši poruku" aria-label="Obriši poruku">✕</button>` : ''}</div></div>`;
+		}).join('') : '<small class="chat-empty">Nema poruka u ovoj konverzaciji.</small>';
+		target.scrollTop = target.scrollHeight;
+	}
+	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); latestChatMessages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); renderChatThread(); await loadRendezvous(); }
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);
 	const polygonArea3d = (points) => {
 		if (points.length < 3) return 0;
@@ -1172,6 +1192,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let latestOwnTimeEntries = [];
 	let latestRendezvous = [];
 	let latestTimeWorkers = [];
+	let latestChatMessages = [];
 	const monthKeyFromDate = (dateValue) => String(dateValue || new Date().toISOString().slice(0, 10)).slice(0, 7);
 	const formatMonthLabel = (month) => {
 		const [year, monthNumber] = String(month || '').split('-').map(Number);
@@ -1654,7 +1675,15 @@ document.addEventListener('DOMContentLoaded', () => {
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
 	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
-	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); const projectId = currentProjectId(); if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; } try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId }) }); event.currentTarget.reset(); await refreshActiveView(); toast('Poruka je sačuvana.'); } catch { toast('Poruka nije poslata.'); } });
+	document.querySelector('#message-form').addEventListener('submit', async (event) => { event.preventDefault(); const projectId = currentProjectId(); if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; } if (!event.currentTarget.elements.recipientId.value) { toast('Izaberite sagovornika.'); return; } try { await request('/messages', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ ...Object.fromEntries(new FormData(event.currentTarget).entries()), projectId }) }); event.currentTarget.elements.text.value = ''; await refreshActiveView(); } catch { toast('Poruka nije poslata.'); } });
+	document.querySelector('#recipient')?.addEventListener('change', renderChatThread);
+	document.querySelector('#messages')?.addEventListener('click', async (event) => {
+		const deleteButton = event.target.closest('[data-delete-message]'); if (!deleteButton) return;
+		if (!window.confirm('Obrisati ovu poruku?')) return;
+		deleteButton.disabled = true;
+		try { await request(`/messages/${encodeURIComponent(deleteButton.dataset.deleteMessage)}`, { method: 'DELETE' }); await loadMessages(); }
+		catch { toast('Poruka nije obrisana.'); deleteButton.disabled = false; }
+	});
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
 	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = formValues(event.currentTarget); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); const projectField = document.querySelector('#user-project-field'); const projectSelect = document.querySelector('#user-project-field select'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'gerant'; companyField.querySelector('input').required = role === 'gerant'; } rateFields.forEach((field) => { field.hidden = role !== 'user'; }); if (projectField) projectField.hidden = role !== 'user'; if (projectSelect) projectSelect.required = role === 'user'; }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields(); wireSiretLookup(document.querySelector('#user-form')?.elements.siret, document.querySelector('#user-company-preview'), document.querySelector('#user-form')?.elements.company);
