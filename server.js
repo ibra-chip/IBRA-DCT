@@ -25,6 +25,13 @@ let pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey && vapidKeyPattern.t
 if (pushEnabled) {
 	try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contact@ibra-ba.net', vapidPublicKey, vapidPrivateKey); }
 	catch (error) { console.error('VAPID keys invalid, push notifications disabled:', error.message); pushEnabled = false; }
+} else {
+	const publicOk = vapidKeyPattern.test(vapidPublicKey);
+	const privateOk = vapidKeyPattern.test(vapidPrivateKey);
+	console.warn(
+		`Push notifications disabled. publicKey: present=${Boolean(vapidPublicKey)} length=${vapidPublicKey.length} validChars=${publicOk}; ` +
+		`privateKey: present=${Boolean(vapidPrivateKey)} length=${vapidPrivateKey.length} validChars=${privateOk}`
+	);
 }
 async function sendPushToUser(data, userId, payload) {
 	if (!pushEnabled) return;
