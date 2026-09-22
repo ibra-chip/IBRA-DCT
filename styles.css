@@ -72,20 +72,40 @@ select[data-project-assignment][multiple]:focus-visible{outline:2px solid var(--
 .time-live-calculation.ready{border-color:#31d3a466;background:#31d3a412}
 .time-live-calculation strong{display:block;color:var(--yellow);font-size:1.05rem}
 .time-live-calculation.ready strong{color:var(--green)}
-.work-calendar{margin:16px 0;padding:14px;border:1px solid #ffffff14;border-radius:16px;background:#ffffff05}
-.work-calendar-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:12px}
+.work-calendar{margin:16px 0;padding:18px;border:1px solid #ffffff14;border-radius:18px;background:linear-gradient(180deg,#ffffff08,#ffffff03);box-shadow:0 14px 34px #00000024}
+.work-calendar-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.calendar-title{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.calendar-title>small{color:var(--muted);font-size:.72rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.calendar-nav{display:flex;align-items:center;gap:10px}
+.calendar-nav-btn{width:30px;height:30px;padding:0;border:1px solid #ffffff20;border-radius:9px;background:#ffffff08;color:var(--text);font-size:1rem;line-height:1;cursor:pointer;display:grid;place-items:center;transition:background .15s,border-color .15s,transform .1s}
+.calendar-nav-btn:hover{background:#72b9ff22;border-color:#72b9ff55;transform:translateY(-1px)}
+.calendar-nav-btn:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+.calendar-month-label{min-width:150px;text-align:center;font-size:1.05rem;text-transform:capitalize}
+.calendar-nav-today{padding:7px 12px;font-size:.78rem;border:1px solid #ffffff20;border-radius:999px;background:#ffffff08;color:var(--text);cursor:pointer;font-weight:800;transition:background .15s,border-color .15s}
+.calendar-nav-today:hover:not(:disabled){background:#72b9ff22;border-color:#72b9ff55}
+.calendar-nav-today:disabled{opacity:.4;cursor:default}
+.calendar-stats{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.calendar-stat{display:flex;flex-direction:column;gap:2px;padding:8px 14px;border:1px solid #ffffff12;border-radius:12px;background:#071522}
+.calendar-stat strong{font-size:1.05rem;color:var(--text)}
+.calendar-stat small{color:var(--muted);font-size:.68rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
 .calendar-weekdays,.calendar-grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
 .calendar-weekdays span{color:var(--muted);font-size:.72rem;font-weight:900;text-align:center;text-transform:uppercase}
 .calendar-hint{margin:8px 0 10px;color:var(--muted);font-size:.82rem}
-.calendar-legend{display:inline-flex;gap:5px;flex-wrap:wrap}
+.calendar-legend{display:inline-flex;gap:12px;flex-wrap:wrap}
+.legend-work,.legend-rendezvous{display:inline-flex;align-items:center;gap:5px}
+.legend-work::before,.legend-rendezvous::before{content:'';width:8px;height:8px;border-radius:50%}
 .legend-work{color:var(--green)}
+.legend-work::before{background:var(--green)}
 .legend-rendezvous{color:var(--yellow)}
-.calendar-cell{min-height:52px;padding:7px;border:1px solid #ffffff12;border-radius:10px;background:#071522;color:var(--text);display:grid;place-items:center;text-align:center;cursor:pointer;font:inherit}
+.legend-rendezvous::before{background:var(--yellow)}
+.calendar-cell{min-height:58px;padding:8px 7px;border:1px solid #ffffff12;border-radius:12px;background:#071522;color:var(--text);display:grid;gap:4px;place-items:center;text-align:center;cursor:pointer;font:inherit;transition:border-color .15s,transform .1s,box-shadow .15s}
 .calendar-cell-weekday{display:none}
-.calendar-cell:hover{border-color:#72b9ff66;transform:translateY(-1px)}
+.calendar-cell:hover{border-color:#72b9ff66;transform:translateY(-1px);box-shadow:0 8px 18px #00000030}
 .calendar-cell:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .calendar-cell small{font-size:.68rem;color:var(--green)}
 .calendar-cell.weekend{opacity:.5;background:#ffffff05}
+.calendar-cell.today{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue) inset}
+.calendar-cell.today strong{color:var(--blue)}
 .calendar-cell.worked{border-color:#31d3a466;background:#31d3a418;color:#dffcf4}
 .calendar-cell.worked.entry-pending{border-color:#f4c86f88;background:#f4c86f22;color:#fff6df}
 .calendar-cell.worked.entry-rejected{border-color:#f77d7d88;background:#f77d7d22;color:#ffe1e1}
@@ -109,8 +129,8 @@ button.calendar-quick-edit:hover{transform:scale(1.06);background:#00000050}
 .time-year-summary{margin-top:10px;padding:12px 14px;border:1px solid #31d3a444;border-radius:12px;background:#31d3a40d}.time-year-summary strong{display:block;color:var(--green)}.time-year-summary small{color:var(--muted)}
 .quick-edit-popover{position:absolute;z-index:80;display:grid;gap:8px;width:200px;padding:12px;border:1px solid #9bd5ff35;border-radius:12px;background:#102235;box-shadow:0 18px 40px #0008;color:var(--text)}.quick-edit-popover strong{font-size:.8rem;color:var(--blue)}.quick-edit-popover label{display:grid;gap:4px;font-size:.75rem;color:var(--muted)}.quick-edit-popover input{min-height:38px}.quick-edit-actions{display:flex;flex-wrap:wrap;gap:6px}.quick-edit-actions button{flex:1;min-width:0;min-height:36px;padding:6px 8px;font-size:.75rem}.quick-edit-actions .danger{background:#f77d7d1f;color:#ffb3b3;border-color:#f77d7d55}
 .calendar-rendezvous{display:block;max-width:100%;overflow:hidden;color:var(--yellow);font-size:.64rem;font-weight:900;line-height:1.1;text-overflow:ellipsis;white-space:nowrap}
-.calendar-add-rdv{border-style:dashed;opacity:.55;background:transparent}
-.calendar-add-rdv:hover{opacity:1}
+.calendar-add-rdv{border-style:dashed;opacity:.4;background:transparent;transition:opacity .15s,transform .1s}
+.calendar-cell:hover .calendar-add-rdv,.calendar-add-rdv:hover,.calendar-add-rdv:focus-visible{opacity:1}
 .calendar-cell.empty{border:0;background:transparent;pointer-events:none}
 .worker-month-summary{margin:16px 0;padding:14px;border:1px solid #72b9ff26;border-radius:16px;background:linear-gradient(180deg,#72b9ff10,#ffffff04)}
 .worker-month-summary .section-head{margin-bottom:10px}
