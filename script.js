@@ -508,7 +508,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		modulesTarget.innerHTML = (rgeQualibatKnowledge.modules || []).map((module) => { const items = french ? (module.itemsFr || module.items) : module.items; return `<article class="rge-module"><h3>${escapeHtml(localized(module, 'title'))}</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`; }).join('');
 	}
 	async function loadControlHistory() { await loadProjectOptions(); const projectId = currentProjectId(); const history = projectId ? await request(`/projects/${projectId}/control-history`) : []; const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena za izabrani chantier.</small>'; }
-	const userRoleLabels = { admin: 'Administrateur', manager: 'Manager', gerant: 'Gérant', user: 'Utilisateur', worker: 'Ouvrier' };
+	const userRoleLabels = { admin: 'Administrateur', manager: 'Manager', gerant: 'Gérant', user: 'Ouvrier', worker: 'Ouvrier' };
 	let lastUserEditorTrigger;
 	const userEditModal = document.querySelector('#user-edit-modal');
 	const userEditForm = document.querySelector('#user-edit-form');
@@ -525,7 +525,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		userEditForm.elements.dailyRate.value = user.dailyRate ?? 0;
 		userEditForm.elements.hourlyRate.value = user.hourlyRate ?? 0;
 		document.querySelector('#user-edit-name-preview').textContent = user.name || 'Utilisateur';
-		document.querySelector('#user-edit-role-preview').textContent = userRoleLabels[user.role] || user.role || 'Utilisateur';
+		document.querySelector('#user-edit-role-preview').textContent = userRoleLabels[user.role] || user.role || 'Ouvrier';
 		document.querySelector('#user-edit-company').textContent = user.company || user.employerCompany || '—';
 		document.querySelector('#user-edit-role').textContent = userRoleLabels[user.role] || user.role || '—';
 		const projectSelect = userEditForm.elements.projectIds;
@@ -796,7 +796,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			await loadProjectOptions();
 			const [users, entries, rendezvous, payouts] = await Promise.all([request('/contacts'), request('/time-entries'), request('/rendezvous'), request('/payout-requests')]);
 			workerRosterState.users = users; workerRosterState.entries = entries; workerRosterState.rendezvous = rendezvous; workerRosterState.payouts = payouts; workerRosterState.loading = false; workerRosterState.error = null; renderWorkerRoster();
-			const currentUserId = currentUser?.id || currentUser?.sub; const recipient = document.querySelector('#recipient'); if (recipient) { const previousValue = recipient.value; recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(user.role)}</option>`).join(''); if (previousValue && [...recipient.options].some((option) => option.value === previousValue)) recipient.value = previousValue; renderChatThread(); }
+			const currentUserId = currentUser?.id || currentUser?.sub; const recipient = document.querySelector('#recipient'); if (recipient) { const previousValue = recipient.value; recipient.innerHTML = users.filter((user) => user.id !== currentUserId).map((user) => `<option value="${escapeHtml(user.id)}">${escapeHtml(user.name)} · ${escapeHtml(userRoleLabels[user.role] || user.role)}</option>`).join(''); if (previousValue && [...recipient.options].some((option) => option.value === previousValue)) recipient.value = previousValue; renderChatThread(); }
 			if (workerRosterState.detailWorkerId) renderWorkerDetail();
 		} catch (error) { workerRosterState.loading = false; workerRosterState.error = error; renderWorkerRoster(); }
 	}
@@ -1286,7 +1286,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!target) return;
 		const draft = calculateTimeDraft();
 		target.classList.toggle('ready', draft.valid);
-		target.innerHTML = draft.valid ? `<strong>Obracun ovog unosa: ${draft.hours.toFixed(2)} h ? ${formatEUR(draft.amount)}</strong><small>Ovo je automatski obracun prije cuvanja. Poslije spremanja ide u kalendar i listu.</small>` : '<strong>Obracun ovog unosa: 0.00 h ? 0,00 EUR</strong><small>Unesite datum, pocetak, kraj, pauzu i cijenu rada.</small>';
+		target.innerHTML = draft.valid ? `<strong>Calcul de cette saisie : ${draft.hours.toFixed(2)} h · ${formatEUR(draft.amount)}</strong><small>Ceci est un calcul automatique avant l’enregistrement. Une fois enregistré, il part dans le calendrier et la liste.</small>` : '<strong>Calcul de cette saisie : 0.00 h · 0,00 EUR</strong><small>Saisissez la date, le début, la fin, la pause et le tarif.</small>';
 	};
 	function ensureTimeAutoCalculation(own) {
 		const form = document.querySelector('#time-form');
@@ -1611,7 +1611,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const defaultMonth = previous.toISOString().slice(0, 7);
 		const panel = document.createElement('div');
 		panel.className = 'hours-pdf-panel';
-		panel.innerHTML = `<label>Preuzmi PDF listu dana<input id="hours-pdf-month" type="month" value="${defaultMonth}" /></label><button class="secondary" id="download-hours-pdf" type="button">Preuzmi PDF</button><small>Contient les jours approuvés, les heures et le montant pour le mois sélectionné.</small>`;
+		panel.innerHTML = `<label>Télécharger la liste PDF des jours<input id="hours-pdf-month" type="month" value="${defaultMonth}" /></label><button class="secondary" id="download-hours-pdf" type="button">Télécharger PDF</button><small>Contient les jours approuvés, les heures et le montant pour le mois sélectionné.</small>`;
 		form.append(panel);
 		panel.querySelector('#download-hours-pdf').addEventListener('click', async (event) => { const month = panel.querySelector('#hours-pdf-month').value || defaultMonth; await downloadHoursPdf(currentUser?.id, month, currentUser?.name, event.currentTarget); });
 	}
