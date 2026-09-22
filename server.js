@@ -595,7 +595,13 @@ const companyBrandingForPdf = async (data, worker) => {
 	return { companyName: profile.name || worker?.employerCompany || worker?.company || '', companyAddress: owner?.companyAddress || '', logoBuffer };
 };
 
-app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api', commit: process.env.RENDER_GIT_COMMIT || '' }));
+app.get('/api/health', (_request, response) => response.json({
+	status: 'ok',
+	service: 'ibra-ba-api',
+	commit: process.env.RENDER_GIT_COMMIT || '',
+	supabaseKeyPrefix: String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 12),
+	supabaseKeyLength: String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').length,
+}));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
 	try {
