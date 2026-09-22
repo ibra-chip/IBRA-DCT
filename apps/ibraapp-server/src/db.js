@@ -4,7 +4,8 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const dataDir = path.join(__dirname, '..', 'data');
+const storageRoot = process.env.IBRAAPP_STORAGE_DIR || path.join(__dirname, '..');
+const dataDir = path.join(storageRoot, 'data');
 fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new Database(path.join(dataDir, 'ibraapp.db'));

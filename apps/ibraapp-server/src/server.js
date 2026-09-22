@@ -12,8 +12,9 @@ import { db, uid } from './db.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const JWT_SECRET = process.env.IBRAAPP_JWT_SECRET || 'ibraapp-dev-secret-change-in-production';
-const PORT = process.env.IBRAAPP_PORT || 4001;
-const uploadsDir = path.join(__dirname, '..', 'uploads');
+const PORT = process.env.PORT || process.env.IBRAAPP_PORT || 4001;
+const storageRoot = process.env.IBRAAPP_STORAGE_DIR || path.join(__dirname, '..');
+const uploadsDir = path.join(storageRoot, 'uploads');
 fs.mkdirSync(uploadsDir, { recursive: true });
 
 const webDir = path.join(__dirname, '..', '..', 'ibraapp');
@@ -23,6 +24,7 @@ app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(webDir));
+app.get('/api/health', (req, res) => res.json({ ok: true }));
 
 const upload = multer({ storage: multer.diskStorage({
   destination: uploadsDir,
