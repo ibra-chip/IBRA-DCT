@@ -588,7 +588,7 @@ const companyBrandingForPdf = async (data, worker) => {
 	return { companyName: profile.name || worker?.employerCompany || worker?.company || '', companyAddress: owner?.companyAddress || '', logoBuffer };
 };
 
-app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
+app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api', commit: process.env.RENDER_GIT_COMMIT || '' }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
 	try {
