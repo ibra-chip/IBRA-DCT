@@ -6,6 +6,7 @@
 <title>IbraApp</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id=%22g%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%238b7bff%22/><stop offset=%221%22 stop-color=%22%236c5bf2%22/></linearGradient></defs><rect width=%22100%22 height=%22100%22 rx=%2224%22 fill=%22url(%23g)%22/><text x=%2250%22 y=%2268%22 font-size=%2258%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22>I</text></svg>" />
 <link rel="stylesheet" href="styles.css" />
+<script src="/socket.io/socket.io.js"></script>
 </head>
 <body>
 
@@ -231,6 +232,18 @@
 <div id="msg-info-modal" class="modal" hidden>
   <header><strong>Info o poruci</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
   <div class="modal-body" id="msg-info-body"></div>
+</div>
+
+<div id="incoming-call-modal" class="modal incoming-call-modal" hidden>
+  <div class="incoming-call-body">
+    <span class="avatar avatar-lg" id="incoming-call-avatar"></span>
+    <strong id="incoming-call-name"></strong>
+    <small id="incoming-call-kind"></small>
+    <div class="incoming-call-actions">
+      <button type="button" class="call-ctrl-btn off" id="decline-call" title="Odbij" aria-label="Odbij poziv">☎️</button>
+      <button type="button" class="call-ctrl-btn accept" id="accept-call" title="Prihvati" aria-label="Prihvati poziv">📞</button>
+    </div>
+  </div>
 </div>
 
 <div id="lightbox" class="lightbox" hidden>

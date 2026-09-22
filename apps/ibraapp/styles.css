@@ -168,6 +168,14 @@ input:focus,textarea:focus{outline:2px solid var(--accent-dark);outline-offset:1
 .modal-body{padding:16px;overflow-y:auto;display:grid;gap:12px}
 .modal-body label{display:grid;gap:5px;font-size:.82rem;color:var(--muted);font-weight:700}
 .modal-hint{color:var(--muted);font-size:.8rem;margin:4px 0 0}
+.incoming-call-modal{width:min(320px,92vw);z-index:90;animation:call-pop .25s ease-out}
+@keyframes call-pop{from{transform:translate(-50%,-50%) scale(.9);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+.incoming-call-body{display:flex;flex-direction:column;align-items:center;gap:6px;padding:28px 20px}
+.incoming-call-body strong{font-size:1.1rem;margin-top:8px}
+.incoming-call-body small{color:var(--muted)}
+.incoming-call-actions{display:flex;gap:24px;margin-top:20px}
+.incoming-call-actions .call-ctrl-btn{width:58px;height:58px;font-size:1.3rem}
+.incoming-call-actions .accept{background:var(--ok);color:#03251d}
 .contact-list{display:grid;gap:2px;max-height:260px;overflow-y:auto}
 .contact-row{display:flex;align-items:center;gap:10px;padding:8px;border-radius:8px;cursor:pointer}
 .contact-row:hover{background:var(--panel3)}
