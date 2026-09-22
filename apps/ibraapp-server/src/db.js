@@ -1,73 +1,80 @@
-import Database from 'better-sqlite3';
-import path from 'node:path';
-import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import pg from 'pg';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const storageRoot = process.env.IBRAAPP_STORAGE_DIR || path.join(__dirname, '..');
-const dataDir = path.join(storageRoot, 'data');
-fs.mkdirSync(dataDir, { recursive: true });
+const { Pool } = pg;
 
-export const db = new Database(path.join(dataDir, 'ibraapp.db'));
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required (a Supabase/Postgres connection string).');
+}
 
-db.exec(`
-CREATE TABLE IF NOT EXISTS users (
-  email TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  password_hash TEXT NOT NULL,
-  avatar_data TEXT,
-  avatar_color TEXT,
-  status_text TEXT DEFAULT '',
-  show_online INTEGER DEFAULT 1,
-  show_read_receipts INTEGER DEFAULT 1,
-  online INTEGER DEFAULT 0,
-  is_bot INTEGER DEFAULT 0,
-  bot_replies TEXT,
-  created_at INTEGER NOT NULL
-);
+const isLocalDb = /localhost|127\.0\.0\.1/.test(process.env.DATABASE_URL);
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: isLocalDb ? false : { rejectUnauthorized: false },
+});
 
-CREATE TABLE IF NOT EXISTS chats (
-  id TEXT PRIMARY KEY,
-  type TEXT NOT NULL,
-  name TEXT,
-  avatar_color TEXT,
-  created_by TEXT,
-  created_at INTEGER NOT NULL,
-  disappearing INTEGER,
-  pinned_message_ids TEXT DEFAULT '[]'
-);
+export const query = (text, params) => pool.query(text, params);
+export const dbGet = async (text, params) => (await pool.query(text, params)).rows[0];
+export const dbAll = async (text, params) => (await pool.query(text, params)).rows;
+export const dbRun = async (text, params) => { await pool.query(text, params); };
 
-CREATE TABLE IF NOT EXISTS chat_members (
-  chat_id TEXT NOT NULL REFERENCES chats(id),
-  email TEXT NOT NULL REFERENCES users(email),
-  is_admin INTEGER DEFAULT 0,
-  pinned INTEGER DEFAULT 0,
-  muted INTEGER DEFAULT 0,
-  archived INTEGER DEFAULT 0,
-  deleted_for INTEGER DEFAULT 0,
-  left_chat INTEGER DEFAULT 0,
-  PRIMARY KEY (chat_id, email)
-);
+export async function initSchema() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      email TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      avatar_data TEXT,
+      avatar_color TEXT,
+      status_text TEXT DEFAULT '',
+      show_online BOOLEAN DEFAULT TRUE,
+      show_read_receipts BOOLEAN DEFAULT TRUE,
+      online BOOLEAN DEFAULT FALSE,
+      is_bot BOOLEAN DEFAULT FALSE,
+      bot_replies JSONB,
+      created_at BIGINT NOT NULL
+    );
 
-CREATE TABLE IF NOT EXISTS messages (
-  id TEXT PRIMARY KEY,
-  chat_id TEXT NOT NULL,
-  sender TEXT NOT NULL,
-  type TEXT NOT NULL,
-  text TEXT DEFAULT '',
-  attachment TEXT,
-  reply_to TEXT,
-  poll TEXT,
-  call TEXT,
-  reactions TEXT DEFAULT '{}',
-  read_by TEXT DEFAULT '[]',
-  edited INTEGER DEFAULT 0,
-  deleted INTEGER DEFAULT 0,
-  created_at INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
-`);
+    CREATE TABLE IF NOT EXISTS chats (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      name TEXT,
+      avatar_color TEXT,
+      created_by TEXT,
+      created_at BIGINT NOT NULL,
+      disappearing BIGINT,
+      pinned_message_ids JSONB DEFAULT '[]'
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_members (
+      chat_id TEXT NOT NULL REFERENCES chats(id),
+      email TEXT NOT NULL REFERENCES users(email),
+      is_admin BOOLEAN DEFAULT FALSE,
+      pinned BOOLEAN DEFAULT FALSE,
+      muted BOOLEAN DEFAULT FALSE,
+      archived BOOLEAN DEFAULT FALSE,
+      deleted_for BOOLEAN DEFAULT FALSE,
+      left_chat BOOLEAN DEFAULT FALSE,
+      PRIMARY KEY (chat_id, email)
+    );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id TEXT PRIMARY KEY,
+      chat_id TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      type TEXT NOT NULL,
+      text TEXT DEFAULT '',
+      attachment JSONB,
+      reply_to TEXT,
+      poll JSONB,
+      call JSONB,
+      reactions JSONB DEFAULT '{}',
+      read_by JSONB DEFAULT '[]',
+      edited BOOLEAN DEFAULT FALSE,
+      deleted BOOLEAN DEFAULT FALSE,
+      created_at BIGINT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_chat ON messages(chat_id, created_at);
+  `);
+}
 
 export const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`;
