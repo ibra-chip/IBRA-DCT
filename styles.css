@@ -82,6 +82,10 @@ select[data-project-assignment][multiple]:focus-visible{outline:2px solid var(--
 .legend-rendezvous{color:var(--yellow)}
 .calendar-cell{min-height:52px;padding:7px;border:1px solid #ffffff12;border-radius:10px;background:#071522;color:var(--text);display:grid;place-items:center;text-align:center;cursor:pointer;font:inherit}
 .calendar-cell-weekday{display:none}
+.calendar-day-dot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green)}
+.calendar-cell.entry-pending .calendar-day-dot{background:var(--yellow)}
+.calendar-cell.entry-rejected .calendar-day-dot{background:var(--red)}
+.calendar-cell.has-rendezvous:not(.worked) .calendar-day-dot{background:var(--yellow)}
 .calendar-cell:hover{border-color:#72b9ff66;transform:translateY(-1px)}
 .calendar-cell:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
 .calendar-cell small{font-size:.68rem;color:var(--green)}
