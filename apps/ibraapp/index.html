@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>IbraApp</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><defs><linearGradient id=%22g%22 x1=%220%22 y1=%220%22 x2=%221%22 y2=%221%22><stop offset=%220%22 stop-color=%22%238b7bff%22/><stop offset=%221%22 stop-color=%22%236c5bf2%22/></linearGradient></defs><rect width=%22100%22 height=%22100%22 rx=%2224%22 fill=%22url(%23g)%22/><text x=%2250%22 y=%2268%22 font-size=%2258%22 text-anchor=%22middle%22 fill=%22white%22 font-family=%22sans-serif%22>I</text></svg>" />
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<!-- ===================== AUTH ===================== -->
+<div id="auth-screen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-brand"><span class="auth-logo">I</span><h1>IbraApp</h1><p>Poruke, grupe i pozivi &mdash; samo sa email adresom.</p></div>
+
+    <div class="auth-tabs">
+      <button type="button" class="auth-tab active" data-auth-tab="login">Prijava</button>
+      <button type="button" class="auth-tab" data-auth-tab="register">Registracija</button>
+    </div>
+
+    <form id="login-form" class="auth-form">
+      <label>Email<input type="email" name="email" required autocomplete="username" placeholder="ime@email.com" /></label>
+      <label>Lozinka<input type="password" name="password" required autocomplete="current-password" minlength="4" /></label>
+      <p class="auth-error" id="login-error" role="alert"></p>
+      <button type="submit" class="btn-primary">Prijavi se</button>
+      <div class="auth-demo-hint">Nemaš nalog? Probaj demo: <button type="button" class="link-btn" id="fill-demo">popuni demo podatke</button></div>
+    </form>
+
+    <form id="register-form" class="auth-form" hidden>
+      <label>Ime i prezime<input type="text" name="name" required placeholder="Ibrahim D." /></label>
+      <label>Email<input type="email" name="email" required autocomplete="username" placeholder="ime@email.com" /></label>
+      <label>Lozinka<input type="password" name="password" required autocomplete="new-password" minlength="4" /></label>
+      <label>Status poruka (opciono)<input type="text" name="statusText" placeholder="Dostupan/na" maxlength="60" /></label>
+      <p class="auth-error" id="register-error" role="alert"></p>
+      <button type="submit" class="btn-primary">Napravi nalog</button>
+    </form>
+
+    <p class="auth-note">Prototip radi lokalno u tvom browseru (bez servera za sada) &mdash; podaci ostaju samo na ovom uređaju.</p>
+  </div>
+</div>
+
+<!-- ===================== APP SHELL ===================== -->
+<div id="app-shell" class="app-shell" hidden>
+
+  <aside id="sidebar" class="sidebar">
+    <header class="sidebar-header">
+      <button type="button" class="avatar-btn" id="open-settings" title="Podešavanja"><span class="avatar" id="me-avatar"></span></button>
+      <div class="sidebar-header-actions">
+        <button type="button" class="icon-btn" id="open-new-chat" title="Novi razgovor" aria-label="Novi razgovor">💬</button>
+        <button type="button" class="icon-btn" id="open-new-group" title="Nova grupa" aria-label="Nova grupa">👥</button>
+        <button type="button" class="icon-btn" id="toggle-theme" title="Tema" aria-label="Promijeni temu">🌙</button>
+        <button type="button" class="icon-btn" id="logout-btn" title="Odjava" aria-label="Odjava">⏻</button>
+      </div>
+    </header>
+
+    <div class="sidebar-search">
+      <input type="search" id="chat-search" placeholder="Pretraži razgovore ili poruke" />
+    </div>
+
+    <div class="sidebar-filters">
+      <button type="button" class="filter-chip active" data-filter="all">Sve</button>
+      <button type="button" class="filter-chip" data-filter="unread">Nepročitano</button>
+      <button type="button" class="filter-chip" data-filter="groups">Grupe</button>
+      <button type="button" class="filter-chip" data-filter="pinned">Zakačeno</button>
+      <button type="button" class="filter-chip" data-filter="archived">Arhiva</button>
+    </div>
+
+    <div id="chat-list" class="chat-list"></div>
+  </aside>
+
+  <main id="chat-main" class="chat-main">
+    <div id="chat-empty" class="chat-empty">
+      <div class="chat-empty-icon">💬</div>
+      <h2>IbraApp</h2>
+      <p>Izaberi razgovor sa liste ili započni novi da bi počeo/la sa slanjem poruka.</p>
+    </div>
+
+    <div id="chat-active" class="chat-active" hidden>
+      <header class="chat-header">
+        <button type="button" class="icon-btn mobile-back" id="chat-back" aria-label="Nazad">←</button>
+        <button type="button" class="chat-header-identity" id="open-chat-info">
+          <span class="avatar" id="chat-avatar"></span>
+          <span class="chat-header-text">
+            <strong id="chat-title"></strong>
+            <small id="chat-subtitle"></small>
+          </span>
+        </button>
+        <div class="chat-header-actions">
+          <button type="button" class="icon-btn" id="start-audio-call" title="Audio poziv" aria-label="Audio poziv">📞</button>
+          <button type="button" class="icon-btn" id="start-video-call" title="Video poziv" aria-label="Video poziv">🎥</button>
+          <button type="button" class="icon-btn" id="open-chat-search" title="Pretraga u razgovoru" aria-label="Pretraga u razgovoru">🔎</button>
+          <button type="button" class="icon-btn" id="toggle-mute" title="Utišaj/uključi" aria-label="Utišaj razgovor">🔔</button>
+          <button type="button" class="icon-btn" id="open-chat-info-btn" title="Info o razgovoru" aria-label="Info o razgovoru">ℹ️</button>
+        </div>
+      </header>
+
+      <div class="chat-search-bar" id="chat-search-bar" hidden>
+        <input type="search" id="in-chat-search" placeholder="Traži u ovom razgovoru..." />
+        <button type="button" class="icon-btn" id="close-chat-search" aria-label="Zatvori pretragu">✕</button>
+      </div>
+
+      <div id="pinned-bar" class="pinned-bar" hidden></div>
+
+      <div id="messages" class="messages"></div>
+
+      <div id="typing-indicator" class="typing-indicator" hidden><span></span><span></span><span></span> <small id="typing-who"></small></div>
+
+      <div id="reply-preview" class="reply-preview" hidden>
+        <div class="reply-preview-body">
+          <strong id="reply-preview-name"></strong>
+          <small id="reply-preview-text"></small>
+        </div>
+        <button type="button" class="icon-btn" id="cancel-reply" aria-label="Otkaži odgovor">✕</button>
+      </div>
+
+      <form id="composer" class="composer">
+        <button type="button" class="icon-btn" id="attach-btn" title="Priloži fajl/sliku" aria-label="Priloži fajl">📎</button>
+        <input type="file" id="attach-input" hidden multiple accept="image/*,.pdf,.doc,.docx,.zip,.txt" />
+        <button type="button" class="icon-btn" id="poll-btn" title="Napravi anketu" aria-label="Napravi anketu">📊</button>
+        <button type="button" class="icon-btn" id="emoji-btn" title="Emoji" aria-label="Emoji">🙂</button>
+        <div id="emoji-picker" class="emoji-picker" hidden></div>
+        <textarea id="composer-input" rows="1" placeholder="Unesi poruku" maxlength="4000"></textarea>
+        <button type="button" class="icon-btn record-btn" id="voice-btn" title="Snimi glasovnu poruku" aria-label="Snimi glasovnu poruku">🎤</button>
+        <button type="submit" class="icon-btn send-btn" id="send-btn" title="Pošalji" aria-label="Pošalji">➤</button>
+      </form>
+      <div id="recording-bar" class="recording-bar" hidden>
+        <span class="rec-dot"></span> <span id="recording-time">0:00</span> &mdash; snimanje glasovne poruke...
+        <button type="button" class="link-btn" id="cancel-recording">Otkaži</button>
+        <button type="button" class="btn-primary btn-sm" id="stop-recording">Pošalji</button>
+      </div>
+    </div>
+  </main>
+
+  <!-- Chat info / group panel -->
+  <aside id="chat-info-panel" class="info-panel" hidden>
+    <header class="info-panel-header">
+      <button type="button" class="icon-btn" id="close-chat-info" aria-label="Zatvori">✕</button>
+      <strong>Info o razgovoru</strong>
+    </header>
+    <div class="info-panel-body" id="chat-info-body"></div>
+  </aside>
+</div>
+
+<!-- ===================== CALL SCREEN ===================== -->
+<div id="call-screen" class="call-screen" hidden>
+  <div class="call-top">
+    <div class="call-title"><strong id="call-title-name"></strong><small id="call-status-text">Pozivanje...</small></div>
+    <button type="button" class="icon-btn call-chat-toggle" id="toggle-call-chat" title="Chat tokom poziva" aria-label="Chat tokom poziva">💬</button>
+  </div>
+
+  <div id="call-video-grid" class="call-video-grid"></div>
+
+  <div id="call-reactions-layer" class="call-reactions-layer"></div>
+
+  <div id="call-chat-panel" class="call-chat-panel" hidden>
+    <div class="call-chat-header"><strong>Chat tokom poziva</strong><button type="button" class="icon-btn" id="close-call-chat" aria-label="Zatvori">✕</button></div>
+    <div id="call-chat-messages" class="call-chat-messages"></div>
+    <form id="call-chat-form" class="call-chat-form">
+      <input type="text" id="call-chat-input" placeholder="Poruka tokom poziva..." maxlength="500" autocomplete="off" />
+      <button type="submit" class="icon-btn send-btn" aria-label="Pošalji">➤</button>
+    </form>
+  </div>
+
+  <div class="call-reaction-bar hidden" id="call-reaction-bar">
+    <button type="button" data-call-react="❤️">❤️</button>
+    <button type="button" data-call-react="👍">👍</button>
+    <button type="button" data-call-react="😂">😂</button>
+    <button type="button" data-call-react="🎉">🎉</button>
+    <button type="button" data-call-react="👏">👏</button>
+  </div>
+
+  <div class="call-controls">
+    <button type="button" class="call-ctrl-btn" id="call-toggle-mic" title="Mikrofon" aria-label="Isključi/uključi mikrofon">🎤</button>
+    <button type="button" class="call-ctrl-btn" id="call-toggle-cam" title="Kamera" aria-label="Isključi/uključi kameru">🎥</button>
+    <button type="button" class="call-ctrl-btn" id="call-toggle-share" title="Podijeli ekran" aria-label="Podijeli ekran">🖥️</button>
+    <button type="button" class="call-ctrl-btn" id="call-toggle-reactions" title="Reakcije" aria-label="Reakcije">😊</button>
+    <button type="button" class="call-ctrl-btn call-end-btn" id="call-end" title="Prekini poziv" aria-label="Prekini poziv">☎️</button>
+  </div>
+</div>
+
+<!-- ===================== MODALS ===================== -->
+<div id="modal-backdrop" class="modal-backdrop" hidden></div>
+
+<div id="new-chat-modal" class="modal" hidden>
+  <header><strong>Novi razgovor</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
+  <div class="modal-body">
+    <input type="email" id="new-chat-email" placeholder="Unesi email kontakta" />
+    <button type="button" class="btn-primary" id="new-chat-start">Započni razgovor</button>
+    <p class="modal-hint">Ili izaberi iz demo kontakata:</p>
+    <div id="demo-contact-list" class="contact-list"></div>
+  </div>
+</div>
+
+<div id="new-group-modal" class="modal" hidden>
+  <header><strong>Nova grupa</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
+  <div class="modal-body">
+    <label>Naziv grupe<input type="text" id="group-name-input" maxlength="60" placeholder="npr. Ekipa" /></label>
+    <p class="modal-hint">Izaberi članove:</p>
+    <div id="group-member-list" class="contact-list"></div>
+    <button type="button" class="btn-primary" id="create-group-btn">Napravi grupu</button>
+  </div>
+</div>
+
+<div id="settings-modal" class="modal" hidden>
+  <header><strong>Podešavanja</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
+  <div class="modal-body">
+    <div class="settings-profile">
+      <span class="avatar avatar-lg" id="settings-avatar"></span>
+      <label class="link-btn">Promijeni sliku<input type="file" id="avatar-input" accept="image/*" hidden /></label>
+    </div>
+    <label>Ime<input type="text" id="settings-name" maxlength="60" /></label>
+    <label>Status poruka<input type="text" id="settings-status" maxlength="60" /></label>
+    <label>Email<input type="text" id="settings-email" disabled /></label>
+    <label class="settings-toggle"><input type="checkbox" id="settings-read-receipts" /> Prikazuj potvrdu čitanja (plave kvačice)</label>
+    <label class="settings-toggle"><input type="checkbox" id="settings-online-status" /> Prikazuj status "online"</label>
+    <button type="button" class="btn-primary" id="save-settings">Sačuvaj</button>
+  </div>
+</div>
+
+<div id="poll-modal" class="modal" hidden>
+  <header><strong>Nova anketa</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
+  <div class="modal-body">
+    <label>Pitanje<input type="text" id="poll-question" maxlength="120" placeholder="Kada radimo sastanak?" /></label>
+    <div id="poll-options-list" class="poll-options-list"></div>
+    <button type="button" class="link-btn" id="poll-add-option">+ Dodaj opciju</button>
+    <button type="button" class="btn-primary" id="poll-create-btn">Napravi anketu</button>
+  </div>
+</div>
+
+<div id="msg-info-modal" class="modal" hidden>
+  <header><strong>Info o poruci</strong><button type="button" class="icon-btn close-modal" aria-label="Zatvori">✕</button></header>
+  <div class="modal-body" id="msg-info-body"></div>
+</div>
+
+<div id="lightbox" class="lightbox" hidden>
+  <button type="button" class="icon-btn" id="close-lightbox" aria-label="Zatvori">✕</button>
+  <img id="lightbox-img" alt="" />
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
