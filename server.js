@@ -1205,6 +1205,7 @@ app.get('/api/push/public-key', (_request, response) => response.json({
 		privatePresent: Boolean(vapidPrivateKey),
 		privateLength: vapidPrivateKey.length,
 		privateValidChars: vapidKeyPattern.test(vapidPrivateKey),
+		envKeysContainingVapid: Object.keys(process.env).filter((key) => key.toUpperCase().includes('VAPID')).map((key) => JSON.stringify(key)),
 	},
 }));
 app.post('/api/push/subscribe', auth, async (request, response) => {
