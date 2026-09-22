@@ -1195,7 +1195,18 @@ app.post('/api/messages/read', auth, async (request, response) => {
 	if (updatedIds.length) await writeData(data);
 	response.json({ updated: updatedIds });
 });
-app.get('/api/push/public-key', (_request, response) => response.json({ publicKey: vapidPublicKey, enabled: pushEnabled }));
+app.get('/api/push/public-key', (_request, response) => response.json({
+	publicKey: vapidPublicKey,
+	enabled: pushEnabled,
+	debug: {
+		publicPresent: Boolean(vapidPublicKey),
+		publicLength: vapidPublicKey.length,
+		publicValidChars: vapidKeyPattern.test(vapidPublicKey),
+		privatePresent: Boolean(vapidPrivateKey),
+		privateLength: vapidPrivateKey.length,
+		privateValidChars: vapidKeyPattern.test(vapidPrivateKey),
+	},
+}));
 app.post('/api/push/subscribe', auth, async (request, response) => {
 	const subscription = request.body.subscription;
 	if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) return response.status(400).json({ error: 'Invalid push subscription' });
