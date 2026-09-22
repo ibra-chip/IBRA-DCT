@@ -16,6 +16,23 @@ import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } f
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import webpush from 'web-push';
+
+const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
+const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
+const pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey);
+if (pushEnabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contact@ibra-ba.net', vapidPublicKey, vapidPrivateKey);
+async function sendPushToUser(data, userId, payload) {
+	if (!pushEnabled) return;
+	const subscriptions = (data.pushSubscriptions || []).filter((item) => item.userId === userId);
+	if (!subscriptions.length) return;
+	const expired = [];
+	await Promise.all(subscriptions.map(async (subscription) => {
+		try { await webpush.sendNotification(subscription.subscription, JSON.stringify(payload)); }
+		catch (error) { if (error.statusCode === 404 || error.statusCode === 410) expired.push(subscription.endpoint); }
+	}));
+	if (expired.length) data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => !expired.includes(item.endpoint));
+}
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
@@ -1145,6 +1162,7 @@ app.post('/api/messages', auth, async (request, response) => {
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(request.body.projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
 	data.messages.push(message); await writeData(data);
+	await sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {});
 	response.status(201).json(message);
 });
 app.delete('/api/messages/:id', auth, async (request, response) => {
@@ -1165,6 +1183,23 @@ app.post('/api/messages/read', auth, async (request, response) => {
 	});
 	if (updatedIds.length) await writeData(data);
 	response.json({ updated: updatedIds });
+});
+app.get('/api/push/public-key', (_request, response) => response.json({ publicKey: vapidPublicKey, enabled: pushEnabled }));
+app.post('/api/push/subscribe', auth, async (request, response) => {
+	const subscription = request.body.subscription;
+	if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) return response.status(400).json({ error: 'Invalid push subscription' });
+	const data = await readData();
+	data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => item.endpoint !== subscription.endpoint);
+	data.pushSubscriptions.push({ userId: request.user.sub, endpoint: subscription.endpoint, subscription, createdAt: new Date().toISOString() });
+	await writeData(data);
+	response.status(201).json({ subscribed: true });
+});
+app.post('/api/push/unsubscribe', auth, async (request, response) => {
+	const endpoint = String(request.body.endpoint || '');
+	const data = await readData();
+	data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => !(item.endpoint === endpoint && item.userId === request.user.sub));
+	await writeData(data);
+	response.json({ unsubscribed: true });
 });
 const dateOnlyTimestamp = (value) => {
 	const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);

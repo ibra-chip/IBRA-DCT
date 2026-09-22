@@ -958,6 +958,26 @@ document.addEventListener('DOMContentLoaded', () => {
 		unreadMessageCount = 0;
 		setChatBadge(0);
 	}
+	function urlBase64ToUint8Array(base64String) {
+		const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+		const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+		const rawData = window.atob(base64);
+		return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+	}
+	async function setupPushNotifications() {
+		if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+		try {
+			const { publicKey, enabled } = await request('/push/public-key');
+			if (!enabled || !publicKey) return;
+			const registration = await navigator.serviceWorker.register('/sw.js');
+			let permission = Notification.permission;
+			if (permission === 'default') permission = await Notification.requestPermission();
+			if (permission !== 'granted') return;
+			let subscription = await registration.pushManager.getSubscription();
+			if (!subscription) subscription = await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(publicKey) });
+			await request('/push/subscribe', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ subscription: subscription.toJSON() }) });
+		} catch { /* push notifications unavailable, ignore silently */ }
+	}
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);
 	const polygonArea3d = (points) => {
 		if (points.length < 3) return 0;
@@ -1727,6 +1747,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			currentUser = result.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
 			await loadInitialData();
 			startMessagePolling();
+			setupPushNotifications();
 		} catch { localStorage.removeItem('ibra-auth-token'); }
 	};
 	document.querySelector('#choose-login')?.addEventListener('click', showLogin);
@@ -1753,7 +1774,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (loginForm.elements.role && data.role) loginForm.elements.role.value = data.role;
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
-		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); startMessagePolling(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'L’e-mail/téléphone ou le mot de passe est incorrect.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
+		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); startMessagePolling(); setupPushNotifications(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'L’e-mail/téléphone ou le mot de passe est incorrect.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
 	document.querySelector('#forgot-password')?.addEventListener('click', () => { document.querySelector('#reset-request-panel')?.removeAttribute('hidden'); document.querySelector('#reset-contact')?.focus(); });
 	document.querySelector('#send-reset')?.addEventListener('click', async () => {
 			const contact = String(document.querySelector('#reset-contact')?.value || '').trim();
