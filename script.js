@@ -359,7 +359,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
 	});
 	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && companyIdentityModal && !companyIdentityModal.hidden) closeCompanyIdentityEditor(); });
-	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; };
+	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); } };
 	const applyRole = (role) => {
 		const access = {
 			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
@@ -922,6 +922,42 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	}
 	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); latestChatMessages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); renderChatThread(); await loadRendezvous(); }
+	let unreadMessageCount = 0;
+	let messagePollTimer = null;
+	function setChatBadge(count) {
+		const navButton = document.querySelector('[data-view="tasks-view"]');
+		if (!navButton) return;
+		let badge = navButton.querySelector('.nav-badge');
+		if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; navButton.append(badge); }
+		badge.textContent = count > 9 ? '9+' : String(count);
+		badge.hidden = count <= 0;
+	}
+	async function pollForNewMessages() {
+		if (!token()) return;
+		try {
+			const activeProject = currentProjectId();
+			const messages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject);
+			const currentUserId = currentUser?.id || currentUser?.sub;
+			const previousIds = new Set(latestChatMessages.map((item) => item.id));
+			const newIncoming = messages.filter((item) => !previousIds.has(item.id) && item.type !== 'rendezvous-notification' && item.senderId !== currentUserId);
+			latestChatMessages = messages;
+			const tasksActive = document.querySelector('#tasks-view')?.classList.contains('active');
+			if (tasksActive) renderChatThread();
+			if (newIncoming.length) {
+				newIncoming.forEach((item) => toast(`💬 ${item.senderName} : ${item.text.length > 60 ? `${item.text.slice(0, 60)}…` : item.text}`));
+				if (!tasksActive) { unreadMessageCount += newIncoming.length; setChatBadge(unreadMessageCount); }
+			}
+		} catch { /* silent retry on next tick */ }
+	}
+	function startMessagePolling() {
+		if (messagePollTimer) return;
+		messagePollTimer = setInterval(pollForNewMessages, 6000);
+	}
+	function stopMessagePolling() {
+		if (messagePollTimer) { clearInterval(messagePollTimer); messagePollTimer = null; }
+		unreadMessageCount = 0;
+		setChatBadge(0);
+	}
 	const pointDistance = (first, second) => Math.hypot(first.x - second.x, first.y - second.y, first.z - second.z);
 	const polygonArea3d = (points) => {
 		if (points.length < 3) return 0;
@@ -1690,6 +1726,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const result = await request('/me');
 			currentUser = result.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
 			await loadInitialData();
+			startMessagePolling();
 		} catch { localStorage.removeItem('ibra-auth-token'); }
 	};
 	document.querySelector('#choose-login')?.addEventListener('click', showLogin);
@@ -1716,7 +1753,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (loginForm.elements.role && data.role) loginForm.elements.role.value = data.role;
 		} catch (error) { message.textContent = error.message || 'Inscription impossible.'; }
 	});
-		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'L’e-mail/téléphone ou le mot de passe est incorrect.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
+		document.querySelector('#login-form').addEventListener('submit', async (event) => { event.preventDefault(); const form = new FormData(event.currentTarget); const submitButton = event.currentTarget.querySelector('button[type="submit"]'); const errorTarget = document.querySelector('#login-error'); errorTarget.textContent = ''; submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); try { const result = await fetch(`${api}/auth/login`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(Object.fromEntries(form.entries())) }); if (!result.ok) { const details = await result.json().catch(() => ({})); const error = new Error(details.error || 'Login failed'); error.status = result.status; throw error; } const data = await result.json(); localStorage.setItem('ibra-auth-token', data.token); currentUser = data.user; applyRole(currentUser.role); setupWorkerSelfProfile(); showView(document.querySelector('.view.active')?.id || 'dashboard-view'); loginModal.classList.add('hidden'); document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`; await loadInitialData(); startMessagePolling(); } catch (error) { errorTarget.textContent = error.status === 403 ? 'Izabrani profil ne odgovara ovom nalogu.' : 'L’e-mail/téléphone ou le mot de passe est incorrect.'; } finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } });
 	document.querySelector('#forgot-password')?.addEventListener('click', () => { document.querySelector('#reset-request-panel')?.removeAttribute('hidden'); document.querySelector('#reset-contact')?.focus(); });
 	document.querySelector('#send-reset')?.addEventListener('click', async () => {
 			const contact = String(document.querySelector('#reset-contact')?.value || '').trim();
@@ -1736,7 +1773,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; loginForm.hidden = true; resetForm.hidden = false;
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
-	document.querySelector('#logout-button').addEventListener('click', () => { localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
+	document.querySelector('#logout-button').addEventListener('click', () => { stopMessagePolling(); localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const form = event.currentTarget;

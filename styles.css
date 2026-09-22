@@ -371,6 +371,8 @@ button.worker-status:hover:not(:disabled){transform:scale(1.04)}
 input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible{outline:2px solid #72b9ff88;outline-offset:2px}
 .chat-bubble{transition:transform .12s ease}
 ::placeholder{color:#9fb3c980}
+.nav-badge{position:absolute;top:6px;right:8px;min-width:18px;height:18px;padding:0 5px;border-radius:999px;background:var(--red);color:#fff;font-size:.66rem;font-weight:800;display:flex;align-items:center;justify-content:center;box-shadow:0 0 0 2px #071321;animation:navBadgePop .2s ease}
+@keyframes navBadgePop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
 body{background:radial-gradient(circle at 15% -10%,#2a5c8a55 0,transparent 45%),radial-gradient(circle at 100% 0,#31d3a422 0,transparent 40%),radial-gradient(circle at 20% 0,#163a59 0,#08131f 32%,#07111d 100%)}
 header{position:relative;overflow:hidden;border-color:#72b9ff2a}
 header::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--blue),var(--green),var(--yellow),var(--red))}
