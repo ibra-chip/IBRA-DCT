@@ -141,3 +141,27 @@ services:
         value: 3000
       - key: API_ORIGIN
         value: https://ibra-ba-api.onrender.com
+
+  # IbraApp messenger (chat + WebRTC calls). Standalone service, own SQLite data.
+  # Needs a paid plan (not "free") because the persistent disk below, which is
+  # what keeps accounts/messages/uploads across deploys and restarts, is not
+  # available on Render's free tier.
+  - type: web
+    name: ibra-app
+    runtime: node
+    branch: main
+    plan: starter
+    buildCommand: npm ci --include=dev
+    startCommand: npm run start --workspace @ibra-ba/ibraapp-server
+    healthCheckPath: /api/health
+    disk:
+      name: ibra-app-storage
+      mountPath: /opt/render/project/src/apps/ibraapp-server/storage
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: IBRAAPP_STORAGE_DIR
+        value: /opt/render/project/src/apps/ibraapp-server/storage
+      - key: IBRAAPP_JWT_SECRET
+        sync: false

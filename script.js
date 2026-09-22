@@ -1301,6 +1301,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!year || !monthNumber) return month;
 		return new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, monthNumber - 1, 1)));
 	};
+	const shiftMonthKey = (month, delta) => {
+		const [year, monthNumber] = String(month || '').split('-').map(Number);
+		const shifted = new Date(year, (monthNumber - 1) + delta, 1);
+		return `${shifted.getFullYear()}-${String(shifted.getMonth() + 1).padStart(2, '0')}`;
+	};
+	let workCalendarViewMonth = '';
 	const timePrefsKey = () => `ibra-time-prefs-${currentUser?.id || 'default'}`;
 	const loadTimePrefs = () => {
 		try { return JSON.parse(localStorage.getItem(timePrefsKey()) || '{}'); } catch { return {}; }
@@ -1365,7 +1371,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (form.dataset.autoCalculation !== 'ready') {
 			form.dataset.autoCalculation = 'ready';
 			['date', 'start', 'end', 'breakMinutes', 'rate', 'rateType', 'workerId'].forEach((name) => form.elements[name]?.addEventListener('input', () => { updateTimeLiveCalculation(); saveTimePrefs(form); }));
-			form.elements.date?.addEventListener('input', () => { const month = monthKeyFromDate(form.elements.date.value); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value, latestRendezvous); renderWorkerMonthSummary(month); });
+			form.elements.date?.addEventListener('input', () => { workCalendarViewMonth = ''; const month = monthKeyFromDate(form.elements.date.value); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value, latestRendezvous); renderWorkerMonthSummary(month); });
 			form.elements.workerId?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); const month = monthKeyFromDate(form.elements.date.value); renderWorkCalendar(latestOwnTimeEntries, form.elements.date.value, latestRendezvous); renderWorkerMonthSummary(month); updateTimeLiveCalculation(); saveTimePrefs(form); });
 			form.elements.rateType?.addEventListener('change', () => { form.elements.rate.value = ''; fillDefaultRate(); updateTimeLiveCalculation(); });
 		}
@@ -1410,7 +1416,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		const activeProject = currentProjectId();
 		const visibleEntries = (entries || []).filter((entry) => !selectedWorkerId || entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
 		const visibleRendezvous = (rendezvous || []).filter((item) => (!selectedWorkerId || item.workerId === selectedWorkerId) && (!activeProject || item.projectId === activeProject));
-		const month = monthKeyFromDate(selectedDate);
+		const todayKey = new Date().toISOString().slice(0, 10);
+		const month = workCalendarViewMonth || monthKeyFromDate(selectedDate);
 		const [year, monthNumber] = month.split('-').map(Number);
 		const first = new Date(year, monthNumber - 1, 1);
 		const last = new Date(year, monthNumber, 0);
@@ -1440,14 +1447,21 @@ document.addEventListener('DOMContentLoaded', () => {
 			const addRdvButton = `<button type="button" class="calendar-quick-edit calendar-add-rdv" data-add-rdv="${date}" title="Ajouter un RDV/absence pour ${date}">+RDV</button>`;
 			const marker = hoursButton + rdvButtons + addRdvButton;
 			const entryStatusClass = entry ? ` entry-${entry.status === 'approved' ? 'approved' : entry.status === 'rejected' ? 'rejected' : 'pending'}` : '';
-			cells += `<div class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${dayRendezvous.length ? ' has-rendezvous' : ''}" data-work-date="${date}" tabindex="0" role="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}<span class="calendar-cell-weekday">${weekdayAbbrFr[weekday]}</span></strong>${marker}</div>`;
+			const todayClass = date === todayKey ? ' today' : '';
+			cells += `<div class="calendar-cell${weekend ? ' weekend' : ''}${entry ? ' worked' : ''}${entryStatusClass}${dayRendezvous.length ? ' has-rendezvous' : ''}${todayClass}" data-work-date="${date}" tabindex="0" role="button" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${date}: ${title}`)}"><strong>${day}<span class="calendar-cell-weekday">${weekdayAbbrFr[weekday]}</span></strong>${marker}</div>`;
 		}
 		const workedDays = new Set(monthEntries.map((entry) => entry.date)).size;
 		const monthHours = monthEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 		const monthAmount = monthEntries.reduce((sum, entry) => sum + Number(entry.workAmount || 0), 0);
 		const rendezvousDays = rendezvousByDate.size;
 		const monthLabel = formatMonthLabel(month);
-		target.innerHTML = `<div class="work-calendar-head"><strong>Calendrier des jours travaillés · ${escapeHtml(monthLabel)}</strong><small>Jours ouvrés : ${workingDays} · Saisis : ${workedDays} · ${monthHours.toFixed(2)} h · ${formatEUR(monthAmount)} · RDV : ${rendezvousDays}</small></div><div class="calendar-hint">Cliquez sur un jour pour saisir les heures directement depuis le calendrier. Jaune = en attente d’approbation du gérant, vert = approuvé. <span class="calendar-legend"><span class="legend-work">Travail</span> · <span class="legend-rendezvous">RDV / absence</span></span></div><div class="calendar-weekdays"><span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span></div><div class="calendar-grid">${cells}</div>`;
+		const isCurrentMonth = month === monthKeyFromDate(todayKey);
+		target.innerHTML = `<div class="work-calendar-head"><div class="calendar-title"><small>Calendrier des jours travaillés</small><div class="calendar-nav"><button type="button" class="calendar-nav-btn" data-calendar-nav="prev" aria-label="Mois précédent">‹</button><strong class="calendar-month-label">${escapeHtml(monthLabel)}</strong><button type="button" class="calendar-nav-btn" data-calendar-nav="next" aria-label="Mois suivant">›</button></div></div><button type="button" class="calendar-nav-today"${isCurrentMonth ? ' disabled' : ''} data-calendar-nav="today">Aujourd’hui</button></div><div class="calendar-stats"><span class="calendar-stat"><strong>${workingDays}</strong><small>Jours ouvrés</small></span><span class="calendar-stat"><strong>${workedDays}</strong><small>Saisis</small></span><span class="calendar-stat"><strong>${monthHours.toFixed(2)} h</strong><small>Heures</small></span><span class="calendar-stat"><strong>${formatEUR(monthAmount)}</strong><small>Montant</small></span><span class="calendar-stat"><strong>${rendezvousDays}</strong><small>RDV</small></span></div><div class="calendar-hint">Cliquez sur un jour pour saisir les heures directement depuis le calendrier. Jaune = en attente d’approbation du gérant, vert = approuvé. <span class="calendar-legend"><span class="legend-work">Travail</span> · <span class="legend-rendezvous">RDV / absence</span></span></div><div class="calendar-weekdays"><span>Lun</span><span>Mar</span><span>Mer</span><span>Jeu</span><span>Ven</span><span>Sam</span><span>Dim</span></div><div class="calendar-grid">${cells}</div>`;
+		target.querySelectorAll('[data-calendar-nav]').forEach((button) => button.addEventListener('click', () => {
+			const action = button.dataset.calendarNav;
+			workCalendarViewMonth = action === 'today' ? monthKeyFromDate(todayKey) : shiftMonthKey(month, action === 'prev' ? -1 : 1);
+			renderWorkCalendar(entries, selectedDate, rendezvous);
+		}));
 		target.querySelectorAll('[data-work-date]').forEach((cell) => {
 			const selectDay = async () => {
 				const form = document.querySelector('#time-form');
