@@ -18,10 +18,14 @@ import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFil
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
-const vapidPublicKey = process.env.VAPID_PUBLIC_KEY || '';
-const vapidPrivateKey = process.env.VAPID_PRIVATE_KEY || '';
-const pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey);
-if (pushEnabled) webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contact@ibra-ba.net', vapidPublicKey, vapidPrivateKey);
+const vapidPublicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+const vapidPrivateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+const vapidKeyPattern = /^[A-Za-z0-9_-]+$/;
+let pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey && vapidKeyPattern.test(vapidPublicKey) && vapidKeyPattern.test(vapidPrivateKey));
+if (pushEnabled) {
+	try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contact@ibra-ba.net', vapidPublicKey, vapidPrivateKey); }
+	catch (error) { console.error('VAPID keys invalid, push notifications disabled:', error.message); pushEnabled = false; }
+}
 async function sendPushToUser(data, userId, payload) {
 	if (!pushEnabled) return;
 	const subscriptions = (data.pushSubscriptions || []).filter((item) => item.userId === userId);
