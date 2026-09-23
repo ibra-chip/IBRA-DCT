@@ -1506,9 +1506,14 @@ document.addEventListener('DOMContentLoaded', () => {
 			event.stopPropagation();
 			await deleteRdvEntryDirect(button.dataset.deleteRdv, refreshActiveView);
 		}));
+		const fallbackProjectId = activeProject || currentUser?.projectIds?.[0];
 		target.querySelectorAll('[data-add-rdv]').forEach((button) => button.addEventListener('click', (event) => {
 			event.stopPropagation();
-			openRdvCreateQuickEdit(button, { date: button.dataset.addRdv, projectId: activeProject, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
+			openRdvCreateQuickEdit(button, { date: button.dataset.addRdv, projectId: fallbackProjectId, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
+		}));
+		target.querySelectorAll('[data-add-absence]').forEach((button) => button.addEventListener('click', (event) => {
+			event.stopPropagation();
+			openAbsenceCreateQuickEdit(button, { date: button.dataset.addAbsence, projectId: fallbackProjectId, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
 		}));
 	}
 	function ensureWorkerMonthSummaryPanel() {
