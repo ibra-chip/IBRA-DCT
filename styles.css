@@ -201,8 +201,10 @@ body:has(#login-modal:not(.hidden)){overflow:hidden}body:has(#login-modal:not(.h
 #dashboard-view .risk-red .risk-state{color:var(--red);background:#f77d7d14}
 #dashboard-view .risk-orange .risk-state{color:var(--yellow);background:#f4c86f14}
 #dashboard-view .risk-green .risk-state{color:var(--green);background:#31d3a414}
-#dashboard-view .cards{grid-template-columns:repeat(5,minmax(0,1fr));gap:0;border:1px solid var(--roster-line);border-radius:14px;overflow:hidden;background:#0b1b2c}
-#dashboard-view .cards article{min-height:98px;padding:17px 16px;border:0;border-right:1px solid var(--roster-line);border-radius:0;background:transparent;box-shadow:none}
+#dashboard-view .cards{grid-template-columns:repeat(3,minmax(0,1fr));gap:0;border:1px solid var(--roster-line);border-radius:14px;overflow:hidden;background:#0b1b2c}
+#dashboard-view .cards article{min-height:98px;padding:17px 16px;border:0;border-right:1px solid var(--roster-line);border-bottom:1px solid var(--roster-line);border-radius:0;background:transparent;box-shadow:none}
+#dashboard-view .cards article:nth-child(3n){border-right:0}
+#dashboard-view .cards article:nth-child(n+4){border-bottom:0}
 #dashboard-view .cards article:last-child{border-right:0}
 #dashboard-view .cards article small{font-size:.73rem;line-height:1.3}
 #dashboard-view .cards article strong{font-size:1.65rem;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
@@ -315,11 +317,9 @@ input:hover,select:hover,textarea:hover{border-color:var(--border-strong)}
 	#dashboard-view .risk-action{grid-column:1;margin-top:3px}
 	#dashboard-view .cards{grid-template-columns:repeat(2,minmax(0,1fr));border-radius:14px}
 	#dashboard-view .cards article{min-height:82px;padding:14px 13px}
-	#dashboard-view .cards article:nth-child(2){border-right:0}
-	#dashboard-view .cards article:nth-child(n+3){border-top:1px solid var(--roster-line)}
-	#dashboard-view .cards article:last-child{grid-column:1/-1}
+	#dashboard-view .cards article:nth-child(2n){border-right:0}
+	#dashboard-view .cards article:nth-child(n+5){border-bottom:0}
 }
-@media(min-width:851px){#dashboard-view .cards article:last-child{min-width:170px}}
 .list{display:grid;gap:10px}
 .list-item{padding:16px 18px;transition:border-color .15s ease,background .15s ease,transform .1s ease}
 .list-item:has(button,a):hover{transform:translateY(-1px)}
