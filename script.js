@@ -180,8 +180,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	new MutationObserver(() => { translateRuntimeText(); repairEncoding(); }).observe(document.body, { childList: true, subtree: true });
 	const escapeHtml = (value) => String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 	const workerInitials = (name) => String(name || '').trim().split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0].toUpperCase()).join('') || '?';
-	const paintIdentityToken = (el, url, label) => { if (!el) return; el.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" />` : escapeHtml(workerInitials(label)); };
-	const identityTokenHtml = (url, name, classNames) => `<span class="${classNames} ${classNames.split(' ')[0]}--initials">${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" />` : escapeHtml(workerInitials(name))}</span>`;
+	window.handleAvatarImgError = (img) => { const holder = img.closest('span') || img.parentElement; if (holder) holder.textContent = img.dataset.initials || '?'; };
+	const paintIdentityToken = (el, url, label) => { if (!el) return; const initials = escapeHtml(workerInitials(label)); el.innerHTML = url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" data-initials="${initials}" onerror="window.handleAvatarImgError(this)" />` : initials; };
+	const identityTokenHtml = (url, name, classNames) => { const initials = escapeHtml(workerInitials(name)); return `<span class="${classNames} ${classNames.split(' ')[0]}--initials">${url ? `<img src="${escapeHtml(url)}" alt="" loading="lazy" data-initials="${initials}" onerror="window.handleAvatarImgError(this)" />` : initials}</span>`; };
 	const formValues = (form) => {
 		const values = Object.fromEntries(new FormData(form).entries());
 		if (form.elements.projectIds) values.projectIds = [...form.elements.projectIds.selectedOptions].map((option) => option.value).filter(Boolean);
