@@ -1650,24 +1650,27 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
-app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
+app.get('/api/documents', auth, async (request, response) => {
+	const data = await readData();
+	response.json(data.documents.filter((document) => canAccessProject(data, request.user, document.projectId)));
+});
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	item.originalName = name; item.renamedAt = new Date().toISOString(); item.renamedBy = request.user.sub;
 	await writeData(data); response.json(item);
 });
 app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
-	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id);
 	if (!source) return response.status(404).json({ error: 'Document not found' });
 	const storedName = `${Date.now()}-${source.storedName}`; const sourceBuffer = await downloadFile(UPLOADS_BUCKET, source.storedName); await uploadFile(UPLOADS_BUCKET, storedName, sourceBuffer, source.mimeType);
 	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
 	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
 });
 app.delete('/api/documents/:id', auth, manager, async (request, response) => {
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	await deleteFile(UPLOADS_BUCKET, item.storedName);
 	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
@@ -1683,7 +1686,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	const data = await readData();
 	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
+	const documents = (data.documents || []).filter((item) => item.projectId === projectId && allowedWorkEvidenceTypes.includes(item.evidenceType));
 	const sourceVersion = crypto.createHash('sha256').update(documents.map((item) => `${item.id}:${item.updatedAt || item.uploadedAt || ''}`).join('|')).digest('hex');
 	const cacheKey = answerCacheKey(request.user.sub, projectId, question, sourceVersion);
 	const sources = [];
@@ -1768,7 +1771,7 @@ app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && item.uploadedBy === request.user.sub);
+	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id);
 	const required = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 	const present = required.filter((type) => documents.some((item) => item.evidenceType === type));
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
