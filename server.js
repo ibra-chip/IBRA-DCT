@@ -1091,10 +1091,11 @@ app.get('/api/projects/:id/financial-summary', auth, async (request, response) =
 	const purchaseTotals = Object.fromEntries(purchaseCategories.map((category) => [category, purchases.filter((item) => item.category === category).reduce((sum, item) => sum + Number(item.amount || 0), 0)]));
 	const purchaseTotal = Object.values(purchaseTotals).reduce((sum, amount) => sum + amount, 0);
 	const approvedWorkHours = approvedHours.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+	const approvedWorkAmount = approvedHours.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
 	const approvedLaborTotal = laborCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-	const spent = purchaseTotal + approvedLaborTotal;
-	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours };
-	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
+	const spent = purchaseTotal + approvedLaborTotal + approvedWorkAmount;
+	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours, approvedWorkAmount };
+	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedWorkAmount, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
 });
 app.post('/api/projects/:id/labor-costs', auth, manager, async (request, response) => {
 	const data = await readData();
