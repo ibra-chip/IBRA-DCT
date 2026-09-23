@@ -453,6 +453,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.querySelector('#progress-value').textContent = '0%';
 			document.querySelector('#open-controls').textContent = '0';
 			const heroProgressBarEmpty = document.querySelector('#hero-progress-bar'); if (heroProgressBarEmpty) heroProgressBarEmpty.style.width = '0%';
+			const chantierProgressBarEmpty = document.querySelector('#chantier-progress-bar'); if (chantierProgressBarEmpty) chantierProgressBarEmpty.style.width = '0%';
+			const chantierProgressLabelEmpty = document.querySelector('#chantier-progress-label'); if (chantierProgressLabelEmpty) chantierProgressLabelEmpty.textContent = '0%';
 			document.querySelector('#controls').innerHTML = '<small>Créez d’abord un chantier dans Devis.</small>';
 			document.querySelector('#project-risk').textContent = 'AUCUN CHANTIER';
 			document.querySelector('#project-risk-state').textContent = 'À configurer';
@@ -468,6 +470,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		const siteProgressValue = document.querySelector('#site-progress-value'); if (siteProgressValue) siteProgressValue.textContent = `${siteProgress}%`;
 		const siteProgressInput = document.querySelector('#site-progress-input'); if (siteProgressInput && document.activeElement !== siteProgressInput) siteProgressInput.value = siteProgress;
 		document.querySelector('.site-progress-panel')?.toggleAttribute('hidden', !isOwner());
+		const chantierProgressLabel = document.querySelector('#chantier-progress-label'); if (chantierProgressLabel) chantierProgressLabel.textContent = `${siteProgress}%`;
+		const chantierProgressBar = document.querySelector('#chantier-progress-bar'); if (chantierProgressBar) chantierProgressBar.style.width = `${Math.max(0, Math.min(100, siteProgress))}%`;
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
 		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${siteProgress}% d’avancement`;
 		const heroProgressBar = document.querySelector('#hero-progress-bar'); if (heroProgressBar) heroProgressBar.style.width = `${Math.max(0, Math.min(100, siteProgress))}%`;
