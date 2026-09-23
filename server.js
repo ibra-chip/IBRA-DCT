@@ -711,7 +711,9 @@ app.get('/api/me', auth, (request, response) => response.json({ user: publicUser
 app.get('/api/users', auth, manager, async (request, response) => { const data = await readData(); response.json(data.users.map((user) => publicUser(user, companyProfileForUser(data, user)))); });
 app.get('/api/contacts', auth, async (request, response) => {
 	const data = await readData(); const financialView = isOwnerRole(request.user.role);
-	response.json(data.users.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), ...(financialView ? { dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 } : {}) })));
+	const myOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+	const scoped = request.user.role === 'admin' ? data.users : data.users.filter((user) => (companyOwnerForUser(data, user) || user).id === myOwner.id);
+	response.json(scoped.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), ...(financialView ? { dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 } : {}) })));
 });
 app.get('/api/company/profile', auth, async (request, response) => response.json(publicCompanyProfile(companyProfileForUser(await readData(), request.userRecord))));
 app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'), async (request, response) => {
