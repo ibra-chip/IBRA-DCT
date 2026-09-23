@@ -124,6 +124,12 @@ button.calendar-quick-edit:hover{transform:scale(1.06);background:#00000050}
 .quick-workers-group summary::-webkit-details-marker{display:none}
 .quick-workers-group summary::before{content:'▸';transition:transform .15s}
 .quick-workers-group[open] summary::before{transform:rotate(90deg)}
+.chantier-controls-details{margin-top:14px;padding:12px 14px;border:1px solid #ffffff14;border-radius:12px;background:#ffffff05}
+.chantier-controls-details summary{cursor:pointer;font-weight:800;color:var(--yellow);list-style:none;display:flex;align-items:center;gap:8px}
+.chantier-controls-details summary::-webkit-details-marker{display:none}
+.chantier-controls-details summary::before{content:'▸';transition:transform .15s}
+.chantier-controls-details[open] summary::before{transform:rotate(90deg)}
+.chantier-controls-details .list-item{margin-top:10px}
 .quick-workers-search{width:100%;margin-top:10px}
 .quick-workers-list{display:grid;gap:8px;margin-top:10px}
 .time-year-summary{margin-top:10px;padding:12px 14px;border:1px solid #31d3a444;border-radius:12px;background:#31d3a40d}.time-year-summary strong{display:block;color:var(--green)}.time-year-summary small{color:var(--muted)}
