@@ -961,6 +961,18 @@ app.post('/api/projects', auth, manager, async (request, response) => {
 	await writeData(data);
 	response.status(201).json(project);
 });
+app.patch('/api/projects/:id/progress', auth, manager, async (request, response) => {
+	const progress = Number(request.body.progress);
+	if (!Number.isFinite(progress) || progress < 0 || progress > 100) return response.status(400).json({ error: 'Progress must be a number between 0 and 100' });
+	const data = await readData();
+	const project = (data.projects || []).find((item) => item.id === request.params.id);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	project.progress = Math.round(progress);
+	project.progressUpdatedAt = new Date().toISOString();
+	project.progressUpdatedBy = request.user.sub;
+	await writeData(data);
+	response.json(project);
+});
 app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	if (request.params.id === 'lot-a') return response.status(400).json({ error: 'Default chantier cannot be removed' });
 	const data = await readData();

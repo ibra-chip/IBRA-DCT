@@ -461,10 +461,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		const controls = await request(`/projects/${projectId}/chantier-controls`);
 		const completedControls = controls.filter((item) => item.status === 'complete').length;
-		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : Number(project?.progress || 0);
+		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : 0;
+		const siteProgress = Number(project?.progress || 0);
 		document.querySelector('#progress-value').textContent = `${progress}%`;
+		const siteProgressValue = document.querySelector('#site-progress-value'); if (siteProgressValue) siteProgressValue.textContent = `${siteProgress}%`;
+		const siteProgressInput = document.querySelector('#site-progress-input'); if (siteProgressInput && document.activeElement !== siteProgressInput) siteProgressInput.value = siteProgress;
+		document.querySelector('.site-progress-panel')?.toggleAttribute('hidden', !isOwner());
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
-		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${progress}% d’avancement`;
+		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${siteProgress}% d’avancement`;
 		const schedule = await request(`/projects/${projectId}/schedule`);
 		const financial = await request(`/projects/${projectId}/financial-summary`);
 		const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length;
@@ -1860,6 +1864,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		catch { toast('Poruka nije obrisana.'); deleteButton.disabled = false; }
 	});
 	document.querySelector('#time-form').addEventListener('submit', async (event) => { event.preventDefault(); try { await saveTimeEntryFromForm(event.currentTarget); const prefs = loadTimePrefs(); event.currentTarget.reset(); event.currentTarget.elements.start.value = prefs.start || '08:00'; event.currentTarget.elements.end.value = prefs.end || '17:00'; event.currentTarget.elements.breakMinutes.value = prefs.breakMinutes || '60'; event.currentTarget.elements.rateType.value = prefs.rateType || 'daily'; event.currentTarget.elements.rate.value = prefs.rate || ''; await refreshActiveView(); toast('Radno vreme je sa?uvano.'); } catch { toast('Radno vreme nije sa?uvano.'); } });
+	document.querySelector('#site-progress-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const projectId = currentProjectId();
+		if (!projectId) { toast('Izaberite chantier.'); return; }
+		const progress = Number(event.currentTarget.elements.progress.value);
+		if (!Number.isFinite(progress) || progress < 0 || progress > 100) { toast('Unesite procenat izmedju 0 i 100.'); return; }
+		try {
+			await request(`/projects/${projectId}/progress`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progress }) });
+			await loadDashboard();
+			toast('Avancement je sacuvan.');
+		} catch (error) { toast(`Avancement nije sacuvan : ${error.message || 'greska'}`); }
+	});
 	document.querySelector('#quick-worker-form')?.addEventListener('submit', async (event) => { event.preventDefault(); try { const values = formValues(event.currentTarget); values.email = values.contact; await request('/workers', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(values) }); event.currentTarget.reset(); await Promise.allSettled([loadUsers(), loadMessages(), loadPayroll(), loadTime()]); toast('Email poziv je poslat radniku da sam izabere password.'); } catch (error) { let message = 'Ouvrier nije dodat.'; try { const details = JSON.parse(error.message); if (details.error === 'Worker already exists') message = 'Ovaj radnik vec postoji.'; if (details.error?.includes('chantier')) message = 'Izaberi najmanje jedan chantier za radnika.'; if (details.error?.includes('Email delivery')) message = 'Email nije poslat: podesite SMTP/Brevo na Renderu.'; } catch {} toast(message); } });
 	const userRoleField = document.querySelector('#user-role'); const updateUserRoleFields = () => { const role = userRoleField?.value; const siretField = document.querySelector('#siret-field'); const companyField = document.querySelector('#company-field'); const rateFields = document.querySelectorAll('.rate-field'); const projectField = document.querySelector('#user-project-field'); const projectSelect = document.querySelector('#user-project-field select'); if (siretField) { siretField.hidden = role !== 'gerant'; siretField.querySelector('input').required = role === 'gerant'; } if (companyField) { companyField.hidden = role !== 'gerant'; companyField.querySelector('input').required = role === 'gerant'; } rateFields.forEach((field) => { field.hidden = role !== 'user'; }); if (projectField) projectField.hidden = role !== 'user'; if (projectSelect) projectSelect.required = role === 'user'; }; userRoleField?.addEventListener('change', updateUserRoleFields); updateUserRoleFields(); wireSiretLookup(document.querySelector('#user-form')?.elements.siret, document.querySelector('#user-company-preview'), document.querySelector('#user-form')?.elements.company);
 	const userFormAvatarInput = document.querySelector('#user-form-avatar-input');
