@@ -1233,9 +1233,9 @@ document.addEventListener('DOMContentLoaded', () => {
 				form.reset();
 				updateUnitLabels();
 				await refreshActiveView();
-				toast('La production a ?t? enregistr?e pour validation.');
+				toast('La production a été enregistrée pour validation.');
 			} catch (error) {
-				toast(`Production non enregistr?e : ${error.message || 'erreur inconnue'}`);
+				toast(`Production non enregistrée : ${error.message || 'erreur inconnue'}`);
 			}
 		});
 	}

@@ -601,8 +601,6 @@ app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
 	commit: process.env.RENDER_GIT_COMMIT || '',
-	supabaseKeyPrefix: String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').slice(0, 12),
-	supabaseKeyLength: String(process.env.SUPABASE_SERVICE_ROLE_KEY || '').length,
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
@@ -1228,15 +1226,6 @@ app.post('/api/messages/read', auth, async (request, response) => {
 app.get('/api/push/public-key', (_request, response) => response.json({
 	publicKey: vapidPublicKey,
 	enabled: pushEnabled,
-	debug: {
-		publicPresent: Boolean(vapidPublicKey),
-		publicLength: vapidPublicKey.length,
-		publicValidChars: vapidKeyPattern.test(vapidPublicKey),
-		privatePresent: Boolean(vapidPrivateKey),
-		privateLength: vapidPrivateKey.length,
-		privateValidChars: vapidKeyPattern.test(vapidPrivateKey),
-		envKeysContainingVapid: Object.keys(process.env).filter((key) => key.toUpperCase().includes('VAPID')).map((key) => JSON.stringify(key)),
-	},
 }));
 app.post('/api/push/subscribe', auth, async (request, response) => {
 	const subscription = request.body.subscription;
