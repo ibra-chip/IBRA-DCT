@@ -129,6 +129,7 @@ button.calendar-quick-edit:hover{transform:scale(1.06);background:#00000050}
 .time-year-summary{margin-top:10px;padding:12px 14px;border:1px solid #31d3a444;border-radius:12px;background:#31d3a40d}.time-year-summary strong{display:block;color:var(--green)}.time-year-summary small{color:var(--muted)}
 .quick-edit-popover{position:absolute;z-index:80;display:grid;gap:8px;width:200px;padding:12px;border:1px solid #9bd5ff35;border-radius:12px;background:#102235;box-shadow:0 18px 40px #0008;color:var(--text)}.quick-edit-popover strong{font-size:.8rem;color:var(--blue)}.quick-edit-popover label{display:grid;gap:4px;font-size:.75rem;color:var(--muted)}.quick-edit-popover input{min-height:38px}.quick-edit-actions{display:flex;flex-wrap:wrap;gap:6px}.quick-edit-actions button{flex:1;min-width:0;min-height:36px;padding:6px 8px;font-size:.75rem}.quick-edit-actions .danger{background:#f77d7d1f;color:#ffb3b3;border-color:#f77d7d55}
 .calendar-rendezvous{display:block;max-width:100%;overflow:hidden;color:var(--yellow);font-size:.64rem;font-weight:900;line-height:1.1;text-overflow:ellipsis;white-space:nowrap}
+.calendar-rendezvous.calendar-absence{color:var(--red)}
 .calendar-add-rdv{border-style:dashed;opacity:.4;background:transparent;transition:opacity .15s,transform .1s}
 .calendar-cell:hover .calendar-add-rdv,.calendar-add-rdv:hover,.calendar-add-rdv:focus-visible{opacity:1}
 .calendar-cell.empty{border:0;background:transparent;pointer-events:none}

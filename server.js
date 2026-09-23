@@ -1265,7 +1265,8 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	let context;
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const owner = resolveRendezvousOwner(data, worker);
-	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
+	const type = String(request.body.type || 'rdv').trim() === 'absence' ? 'absence' : 'rdv';
+	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, type, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
 	const notificationText = `Absence/RDV ${absenceDate} à ${time} | ${reason}`;
 	data.messages = [...(data.messages || []), ...(owner ? [{ id: `notification-${Date.now()}-${owner.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: owner.id, recipientName: owner.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }] : [])];
@@ -1308,7 +1309,7 @@ app.post('/api/time-entries', auth, async (request, response) => {
 	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === request.body.projectId && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
 	if (isDuplicate && request.body.confirmDuplicate !== 'true') return response.status(409).json({ error: 'An identical entry already exists for this worker, chantier, date and hours', duplicate: true });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
-	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
+	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'approved' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.delete('/api/time-entries/:id', auth, async (request, response) => {
@@ -1316,7 +1317,6 @@ app.delete('/api/time-entries/:id', auth, async (request, response) => {
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
 	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
-	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can delete an approved entry' });
 	data.timeEntries = data.timeEntries.filter((item) => item.id !== entry.id);
 	await writeData(data);
 	response.json({ deleted: true, id: entry.id });
@@ -1326,7 +1326,6 @@ app.patch('/api/time-entries/:id', auth, async (request, response) => {
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
 	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
-	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can edit an approved entry' });
 	const date = request.body.date || entry.date;
 	const breakMinutes = request.body.breakMinutes !== undefined ? Number(request.body.breakMinutes || 0) : entry.breakMinutes;
 	const rateType = ['daily', 'hourly'].includes(request.body.rateType) ? request.body.rateType : entry.rateType;
