@@ -1258,6 +1258,7 @@ app.get('/api/rendezvous', auth, async (request, response) => {
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
 	const isOwnerActor = isOwnerRole(request.user.role);
+	const type = String(request.body.type || 'rdv').trim() === 'absence' ? 'absence' : 'rdv';
 	const absenceDate = String(request.body.absenceDate || request.body.date || '').trim();
 	const date = String(request.body.date || absenceDate).trim();
 	const time = String(request.body.time || '').trim();
@@ -1266,7 +1267,7 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	const absenceTimestamp = dateOnlyTimestamp(absenceDate);
 	const dateTimestamp = dateOnlyTimestamp(date);
 	const days = Number.isFinite(absenceTimestamp) && Number.isFinite(todayTimestamp) ? Math.floor((absenceTimestamp - todayTimestamp) / 86400000) : -1;
-	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (!isOwnerActor && days < 3)) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
+	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (type !== 'absence' && !isOwnerActor && days < 3)) return response.status(400).json({ error: 'RDV must be declared at least 3 days ahead' });
 	if (!isOwnerActor && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const data = await readData();
 	const worker = isOwnerActor && request.body.workerId ? data.users.find((user) => user.id === request.body.workerId) : data.users.find((user) => user.id === request.user.sub);
@@ -1274,7 +1275,6 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	let context;
 	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const owner = resolveRendezvousOwner(data, worker);
-	const type = String(request.body.type || 'rdv').trim() === 'absence' ? 'absence' : 'rdv';
 	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, type, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
 	const notificationText = `Absence/RDV ${absenceDate} à ${time} | ${reason}`;
