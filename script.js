@@ -1549,12 +1549,17 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadTime() {
 		await loadProjectOptions();
 		const activeProject = currentProjectId();
-		const entries = (await request('/time-entries')).filter((entry) => !activeProject || entry.projectId === activeProject);
-		const own = await request('/my-payroll-summary');
-		const rendezvous = (await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
 		const managerView = isOwner();
+		const [entriesRaw, own, rendezvousRaw, contacts] = await Promise.all([
+			request('/time-entries'),
+			request('/my-payroll-summary'),
+			request('/rendezvous'),
+			managerView ? request('/contacts') : Promise.resolve(null),
+		]);
+		const entries = entriesRaw.filter((entry) => !activeProject || !entry.projectId || entry.projectId === activeProject);
+		const rendezvous = rendezvousRaw.filter((item) => !activeProject || !item.projectId || item.projectId === activeProject);
 		latestRendezvous = rendezvous;
-		latestTimeWorkers = managerView ? (await request('/contacts')).filter((user) => ['worker','user'].includes(user.role)) : [{ ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate }];
+		latestTimeWorkers = managerView ? contacts.filter((user) => ['worker','user'].includes(user.role)) : [{ ...currentUser, dailyRate: own.dailyRate, hourlyRate: own.hourlyRate }];
 		const form = document.querySelector('#time-form');
 		const workerSelect = form?.elements.workerId;
 		if (workerSelect) {
