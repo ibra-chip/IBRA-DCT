@@ -1693,19 +1693,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		}));
 	}
 	async function loadPurchases() {
-		const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], workers: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); });
-		const render = (items, target, totalTarget, extraTotal = 0, extraLine = '') => { document.querySelector(`#${totalTarget}`).textContent = `${(items.reduce((sum, item) => sum + Number(item.amount || 0), 0) + extraTotal).toFixed(2)} EUR`; const manualRows = items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join(''); document.querySelector(`#${target}`).innerHTML = extraLine + manualRows || '<small>Aucune dépense.</small>'; };
+		const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); });
+		const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join('') : '<small>Aucune dépense.</small>'; };
 		render([...groups.material, ...groups.tools, ...groups.machines], 'purchase-material-tools', 'purchase-total-material-tools');
-		const projectId = currentProjectId();
-		let workerHoursAmount = 0; let workerHoursLine = '';
-		if (projectId) {
-			try {
-				const financial = await request(`/projects/${projectId}/financial-summary`);
-				workerHoursAmount = Number(financial.approvedWorkAmount || 0);
-				if (workerHoursAmount > 0) workerHoursLine = `<div class="list-item"><strong>Heures ouvriers (Temps de travail)</strong><small>${Number(financial.approvedWorkHours || 0).toFixed(2)} h · ${formatEUR(workerHoursAmount)}</small></div>`;
-			} catch { /* ignore */ }
-		}
-		render(groups.workers, 'purchase-workers', 'purchase-total-workers', workerHoursAmount, workerHoursLine);
 		render(groups.subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting');
 	}
 	function ensureHoursPdfButton() {
