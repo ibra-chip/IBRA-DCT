@@ -1313,19 +1313,26 @@ app.delete('/api/rendezvous/:id', auth, async (request, response) => {
 });
 app.get('/api/time-entries', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && (!item.projectId || canAccessProject(data, request.user, item.projectId))));
 });
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
 	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = isOwnerRole(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
-	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
-	let context;
-	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === request.body.projectId && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
+	const projectId = String(request.body.projectId || '').trim();
+	if (!request.body.date || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, work time, rate type, and a positive rate are required' });
+	let context = { projectName: '', budgetId: null, devisNumber: null };
+	if (projectId) {
+		try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	} else {
+		const actorOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+		const workerOwner = companyOwnerForUser(data, worker) || worker;
+		if (actorOwner.id !== workerOwner.id) return response.status(403).json({ error: 'Access denied for this worker' });
+	}
+	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === (projectId || null) && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
 	if (isDuplicate && request.body.confirmDuplicate !== 'true') return response.status(409).json({ error: 'An identical entry already exists for this worker, chantier, date and hours', duplicate: true });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
-	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'approved' };
+	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: projectId || null, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'approved' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.delete('/api/time-entries/:id', auth, async (request, response) => {
