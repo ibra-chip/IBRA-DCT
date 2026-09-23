@@ -935,7 +935,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				.then(() => { unreadFromPartner.forEach((item) => { item.read = true; }); }).catch(() => {});
 		}
 	}
-	async function loadMessages() { await loadProjectOptions(); const activeProject = currentProjectId(); latestChatMessages = (await request('/messages')).filter((item) => !activeProject || item.projectId === activeProject); renderChatThread(); await loadRendezvous(); }
+	async function loadMessages() { await loadProjectOptions(); latestChatMessages = await request('/messages'); renderChatThread(); await loadRendezvous(); }
 	let unreadMessageCount = 0;
 	let messagePollTimer = null;
 	function setChatBadge(count) {
@@ -1827,7 +1827,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		event.preventDefault();
 		const form = event.currentTarget;
 		const projectId = currentProjectId();
-		if (!projectId) { toast('Izaberite aktivni chantier pre slanja poruke.'); return; }
 		const recipientId = form.elements.recipientId.value;
 		if (!recipientId) { toast('Izaberite sagovornika.'); return; }
 		const text = form.elements.text.value.trim();

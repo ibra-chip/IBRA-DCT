@@ -1169,15 +1169,22 @@ app.get('/api/projects/:id/control-history', auth, async (request, response) => 
 });
 app.get('/api/messages', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.messages || []).filter((item) => (item.senderId === request.user.sub || item.recipientId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+	response.json((data.messages || []).filter((item) => (item.senderId === request.user.sub || item.recipientId === request.user.sub) && (!item.projectId || canAccessProject(data, request.user, item.projectId))));
 });
 app.post('/api/messages', auth, async (request, response) => {
 	const data = await readData(); const text = String(request.body.text || '').trim();
-	if (!text || !request.body.recipientId || !request.body.projectId) return response.status(400).json({ error: 'Message fields required' });
+	if (!text || !request.body.recipientId) return response.status(400).json({ error: 'Message fields required' });
 	const recipient = data.users.find((item) => item.id === request.body.recipientId); if (!recipient) return response.status(404).json({ error: 'Recipient not found' });
-	let context;
-	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(request.body.projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
+	const projectId = String(request.body.projectId || '').trim();
+	let context = { projectName: '', budgetId: null, devisNumber: null };
+	if (projectId) {
+		try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	} else {
+		const senderOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+		const recipientOwner = companyOwnerForUser(data, recipient) || recipient;
+		if (senderOwner.id !== recipientOwner.id) return response.status(403).json({ error: 'Access denied for this recipient' });
+	}
+	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: projectId || null, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
 	data.messages.push(message); await writeData(data);
 	await sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {});
 	response.status(201).json(message);
