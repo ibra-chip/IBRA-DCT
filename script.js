@@ -92,18 +92,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			popover.querySelector('[data-qe-cancel]').addEventListener('click', closeQuickEditPopover);
 		});
 	}
-	function openAbsenceCreateQuickEdit(anchor, { date, projectId, workerId }, onSaved) {
-		openQuickEditPopover(anchor, `<strong>Nouvelle absence</strong><small>${escapeHtml(date)}</small><label>Raison (optionnel)<textarea name="reason" placeholder="Maladie, congé, etc."></textarea></label><div class="quick-edit-actions"><button type="button" class="primary" data-qe-save>Enregistrer</button><button type="button" class="secondary" data-qe-cancel>Annuler</button></div>`, (popover) => {
-			popover.querySelector('[data-qe-save]').addEventListener('click', async () => {
-				const reason = popover.querySelector('textarea[name="reason"]').value.trim();
-				if (!projectId) { toast('Izaberi aktivni chantier pre dodavanja odsustva.'); return; }
-				try {
-					await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, absenceDate: date, date, time: '08:00', reason, type: 'absence', ...(workerId ? { workerId } : {}) }) });
-					closeQuickEditPopover(); await onSaved(); toast('Absence enregistrée.');
-				} catch (error) { toast(`Absence non enregistrée : ${error.message || 'erreur'}`); }
-			});
-			popover.querySelector('[data-qe-cancel]').addEventListener('click', closeQuickEditPopover);
-		});
+	async function createAbsenceDirect({ date, projectId, workerId }, onSaved) {
+		if (!projectId) { toast('Izaberi aktivni chantier pre dodavanja odsustva.'); return; }
+		try {
+			await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, absenceDate: date, date, time: '08:00', reason: '', type: 'absence', ...(workerId ? { workerId } : {}) }) });
+			await onSaved(); toast('Absence enregistrée.');
+		} catch (error) { toast(`Absence non enregistrée : ${error.message || 'erreur'}`); }
 	}
 	async function deleteHoursEntryDirect(entryId, onSaved) {
 		if (!window.confirm('Obrisati ovaj unos radnog vremena?')) return;
@@ -779,7 +773,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const deleteRdvButton = event.target.closest('[data-delete-rdv]'); if (deleteRdvButton) { await deleteRdvEntryDirect(deleteRdvButton.dataset.deleteRdv, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const editRdvButton = event.target.closest('[data-edit-rdv]'); if (editRdvButton) { openRdvQuickEdit(editRdvButton, editRdvButton.dataset.editRdv, editRdvButton.dataset.editRdvTime, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const addRdvButton = event.target.closest('[data-add-rdv]'); if (addRdvButton) { const snapshot = workerRosterState.detailSnapshot; openRdvCreateQuickEdit(addRdvButton, { date: addRdvButton.dataset.addRdv, projectId: snapshot?.user?.projectIds?.[0], workerId: snapshot?.user?.id }, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
-		const addAbsenceButton = event.target.closest('[data-add-absence]'); if (addAbsenceButton) { const snapshot = workerRosterState.detailSnapshot; openAbsenceCreateQuickEdit(addAbsenceButton, { date: addAbsenceButton.dataset.addAbsence, projectId: snapshot?.user?.projectIds?.[0], workerId: snapshot?.user?.id }, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
+		const addAbsenceButton = event.target.closest('[data-add-absence]'); if (addAbsenceButton) { const snapshot = workerRosterState.detailSnapshot; await createAbsenceDirect({ date: addAbsenceButton.dataset.addAbsence, projectId: snapshot?.user?.projectIds?.[0], workerId: snapshot?.user?.id }, async () => { await loadUsers(); renderWorkerDetail(); }); return; }
 		const dateButton = event.target.closest('[data-detail-date]'); if (dateButton) { workerRosterState.detailSelectedDate = dateButton.dataset.detailDate; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		if (event.target.closest('[data-detail-clear]')) { workerRosterState.detailSelectedDate = ''; workerRosterState.editingEntryId = ''; renderWorkerDetail(); return; }
 		const editStartButton = event.target.closest('[data-edit-entry-start]'); if (editStartButton) { workerRosterState.editingEntryId = editStartButton.dataset.editEntryStart; renderWorkerDetail(); return; }
@@ -1511,9 +1505,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			event.stopPropagation();
 			openRdvCreateQuickEdit(button, { date: button.dataset.addRdv, projectId: fallbackProjectId, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
 		}));
-		target.querySelectorAll('[data-add-absence]').forEach((button) => button.addEventListener('click', (event) => {
+		target.querySelectorAll('[data-add-absence]').forEach((button) => button.addEventListener('click', async (event) => {
 			event.stopPropagation();
-			openAbsenceCreateQuickEdit(button, { date: button.dataset.addAbsence, projectId: fallbackProjectId, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
+			await createAbsenceDirect({ date: button.dataset.addAbsence, projectId: fallbackProjectId, workerId: selectedWorkerId !== currentUser?.id ? selectedWorkerId : undefined }, refreshActiveView);
 		}));
 	}
 	function ensureWorkerMonthSummaryPanel() {
