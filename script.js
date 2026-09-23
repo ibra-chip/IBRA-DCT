@@ -383,7 +383,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
-	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); }));
+	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView(); }));
 
 	let projectsCache = [];
 	let activeProjectId = localStorage.getItem('ibra-active-project') || '';

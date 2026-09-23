@@ -87,12 +87,14 @@ if (!supabaseConfigured) {
 	console.warn(message);
 }
 const storageKeyFor = (originalName) => `${Date.now()}-${String(originalName || 'file').replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+const fixUploadFilenameEncoding = (request, _response, next) => { if (request.file?.originalname) request.file.originalname = Buffer.from(request.file.originalname, 'latin1').toString('utf8'); next(); };
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const identityUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(isAllowedIdentityAsset(file) ? null : new Error('Choisissez un fichier JPG ou PNG de 5 Mo maximum.'), true) });
 const identityUploadMiddleware = (field) => (request, response, next) => identityUpload.single(field)(request, response, async (error) => {
 	if (error) return response.status(400).json({ error: 'Choisissez un fichier JPG ou PNG de 5 Mo maximum.' });
 	if (request.file) {
+		request.file.originalname = Buffer.from(request.file.originalname, 'latin1').toString('utf8');
 		request.file.filename = storageKeyFor(request.file.originalname);
 		try { await uploadFile(IDENTITY_BUCKET, request.file.filename, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
 	}
@@ -1062,7 +1064,7 @@ const inspectDevisWithGemini = async (file) => {
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
 };
-app.post('/api/budget/inspect', auth, memoryUpload.single('file'), async (request, response) => {
+app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
 	let text = '';
 	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
@@ -1080,7 +1082,7 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), async (reques
 	}
 	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') });
 });
-app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), async (request, response) => {
+app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
 	const parsed = await parsePdf(request.file.buffer);
 	const text = parsed.text.replace(/\s+/g, ' ').trim();
@@ -1122,7 +1124,7 @@ app.post('/api/projects/:id/labor-costs', auth, manager, async (request, respons
 	await writeData(data);
 	response.status(existing ? 200 : 201).json(laborCost);
 });
-app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async (request, response) => {
+app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const uploadedPdf = request.file?.buffer || null;
 	if (!request.file || !(request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf') || uploadedPdf?.subarray(0, 5).toString() === '%PDF-')) return response.status(400).json({ error: 'A Devis PDF is required' });
 	const total = Number(request.body.total || 0);
@@ -1142,7 +1144,7 @@ app.get('/api/purchases', auth, async (request, response) => {
 	const data = await readData();
 	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
 });
-app.post('/api/purchases', auth, manager, upload.single('invoice'), async (request, response) => {
+app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A purchase invoice PDF is required' });
 	const amount = Number(request.body.amount || 0);
 	const category = String(request.body.category || 'other');
@@ -1522,7 +1524,7 @@ app.get('/api/work-reports', auth, async (request, response) => {
 	const reports = (data.workReports || []).filter((item) => (managerView || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)); const financialView = isOwnerRole(request.user.role);
 	response.json(financialView ? reports : reports.map(({ unitRate: _unitRate, calculatedAmount: _calculatedAmount, ...report }) => report));
 });
-app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
+app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || !request.file.mimetype.startsWith('image/')) return response.status(400).json({ error: 'A work photo is required' });
 	const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2';
 	const projectId = String(request.body.projectId || '');
@@ -1586,7 +1588,7 @@ For m² use visible height x width of executed work. For ml use visible linear l
 	const image = `data:${request.file.mimetype};base64,${base64Image}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Estimate construction quantities only with reliable visible scale. Never guess. Return JSON only.' }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] }] }) });
 	if (!aiResponse.ok) return response.status(502).json({ error: 'Vision AI provider unavailable' }); const result = await aiResponse.json(); return response.json(normalizeEstimate(parseEstimate(result.choices?.[0]?.message?.content), 'estimated'));
 });
-app.post('/api/work-reports', auth, upload.single('photo'), async (request, response) => {
+app.post('/api/work-reports', auth, upload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
 	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const dateInput = String(request.body.date || ''); const capturedAtInput = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitudeInput = request.body.latitude !== undefined && request.body.latitude !== '' ? Number(request.body.latitude) : null; const longitudeInput = request.body.longitude !== undefined && request.body.longitude !== '' ? Number(request.body.longitude) : null; const latitude = Number.isFinite(latitudeInput) && latitudeInput >= -90 && latitudeInput <= 90 ? latitudeInput : null; const longitude = Number.isFinite(longitudeInput) && longitudeInput >= -180 && longitudeInput <= 180 ? longitudeInput : null; const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
 	const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput) ? dateInput : new Date().toISOString().slice(0, 10);
 	const capturedAt = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAtInput) ? capturedAtInput : new Date().toISOString();
@@ -1608,7 +1610,7 @@ app.get('/api/projects/:id/situation-summary', auth, async (request, response) =
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
-app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
+app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });
 	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
 	const evidenceType = request.body.evidenceType || 'other';
