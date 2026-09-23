@@ -370,8 +370,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
 			gerant: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
 			manager: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
-			worker: ['tasks-view'],
-			user: ['tasks-view']
+			worker: ['tasks-view','evidence-summary-view'],
+			user: ['tasks-view','evidence-summary-view']
 		};
 		const allowed = access[role] || ['dashboard-view','tasks-view'];
 		document.querySelectorAll('.nav').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
@@ -379,6 +379,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#budget-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#payroll-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#quick-worker-form')?.toggleAttribute('hidden', !canSeeFinancials);
+		document.querySelector('#evidence-upload-panel')?.toggleAttribute('hidden', !canSeeFinancials);
+		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (button.dataset.view === 'devis-view' && currentUser) await loadBudget(); if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); }));
