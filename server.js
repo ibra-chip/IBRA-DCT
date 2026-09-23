@@ -825,7 +825,6 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	let delivery = 'manual';
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
 	if (!mailResult.skipped) delivery = 'email';
-	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { setupUrl } : {}) });
@@ -849,7 +848,6 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const assignedProjectNames = selectedProjectIds.map((projectId) => (data.projects || []).find((project) => project.id === projectId)?.name || projectId).join(', ');
 	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nChantiers attribués: ${assignedProjectNames}\nIdentifiant : ${email}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nVous pourrez ensuite saisir vos jours de travail et vos rendez-vous/absences. Ce lien est valable 7 jours.`;
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - invitation ouvrier', text: credentialsText });
-	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 	data.users.push(user);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
@@ -894,7 +892,6 @@ app.post('/api/users/:id/password-reset', auth, manager, async (request, respons
 	const setupUrl = createPasswordSetupUrl(data, user.id);
 	try {
 		const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - nouveau lien de mot de passe', text: `Bonjour ${user.name},\n\nUn nouveau lien de configuration de mot de passe a été demandé pour votre accès IBRA-BA :\n\n${setupUrl}\n\nCe lien est valable 7 jours.` });
-		if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 		await writeData(data);
 		return response.json({ message: mailResult.skipped ? 'Reset link prepared for local testing.' : 'Reset link sent.', delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { setupUrl } : {}) });
 	} catch (error) {
