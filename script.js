@@ -1255,7 +1255,6 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 	async function loadProduction() {
-		if (!isOwner()) { document.querySelector('.production-panel')?.remove(); return; }
 		ensureProductionPanel();
 		ensureCaptureMetadata();
 		await loadProjectOptions();
