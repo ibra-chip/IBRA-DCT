@@ -452,6 +452,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!projectId) {
 			document.querySelector('#progress-value').textContent = '0%';
 			document.querySelector('#open-controls').textContent = '0';
+			const heroProgressBarEmpty = document.querySelector('#hero-progress-bar'); if (heroProgressBarEmpty) heroProgressBarEmpty.style.width = '0%';
 			document.querySelector('#controls').innerHTML = '<small>Créez d’abord un chantier dans Devis.</small>';
 			document.querySelector('#project-risk').textContent = 'AUCUN CHANTIER';
 			document.querySelector('#project-risk-state').textContent = 'À configurer';
@@ -469,6 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('.site-progress-panel')?.toggleAttribute('hidden', !isOwner());
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
 		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${siteProgress}% d’avancement`;
+		const heroProgressBar = document.querySelector('#hero-progress-bar'); if (heroProgressBar) heroProgressBar.style.width = `${Math.max(0, Math.min(100, siteProgress))}%`;
 		const schedule = await request(`/projects/${projectId}/schedule`);
 		const financial = await request(`/projects/${projectId}/financial-summary`);
 		const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length;
