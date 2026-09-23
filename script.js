@@ -83,9 +83,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				const time = popover.querySelector('input[name="time"]').value;
 				const reason = popover.querySelector('textarea[name="reason"]').value.trim();
 				if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time)) { toast('Unesi ispravno vreme.'); return; }
-				if (!projectId) { toast('Izaberi aktivni chantier pre dodavanja RDV-a.'); return; }
 				try {
-					await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, absenceDate: date, date, time, reason, type: 'rdv', ...(workerId ? { workerId } : {}) }) });
+					await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(projectId ? { projectId } : {}), absenceDate: date, date, time, reason, type: 'rdv', ...(workerId ? { workerId } : {}) }) });
 					closeQuickEditPopover(); await onSaved(); toast('RDV enregistré.');
 				} catch (error) { toast(`RDV non enregistré : ${error.message || 'erreur'}`); }
 			});
@@ -93,9 +92,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 	}
 	async function createAbsenceDirect({ date, projectId, workerId }, onSaved) {
-		if (!projectId) { toast('Izaberi aktivni chantier pre dodavanja odsustva.'); return; }
 		try {
-			await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, absenceDate: date, date, time: '08:00', reason: '', type: 'absence', ...(workerId ? { workerId } : {}) }) });
+			await request('/rendezvous', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...(projectId ? { projectId } : {}), absenceDate: date, date, time: '08:00', reason: '', type: 'absence', ...(workerId ? { workerId } : {}) }) });
 			await onSaved(); toast('Absence enregistrée.');
 		} catch (error) { toast(`Absence non enregistrée : ${error.message || 'erreur'}`); }
 	}
@@ -900,7 +898,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && workerAssignmentModal && !workerAssignmentModal.hidden) closeWorkerAssignmentDrawer(); });
 	async function loadRendezvous(items) {
 		const activeProject = currentProjectId();
-		latestRendezvous = (items || await request('/rendezvous')).filter((item) => !activeProject || item.projectId === activeProject);
+		latestRendezvous = (items || await request('/rendezvous')).filter((item) => !activeProject || !item.projectId || item.projectId === activeProject);
 	}
 	function renderChatThread() {
 		const target = document.querySelector('#messages'); if (!target) return;
@@ -1423,7 +1421,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const selectedWorkerId = document.querySelector('#time-form')?.elements.workerId?.value || currentUser?.id;
 		const activeProject = currentProjectId();
 		const visibleEntries = (entries || []).filter((entry) => !selectedWorkerId || entry.workerId === selectedWorkerId || (!entry.workerId && selectedWorkerId === currentUser?.id));
-		const visibleRendezvous = (rendezvous || []).filter((item) => (!selectedWorkerId || item.workerId === selectedWorkerId) && (!activeProject || item.projectId === activeProject));
+		const visibleRendezvous = (rendezvous || []).filter((item) => (!selectedWorkerId || item.workerId === selectedWorkerId) && (!activeProject || !item.projectId || item.projectId === activeProject));
 		const todayKey = new Date().toISOString().slice(0, 10);
 		const month = workCalendarViewMonth || monthKeyFromDate(selectedDate);
 		const [year, monthNumber] = month.split('-').map(Number);
