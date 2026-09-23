@@ -1833,16 +1833,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!text) return;
 		const submitButton = form.querySelector('button[type="submit"], button.primary');
 		const currentUserId = currentUser?.id || currentUser?.sub;
-		const optimistic = { id: `optimistic-${Date.now()}`, senderId: currentUserId, senderName: currentUser?.name || '', recipientId, projectId, text, createdAt: new Date().toISOString(), optimistic: true };
+		const optimisticId = `optimistic-${Date.now()}`;
+		const optimistic = { id: optimisticId, senderId: currentUserId, senderName: currentUser?.name || '', recipientId, projectId, text, createdAt: new Date().toISOString(), optimistic: true };
 		latestChatMessages = [...latestChatMessages, optimistic];
 		renderChatThread();
 		form.elements.text.value = '';
 		if (submitButton) { submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); }
 		try {
-			await request('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipientId, text, projectId }) });
-			await loadMessages();
+			const saved = await request('/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ recipientId, text, projectId }) });
+			latestChatMessages = latestChatMessages.map((item) => (item.id === optimisticId ? saved : item));
+			renderChatThread();
 		} catch {
-			latestChatMessages = latestChatMessages.filter((item) => item.id !== optimistic.id);
+			latestChatMessages = latestChatMessages.filter((item) => item.id !== optimisticId);
 			renderChatThread();
 			toast('Poruka nije poslata.');
 		} finally { if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } }
