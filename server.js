@@ -708,6 +708,25 @@ app.post('/api/auth/change-password', auth, async (request, response) => {
 	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); const profile = companyProfileForUser(data, user); response.json({ message: 'Password changed', token: issueAuthToken(user, profile), user: publicUser(user, profile) });
 });
 app.get('/api/me', auth, (request, response) => response.json({ user: publicUser(request.userRecord, request.companyProfile), company: publicCompanyProfile(request.companyProfile) }));
+app.patch('/api/me', auth, async (request, response) => {
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.user.sub);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	const name = String(request.body.name ?? user.name).trim();
+	const contact = String(request.body.contact || '').trim();
+	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(user.email || '').trim().toLowerCase();
+	const phone = contact ? (email ? '' : contact) : String(user.phone || '').trim();
+	const normalizedPhone = phone.replace(/[\s()-]/g, '');
+	if (!name || (!email && !phone)) return response.status(400).json({ error: 'Name and phone or email are required' });
+	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	user.name = name;
+	user.email = email;
+	user.phone = phone;
+	data.timeEntries = (data.timeEntries || []).map((entry) => entry.workerId === user.id ? { ...entry, workerName: user.name } : entry);
+	await writeData(data);
+	const profile = companyProfileForUser(data, user);
+	response.json({ user: publicUser(user, profile) });
+});
 app.get('/api/users', auth, manager, async (request, response) => { const data = await readData(); response.json(data.users.map((user) => publicUser(user, companyProfileForUser(data, user)))); });
 app.get('/api/contacts', auth, async (request, response) => {
 	const data = await readData(); const financialView = isOwnerRole(request.user.role);

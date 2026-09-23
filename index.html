@@ -87,6 +87,8 @@
 				<small class="nav-group">Équipe</small>
 				<button class="nav" data-view="tasks-view" data-title="Tâches et communication">Tâches et communication</button>
 				<button class="nav" data-view="settings-view" data-title="Utilisateurs">Utilisateurs</button>
+				<small class="nav-group">Compte</small>
+				<button class="nav" data-view="account-settings-view" data-title="Paramètres">Paramètres</button>
 			</nav>
 			<button id="logout-button" class="secondary">Se déconnecter</button>
 		</aside>
@@ -151,6 +153,28 @@
 						<div class="worker-add-panel-head"><div><small>INVITATION</small><h3 id="worker-add-title">Ajouter un ouvrier</h3><p>L’invitation reste séparée du registre pour garder la liste lisible.</p></div><button id="close-add-worker" class="secondary" type="button">Fermer</button></div>
 						<form id="user-form" class="panel"><small>L’ouvrier reçoit un email et choisit lui-même son mot de passe.</small><label>Nom et prénom<input name="name" required /></label><label>E-mail<input name="email" type="email" required /></label><label>Telephone (optionnel)<input name="phone" type="tel" placeholder="+33 6 00 00 00 00" /></label><div class="image-field"><span class="image-field-label">Photo de l’ouvrier <small>Facultatif</small></span><div class="image-field-row"><span id="user-form-avatar-preview" class="worker-avatar worker-avatar--form worker-avatar--initials">?</span><label class="secondary file-trigger" for="user-form-avatar-input">Ajouter une photo<input id="user-form-avatar-input" name="avatar" type="file" accept="image/jpeg,image/png" hidden /></label></div><small>JPG ou PNG · 5 Mo max</small></div><label>Rôle<select name="role" id="user-role"><option value="user" selected>Ouvrier</option><option value="gerant">Gérant</option></select></label><label id="company-field">Nom de l’entreprise<input name="company" /></label><label id="siret-field">SIRET de l’entreprise<input name="siret" pattern="[0-9 ]{9,20}" /></label><small id="user-company-preview">Pour un gérant supplémentaire, renseignez le nom de l’entreprise et le SIRET. L’ouvrier reprend l’entreprise du gérant qui l’invite.</small><label class="rate-field">Tarif journalier EUR<input name="dailyRate" type="number" min="0" step="0.01" /></label><label class="rate-field">Tarif horaire EUR<input name="hourlyRate" type="number" min="0" step="0.01" /></label><label id="user-project-field">Chantiers attribués<select name="projectIds" data-project-assignment multiple size="3" required aria-describedby="user-project-help"></select></label><small id="user-project-help">Sélectionnez un ou plusieurs chantiers.</small><div class="worker-add-actions"><button class="secondary" id="cancel-add-worker" type="button">Annuler</button><button class="primary">Envoyer l’invitation e-mail</button></div></form>
 					</section>
+				</div>
+			</section>
+			<section id="account-settings-view" class="view">
+				<div class="section-head"><div><small>MON COMPTE</small><h2>Paramètres</h2></div><span>Vos informations personnelles</span></div>
+				<div class="grid-two">
+					<form id="account-info-form" class="panel">
+						<h3>Informations personnelles</h3>
+						<label>Nom et prénom<input name="name" required /></label>
+						<label>E-mail ou téléphone<input name="contact" required autocomplete="email tel" /></label>
+						<label>Langue de l’application<select name="language"><option value="fr">Français</option><option value="sr">Srpski</option><option value="bs">Bosanski</option></select></label>
+						<p id="account-info-message" class="error" role="alert" aria-live="assertive"></p>
+						<button class="primary" type="submit">Enregistrer</button>
+					</form>
+					<form id="account-password-form" class="panel">
+						<h3>Changer le mot de passe</h3>
+						<label>Mot de passe actuel<input name="currentPassword" type="password" required autocomplete="current-password" /></label>
+						<label>Nouveau mot de passe<input name="newPassword" type="password" required minlength="10" autocomplete="new-password" /></label>
+						<label>Confirmer le nouveau mot de passe<input name="confirmPassword" type="password" required minlength="10" autocomplete="new-password" /></label>
+						<small>10 caractères minimum.</small>
+						<p id="account-password-message" class="error" role="alert" aria-live="assertive"></p>
+						<button class="primary" type="submit">Changer le mot de passe</button>
+					</form>
 				</div>
 			</section>
 		</main>

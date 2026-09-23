@@ -164,7 +164,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		"Recherche de l’entreprise par SIRET/SIREN...": "Recherche de l’entreprise par SIRET/SIREN…", "Entreprise non trouvée automatiquement ; saisissez le nom manuellement.": "Entreprise introuvable automatiquement ; saisissez le nom manuellement.", "L’e-mail/téléphone ou le mot de passe est incorrect.": "E-mail/téléphone ou mot de passe incorrect.", "Izabrani profil ne odgovara ovom nalogu.": "Le profil sélectionné ne correspond pas à ce compte.", "Password i potvrda se razlikuju.": "Les mots de passe ne correspondent pas.", "Nalog je kreiran za": "Compte créé pour", "Lozinka je poslata na": "Le lien a été envoyé à", "Cliquez sur suivant quand vous voulez définir votre mot de passe.": "Continuez pour définir le mot de passe.", "Pristup je spreman.": "L’accès est prêt.", "Kreiraj pristup": "Créer l’accès",
 		"Plans et fiches techniques en PDF, photos du chantier · 25 Mo maximum": "Plans et fiches techniques PDF, photos de chantier · 25 Mo maximum", "Telephone (optionnel)": "Téléphone (facultatif)", "Nema registrovanih chantier-a": "Aucun chantier enregistré", "Chargement": "Chargement", "Chargement...": "Chargement…", "Dodaj radnika": "Ajouter un ouvrier", "Envoyer l’invitation e-mail": "Envoyer l’invitation e-mail", "Pitaj na osnovu dokumentacije": "Poser la question", "Enregistrer et analyser automatiquement": "Enregistrer et analyser", "Kalendar radnih dana se ucitava...": "Chargement du calendrier des jours travaillés…", "Kalendar radnih dana se ucitava": "Chargement du calendrier des jours travaillés…"
 	});
-	const language = 'fr';
+	let language = localStorage.getItem('ibra-language') || 'fr';
 	let rgeQualibatKnowledge;
 	document.querySelectorAll('body *').forEach((element) => { if (element.children.length === 0 && translations[element.textContent]) element.textContent = translations[element.textContent]; });
 	repairEncoding();
@@ -214,6 +214,15 @@ document.addEventListener('DOMContentLoaded', () => {
 		try { companyProfileState = await request('/company/profile'); }
 		catch { companyProfileState = null; }
 		renderCompanyIdentity();
+	}
+	async function loadAccountSettings() {
+		if (!currentUser) return;
+		const form = document.querySelector('#account-info-form');
+		if (!form) return;
+		if (document.activeElement && form.contains(document.activeElement)) return;
+		form.elements.name.value = currentUser.name || '';
+		form.elements.contact.value = currentUser.email || currentUser.phone || '';
+		form.elements.language.value = language;
 	}
 	const workerProfilePanel = document.querySelector('#worker-profile-panel');
 	const workerProfileAvatar = document.querySelector('#worker-profile-avatar');
@@ -367,11 +376,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); } };
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view'],
-			worker: ['tasks-view','evidence-summary-view'],
-			user: ['tasks-view','evidence-summary-view']
+			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			worker: ['tasks-view','evidence-summary-view','account-settings-view'],
+			user: ['tasks-view','evidence-summary-view','account-settings-view']
 		};
 		const allowed = access[role] || ['dashboard-view','tasks-view'];
 		document.querySelectorAll('.nav').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
@@ -1790,7 +1799,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
 			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction()]),
-			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()])
+			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()]),
+			'account-settings-view': () => Promise.allSettled([loadAccountSettings()])
 		};
 		await (refreshers[active]?.() || loadInitialData());
 	};
@@ -1849,6 +1859,47 @@ document.addEventListener('DOMContentLoaded', () => {
 			resetForm.addEventListener('submit', async (event) => { event.preventDefault(); const message = resetForm.querySelector('#reset-message'); const values = Object.fromEntries(new FormData(resetForm).entries()); if (values.password !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; } try { const response = await fetch(`${api}/auth/reset-password`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: resetToken, password: values.password }) }); const result = await response.json(); if (!response.ok) throw new Error(result.error || 'Réinitialisation impossible.'); message.textContent = 'Mot de passe enregistré. Vous pouvez vous connecter.'; resetForm.reset(); setTimeout(showLogin, 800); } catch (error) { message.textContent = error.message; } });
 	} else { resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); }
 	document.querySelector('#logout-button').addEventListener('click', () => { stopMessagePolling(); localStorage.removeItem('ibra-auth-token'); currentUser = undefined; companyProfileState = null; workerProfilePanel?.setAttribute('hidden', ''); document.querySelector('#company-identity-strip')?.setAttribute('hidden', ''); document.querySelector('#login-form').reset(); document.querySelector('#registration-form')?.reset(); document.querySelector('#registration-form')?.setAttribute('hidden', ''); document.querySelector('#registration-success')?.setAttribute('hidden', ''); document.querySelector('#login-form').setAttribute('hidden', ''); authChoice?.removeAttribute('hidden'); loginModal.classList.remove('hidden'); });
+	document.querySelector('#account-info-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const message = document.querySelector('#account-info-message');
+		message.textContent = '';
+		const submitButton = form.querySelector('button[type="submit"]');
+		submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true');
+		try {
+			const values = formValues(form);
+			const result = await request('/me', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: values.name, contact: values.contact }) });
+			currentUser = result.user;
+			document.querySelector('#current-role').textContent = `${currentUser.name} - ${currentUser.role}`;
+			language = values.language || 'fr';
+			localStorage.setItem('ibra-language', language);
+			toast('Paramètres enregistrés.');
+		} catch (error) {
+			let text = 'Les modifications n’ont pas été enregistrées.';
+			try { const details = JSON.parse(error.message); if (details.error === 'User already exists') text = 'Cet e-mail ou téléphone est déjà utilisé.'; } catch {}
+			message.textContent = text;
+		} finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); }
+	});
+	document.querySelector('#account-password-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const message = document.querySelector('#account-password-message');
+		message.textContent = '';
+		const values = formValues(form);
+		if (values.newPassword !== values.confirmPassword) { message.textContent = 'Les mots de passe ne correspondent pas.'; return; }
+		const submitButton = form.querySelector('button[type="submit"]');
+		submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true');
+		try {
+			const result = await request('/auth/change-password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ currentPassword: values.currentPassword, newPassword: values.newPassword }) });
+			localStorage.setItem('ibra-auth-token', result.token);
+			form.reset();
+			toast('Mot de passe changé.');
+		} catch (error) {
+			let text = 'Le mot de passe n’a pas été changé.';
+			try { const details = JSON.parse(error.message); if (details.error === 'Current password is incorrect') text = 'Mot de passe actuel incorrect.'; } catch {}
+			message.textContent = text;
+		} finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); }
+	});
 	document.querySelector('#message-form').addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const form = event.currentTarget;
