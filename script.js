@@ -748,7 +748,34 @@ document.addEventListener('DOMContentLoaded', () => {
 	function renderWorkerDetail() {
 		const user = workerRosterState.users.find((item) => item.id === workerRosterState.detailWorkerId); if (!user) return; const month = workerRosterState.detailMonth || workerRosterState.month; const snapshot = deriveWorkerSnapshot(user, month); workerRosterState.detailSnapshot = snapshot; const title = document.querySelector('#worker-detail-title'); const subtitle = document.querySelector('#worker-detail-subtitle'); const monthInput = document.querySelector('#worker-detail-month'); const badge = document.querySelector('#worker-detail-payment-badge'); paintIdentityToken(document.querySelector('#worker-detail-avatar'), user.avatarUrl || '', user.name); if (title) title.textContent = user.name || 'Radnik'; if (subtitle) subtitle.textContent = [user.email || user.phone || 'Kontakt nije unet', user.company || user.employerCompany || '', snapshot.assignedProjects.join(', ')].filter(Boolean).join(' · '); if (monthInput) monthInput.value = month; if (badge) { badge.className = `worker-status ${workerStatusMeta[snapshot.paymentState].className}`; badge.innerHTML = `<span class="worker-status-dot" aria-hidden="true"></span>${workerStatusMeta[snapshot.paymentState].label}`; const clickable = isOwner() && snapshot.entries.length; badge.disabled = !clickable; if (clickable) { badge.dataset.cycleStatusWorker = user.id; badge.dataset.cycleStatusMonth = month; badge.dataset.cycleStatusState = snapshot.paymentState; } else { delete badge.dataset.cycleStatusWorker; delete badge.dataset.cycleStatusMonth; delete badge.dataset.cycleStatusState; } }
 		document.querySelector('#worker-detail-summary').innerHTML = `<div><small>Jours travaillés</small><strong>${snapshot.workedDays}</strong><span>${escapeHtml(formatMonthLabel(month))}</span></div><div><small>Heures</small><strong>${snapshot.hours.toFixed(2)}</strong><span>total</span></div><div><small>Tarif journalier</small><strong>${formatEUR(user.dailyRate || 0)}</strong><span>par jour</span></div><div><small>Tarif horaire</small><strong>${formatEUR(user.hourlyRate || 0)}</strong><span>par heure</span></div><div class="detail-summary-amount"><small>Calculé</small><strong>${formatEUR(snapshot.amount)}</strong><span>${snapshot.entries.length} saisies</span></div>`;
-		renderWorkerDetailCalendar(snapshot, month); renderWorkerDetailPayment(snapshot); renderWorkerDetailRendezvous(snapshot); renderWorkerDetailEntries(snapshot);
+		renderWorkerDetailCalendar(snapshot, month); renderWorkerDetailPayment(snapshot); renderWorkerDetailRendezvous(snapshot); renderWorkerDetailEntries(snapshot); loadWorkerDetailDocuments(user.id);
+	}
+	function daysUntilExpiry(expiresAt) { return expiresAt ? Math.ceil((new Date(expiresAt) - new Date()) / 86400000) : null; }
+	function renderPersonalDocumentList(target, items) {
+		if (!target) return;
+		if (!items.length) { target.innerHTML = '<small>Aucun document.</small>'; return; }
+		target.innerHTML = items.map((item) => {
+			const days = daysUntilExpiry(item.expiresAt);
+			const expiryLabel = days == null ? '' : days < 0 ? 'Expiré' : days <= 30 ? `Expire dans ${days} j` : `Valide jusqu’au ${item.expiresAt.slice(0, 10)}`;
+			const stateClass = days == null ? '' : days < 0 ? 'bad' : days <= 30 ? 'warn' : 'ok';
+			return `<div class="list-item ${stateClass}"><strong>${escapeHtml(item.docType)}</strong><small>${escapeHtml(item.originalName)} · ${item.direction === 'gerant-to-worker' ? 'Envoyé par le gérant' : 'Envoyé par l’ouvrier'}${expiryLabel ? ' · ' + expiryLabel : ''}</small><button class="secondary delete-personal-document" data-document="${item.id}" type="button">Supprimer</button></div>`;
+		}).join('');
+		target.querySelectorAll('.delete-personal-document').forEach((button) => button.addEventListener('click', async () => {
+			if (!window.confirm('Supprimer ce document ?')) return;
+			try { await request(`/personal-documents/${button.dataset.document}`, { method: 'DELETE' }); await Promise.allSettled([loadWorkerDetailDocuments(workerRosterState.detailWorkerId), loadMyDocuments()]); toast('Document supprimé.'); } catch { toast('Document non supprimé.'); }
+		}));
+	}
+	async function loadWorkerDetailDocuments(workerId) {
+		if (!workerId) return;
+		try { const all = await request('/personal-documents'); renderPersonalDocumentList(document.querySelector('#worker-detail-documents'), all.filter((item) => item.workerId === workerId)); } catch { renderPersonalDocumentList(document.querySelector('#worker-detail-documents'), []); }
+	}
+	async function loadMyDocuments() {
+		const panel = document.querySelector('#my-documents-panel');
+		if (!panel) return;
+		const visible = isWorkerRole(currentUser?.role);
+		panel.toggleAttribute('hidden', !visible);
+		if (!visible) return;
+		try { const items = await request('/personal-documents'); renderPersonalDocumentList(document.querySelector('#my-documents'), items); } catch { renderPersonalDocumentList(document.querySelector('#my-documents'), []); }
 	}
 	function renderWorkerDetailPayment(snapshot) {
 		const target = document.querySelector('#worker-detail-payment'); if (!target) return;
@@ -1825,7 +1852,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
 			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId())]),
 			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()]),
-			'account-settings-view': () => Promise.allSettled([loadAccountSettings()])
+			'account-settings-view': () => Promise.allSettled([loadAccountSettings(), loadMyDocuments()])
 		};
 		await (refreshers[active]?.() || loadInitialData());
 	};
@@ -1925,6 +1952,29 @@ document.addEventListener('DOMContentLoaded', () => {
 			message.textContent = text;
 		} finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); }
 	});
+	async function submitPersonalDocument(form, extraFields) {
+		const file = form.elements.file.files[0];
+		if (!file) return;
+		const body = new FormData(form);
+		body.set('file', file, file.name);
+		Object.entries(extraFields || {}).forEach(([key, value]) => body.set(key, value));
+		const submitButton = form.querySelector('button[type="submit"]');
+		submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true');
+		try {
+			const response = await fetch(`${api}/personal-documents/upload`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			const result = await response.json().catch(() => ({}));
+			if (!response.ok) throw new Error(result.error || `${response.status}`);
+			form.reset();
+			await Promise.allSettled([loadWorkerDetailDocuments(workerRosterState.detailWorkerId), loadMyDocuments()]);
+			toast('Document ajouté.');
+		} catch (error) {
+			toast(`Document non ajouté : ${error.message || 'erreur'}`);
+		} finally {
+			submitButton.disabled = false; submitButton.removeAttribute('aria-busy');
+		}
+	}
+	document.querySelector('#worker-detail-document-form')?.addEventListener('submit', async (event) => { event.preventDefault(); await submitPersonalDocument(event.currentTarget, { workerId: workerRosterState.detailWorkerId }); });
+	document.querySelector('#my-document-form')?.addEventListener('submit', async (event) => { event.preventDefault(); await submitPersonalDocument(event.currentTarget, {}); });
 	document.querySelector('#message-form').addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const form = event.currentTarget;

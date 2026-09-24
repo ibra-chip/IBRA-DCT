@@ -178,6 +178,12 @@
 						<button class="primary" type="submit">Changer le mot de passe</button>
 					</form>
 				</div>
+				<div class="panel" id="my-documents-panel">
+					<h3>Mes documents personnels</h3>
+					<p>Carte BTP, assurance, qualifications… partagés avec votre gérant.</p>
+					<form id="my-document-form" class="form-row"><label>Fichier<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required /></label><label>Type de document<input type="text" name="docType" placeholder="Carte BTP, assurance…" required /></label><label>Date d’expiration (facultatif)<input type="date" name="expiresAt" /></label><button class="secondary" type="submit">Ajouter</button></form>
+					<div id="my-documents" class="worker-detail-list"></div>
+				</div>
 			</section>
 		</main>
 		<div id="user-edit-modal" class="modal user-edit-modal" hidden role="dialog" aria-modal="true" aria-labelledby="user-edit-title">
@@ -224,6 +230,7 @@
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>KALENDAR</small><h3>Radni dani i RDV</h3></div><small id="worker-detail-calendar-note"></small></div><div id="worker-detail-calendar" class="work-calendar worker-detail-calendar"></div><div id="worker-detail-entries" class="worker-detail-list worker-detail-entries-inline"></div></section>
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>ISPLATA</small><h3>Plata i status</h3></div></div><div id="worker-detail-payment" class="worker-detail-payment"></div></section>
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>RDV / ODSUSTVO</small><h3>Termini</h3></div></div><div id="worker-detail-rendezvous" class="worker-detail-list"></div></section>
+				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>DOCUMENTS</small><h3>Documents personnels</h3></div></div><form id="worker-detail-document-form" class="form-row"><label>Fichier<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required /></label><label>Type de document<input type="text" name="docType" placeholder="Carte BTP, assurance…" required /></label><label>Date d’expiration (facultatif)<input type="date" name="expiresAt" /></label><button class="secondary" type="submit">Ajouter</button></form><div id="worker-detail-documents" class="worker-detail-list"></div></section>
 			</aside>
 		</div>
 	</div>

@@ -393,6 +393,10 @@ function isAllowedWorkDocument(file, evidenceType) {
 	const isImage = file.mimetype.startsWith('image/');
 	return (['plan', 'fiche-technique'].includes(type) && isPdf) || (allowedWorkEvidenceTypes.includes(type) && !['plan', 'fiche-technique'].includes(type) && isImage);
 }
+function isAllowedPersonalDocument(file) {
+	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
+	return isPdf || file.mimetype.startsWith('image/');
+}
 
 async function sendMailSafe({ to, subject, text, attachments = [] }) {
 	const from = configuredMailFrom();
@@ -1716,6 +1720,46 @@ app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	await deleteFile(UPLOADS_BUCKET, item.storedName);
 	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
+});
+app.post('/api/personal-documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'File required' });
+	if (!isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'Only PDF or image files are allowed' });
+	const docType = String(request.body.docType || '').trim();
+	if (!docType) return response.status(400).json({ error: 'Document type is required' });
+	const workerId = String(request.body.workerId || '').trim();
+	const data = await readData();
+	const caller = request.userRecord;
+	const worker = isOwnerRole(caller.role) ? data.users.find((item) => item.id === workerId) : caller;
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	const owner = companyOwnerForUser(data, worker) || worker;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (callerOwner.id !== owner.id) return response.status(403).json({ error: 'Access denied for this worker' });
+	const expiresAt = request.body.expiresAt ? new Date(request.body.expiresAt).toISOString() : null;
+	const storedName = storageKeyFor(request.file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+	const item = { id: `personal-document-${Date.now()}`, workerId: worker.id, ownerId: owner.id, docType, direction: request.user.sub === owner.id ? 'gerant-to-worker' : 'worker-to-gerant', originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, expiresAt, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
+	data.personalDocuments = [...(data.personalDocuments || []), item];
+	await writeData(data);
+	response.status(201).json(item);
+});
+app.get('/api/personal-documents', auth, async (request, response) => {
+	const data = await readData();
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	const items = (data.personalDocuments || []).filter((item) => item.workerId === caller.id || item.ownerId === callerOwner.id);
+	response.json(items);
+});
+app.delete('/api/personal-documents/:id', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.personalDocuments || []).find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
+	await deleteFile(UPLOADS_BUCKET, item.storedName);
+	data.personalDocuments = (data.personalDocuments || []).filter((document) => document.id !== item.id);
+	await writeData(data);
+	response.json({ deleted: true, id: item.id });
 });
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
