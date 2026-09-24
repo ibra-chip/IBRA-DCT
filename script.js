@@ -425,7 +425,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelectorAll('.nav-sub').forEach((button) => button.addEventListener('click', async () => {
 		setMobileNav(false);
 		showView(button.dataset.view);
-		if (button.dataset.subTab) document.querySelector(`.mobile-tab[data-tab-target="${button.dataset.subTab}"]`)?.click();
+		const tabTarget = button.dataset.subTab;
+		if (tabTarget) {
+			const view = document.getElementById(button.dataset.view);
+			view?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
+			view?.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.classList.toggle('active', tabButton.dataset.tabTarget === tabTarget));
+		}
 		if (!currentUser) return;
 		await refreshActiveView();
 	}));
@@ -1308,6 +1313,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
+		section.id = 'production-panel';
+		section.setAttribute('data-tab-hidden', '');
 		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail réalisé (optionnel)<input name="photo" type="file" accept="image/*" /></label><label>Date (optionnel)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unité à calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - mètre linéaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec caméra AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantité</span><input name="quantity" type="number" min="0" step="0.01" value="" required /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unité EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><div id="production-live-calc" class="production-live-calc">0.00 × 0,00 € = 0,00 €</div><small>La validation humaine du Gérant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
 		panel.after(section);
 		const form = section.querySelector('#production-form');
