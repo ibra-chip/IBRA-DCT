@@ -607,6 +607,23 @@ app.get('/api/health', (_request, response) => response.json({
 	service: 'ibra-ba-api',
 	commit: process.env.RENDER_GIT_COMMIT || '',
 }));
+app.get('/api/debug/weather-check', async (request, response) => {
+	if (request.query.key !== 'ibra-temp-diag-7f3a') return response.status(404).end();
+	const location = String(request.query.location || '42 avenue Henri Barbusse 93140 Bondy France');
+	const result = { location };
+	try {
+		const geocoded = await geocodeLocation(location);
+		result.geocoded = geocoded;
+		if (geocoded) {
+			const forecast = await fetchForecast(geocoded.lat, geocoded.lon);
+			result.forecastDays = forecast.days.length;
+		}
+	} catch (error) {
+		result.error = error.message;
+		result.stack = error.stack;
+	}
+	response.json(result);
+});
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
 	try {
