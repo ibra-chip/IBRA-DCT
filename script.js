@@ -404,7 +404,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tabs = tabButton.closest('.mobile-tabs');
 		tabs?.querySelectorAll('.mobile-tab').forEach((item) => item.classList.toggle('active', item === tabButton));
 		const targetId = tabButton.dataset.tabTarget;
-		tabs?.parentElement?.querySelectorAll('.grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== targetId));
+		tabs?.parentElement?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== targetId));
 	}));
 
 	let projectsCache = [];
@@ -784,6 +784,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const visible = isWorkerRole(currentUser?.role);
 		panel.toggleAttribute('hidden', !visible);
+		document.querySelector('.mobile-tab[data-tab-target="my-documents-panel"]')?.toggleAttribute('hidden', !visible);
 		if (!visible) return;
 		try { const items = await request('/personal-documents'); renderPersonalDocumentList(document.querySelector('#my-documents'), items); } catch { renderPersonalDocumentList(document.querySelector('#my-documents'), []); }
 	}

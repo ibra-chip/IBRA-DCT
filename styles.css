@@ -668,7 +668,7 @@ h1,h2,h3,.primary,.secondary,.nav{font-family:"IBM Plex Sans",Inter,Segoe UI,san
 .mobile-tabs{display:flex;gap:8px;margin-bottom:14px}
 .mobile-tab{flex:1;padding:11px 10px;border-radius:11px;border:1px solid var(--border-soft);background:var(--panel);color:var(--muted);font:inherit;font-weight:700;font-size:.85rem;cursor:pointer}
 .mobile-tab.active{background:linear-gradient(135deg,var(--blue),var(--blue-strong));color:#fff;border-color:transparent;box-shadow:0 8px 20px #2454d13a}
-#tasks-view .grid-two > .panel[data-tab-hidden]{display:none}
+.view .panel[data-tab-hidden]{display:none}
 }
 
 /* Labels: a touch more presence (size + color) per feedback */
