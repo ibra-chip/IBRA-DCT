@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import compression from 'compression';
 import cors from 'cors';
 import crypto from 'node:crypto';
 import 'dotenv/config';
@@ -101,6 +102,7 @@ const identityUploadMiddleware = (field) => (request, response, next) => identit
 	}
 	next();
 });
+app.use(compression());
 app.use(cors());
 app.use(express.json());
 app.use(express.static(root, {
