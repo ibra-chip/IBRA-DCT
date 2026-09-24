@@ -721,6 +721,9 @@ label{font-size:.86rem;color:#3d5a8a}
 .calendar-add-rdv{opacity:.85;border-color:#7a879c;background:#ffffffb3}
 .calendar-add-rdv:hover{opacity:1;background:#eef3fd;border-color:var(--blue);color:var(--blue)}
 
+/* Sidebar: use the app's actual brand blue (matches logo.svg gradient) instead of near-black navy */
+.sidebar{background:linear-gradient(165deg,#1e40c4,#132a6e)}
+
 /* Extend the hero blue gradient to the top header bar, present on every page */
 header{background:linear-gradient(120deg,#16265e,#2454d1 68%,#3d70e6);border-color:transparent;box-shadow:0 8px 24px #1c25301f;position:relative;overflow:hidden}
 header::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#ffffff0e 1px,transparent 1px) 0 0/34px 34px,linear-gradient(0deg,#ffffff0e 1px,transparent 1px) 0 0/34px 34px;mask-image:radial-gradient(circle at 90% 0%,black,transparent 70%);pointer-events:none}
