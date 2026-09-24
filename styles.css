@@ -730,3 +730,6 @@ header::before{content:"";position:absolute;inset:0;background:linear-gradient(9
 header #current-role{color:#c7ccd3;position:relative}
 header #page-title{color:#ffffff;position:relative}
 header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;position:relative}
+
+/* The logo is now a self-contained white SVG badge — drop the leftover .brand-mark blue/purple glow */
+.brand-logo{box-shadow:none;background:none}
