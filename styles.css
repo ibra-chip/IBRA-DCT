@@ -674,3 +674,13 @@ h1,h2,h3,.primary,.secondary,.nav{font-family:"IBM Plex Sans",Inter,Segoe UI,san
 /* Labels: a touch more presence (size + color) per feedback */
 label{font-size:.86rem;color:#3d5a8a}
 .list > small,.list > p{display:block;padding:22px 18px;border:1.5px dashed var(--border-strong);border-radius:12px;text-align:center;color:var(--muted);font-size:.9rem;background:#fafbfd}
+
+/* Refine generic .list-item (documents, purchases, messages fallback, time entries) to match the new system */
+.list{gap:10px}
+.list-item{padding:14px 16px;border-radius:12px;border-left-width:3px;background:var(--panel);box-shadow:var(--shadow-panel)}
+.list-item strong{font-size:.92rem;font-weight:700;color:var(--text);letter-spacing:-.005em}
+.list-item small{color:var(--muted);font-size:.79rem;line-height:1.55;margin-top:3px}
+.list-item:hover{border-left-color:var(--blue);box-shadow:0 6px 18px #1c25300f}
+.list-item .document-actions,.list-item .production-report-actions{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)}
+.document-group h4{color:var(--blue-strong);font-weight:700}
+.purchase-category h3,.purchase-groups h3{color:var(--text)}
