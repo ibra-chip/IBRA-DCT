@@ -1023,7 +1023,7 @@ app.get('/api/projects/:id/weather', auth, async (request, response) => {
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
 	if (project.weatherLat == null || project.weatherLon == null) {
 		let geocoded;
-		try { geocoded = await geocodeLocation(project.location); } catch (error) { console.error('[weather] geocodeLocation failed:', error.message); }
+		try { geocoded = await geocodeLocation(project.location || project.name); } catch (error) { console.error('[weather] geocodeLocation failed:', error.message); }
 		if (!geocoded) return response.json({ available: false });
 		project.weatherLat = geocoded.lat;
 		project.weatherLon = geocoded.lon;
