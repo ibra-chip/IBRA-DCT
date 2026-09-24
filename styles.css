@@ -583,7 +583,7 @@ input:focus,select:focus,textarea:focus{outline-color:#2f6fed66;border-color:#2f
 :root{
 	--bg:#eef1f6;--panel:#ffffff;--panel2:#fafbfd;
 	--surface-0:#eef1f6;--surface-1:#ffffff;--surface-2:#ffffff;--surface-3:#fafbfd;
-	--text:#1c2530;--muted:#5b6b82;
+	--text:#1c2530;--muted:#48566d;
 	--blue:#2454d1;--blue-strong:#173a99;--green:#1a8754;--yellow:#c2620a;--red:#c53030;--focus:#2454d1;
 	--border-soft:#dde3ec;--border-focus:#2454d1;--border-strong:#c9d2df;--roster-line:#e8edf3;--roster-header:#8a97ac;
 	--shadow-panel:0 1px 2px #1c25300c,0 10px 28px #1c253012;--shadow-drawer:-24px 0 70px #1c253026;
