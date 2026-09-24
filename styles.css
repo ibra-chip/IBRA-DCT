@@ -767,4 +767,6 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 
 /* Calendar: mark absence entries in red, distinct from RDV (kept amber) */
 .calendar-cell.has-rendezvous .calendar-quick-edit.calendar-absence{color:#c53030}
-.calendar-cell.has-absence{border-color:#c53030}
+.calendar-cell.has-absence{border-color:#c53030;background:#fbeaea}
+.calendar-cell.has-absence strong{color:#7a1d1d}
+.calendar-cell.has-absence.worked{background:linear-gradient(135deg,#bbf0cf,#fbeaea)}
