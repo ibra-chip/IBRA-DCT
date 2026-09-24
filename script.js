@@ -826,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel) return;
 		const visible = isWorkerRole(currentUser?.role);
 		panel.toggleAttribute('hidden', !visible);
-		document.querySelector('.mobile-tab[data-tab-target="my-documents-panel"]')?.toggleAttribute('hidden', !visible);
+		document.querySelector('.nav[data-sub-tab="my-documents-panel"]')?.toggleAttribute('hidden', !visible);
 		if (!visible) return;
 		try { const items = await request('/personal-documents'); renderPersonalDocumentList(document.querySelector('#my-documents'), items); } catch { renderPersonalDocumentList(document.querySelector('#my-documents'), []); }
 	}
