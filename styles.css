@@ -753,3 +753,8 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .modal .login-card{border-color:#4a505835}
 .login-card input:focus,.login-card select:focus{box-shadow:0 0 0 4px #4a505818}
 .login-card::-webkit-scrollbar-thumb{background:#4a505845}
+
+/* Calendar: hide +RDV/+Absence quick-add on days that already have an entry, until hovered/focused — declutters cells that were already showing hours or a rendezvous */
+.calendar-cell.worked .calendar-add-rdv,.calendar-cell.has-rendezvous .calendar-add-rdv{display:none}
+.calendar-cell.worked:hover .calendar-add-rdv,.calendar-cell.has-rendezvous:hover .calendar-add-rdv,
+.calendar-cell.worked:focus-within .calendar-add-rdv,.calendar-cell.has-rendezvous:focus-within .calendar-add-rdv{display:inline-flex}
