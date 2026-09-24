@@ -758,3 +758,9 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .calendar-cell.worked .calendar-add-rdv,.calendar-cell.has-rendezvous .calendar-add-rdv{display:none}
 .calendar-cell.worked:hover .calendar-add-rdv,.calendar-cell.has-rendezvous:hover .calendar-add-rdv,
 .calendar-cell.worked:focus-within .calendar-add-rdv,.calendar-cell.has-rendezvous:focus-within .calendar-add-rdv{display:inline-flex}
+
+/* Login card: fill the whole screen on narrow phones instead of floating as a small centered card */
+@media(max-width:520px){
+	#login-modal.modal{padding:0;align-items:stretch}
+	#login-modal .login-card{width:100%;max-width:none;height:100%;max-height:none;border-radius:0;box-shadow:none;padding:20px 18px calc(20px + env(safe-area-inset-bottom,0px));padding-top:max(20px,env(safe-area-inset-top,0px))}
+}
