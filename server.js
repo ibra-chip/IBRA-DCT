@@ -162,7 +162,7 @@ const companyProfileForUser = (data, user) => {
 	const profile = (data.companyProfiles || []).find((item) => item.key === key || (owner?.siret && cleanSiret(item.siret) === cleanSiret(owner.siret)));
 	return profile || { key, name: owner?.company || owner?.employerCompany || '', siret: owner?.siret || owner?.employerSiret || '', logoFile: '', logoUrl: '' };
 };
-const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || '', name: profile.name || '', siret: profile.siret || '', logoFile: profile.logoFile || '', logoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), updatedAt: profile.updatedAt || '' });
+const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || '', name: profile.name || '', siret: profile.siret || '', logoFile: profile.logoFile || '', logoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), accountantEmail: profile.accountantEmail || '', updatedAt: profile.updatedAt || '' });
 const publicUser = (user, companyProfile = null) => ({ id: user.id, name: user.name, email: user.email, phone: user.phone || '', role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' });
 const issueAuthToken = (user, companyProfile = null) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' }, secret, { expiresIn: '8h' });
 const projectById = (data, projectId) => (data.projects || []).find((project) => project.id === String(projectId || '')) || null;
@@ -749,7 +749,8 @@ app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'
 	const removeLogo = String(request.body.removeLogo || '').toLowerCase() === 'true';
 	if (removeLogo && existing.logoFile) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
 	if (request.file && existing.logoFile && existing.logoFile !== request.file.filename) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
-	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	const accountantEmail = String(request.body.accountantEmail ?? existing.accountantEmail ?? '').trim();
+	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), accountantEmail, updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.companyProfiles = [...(data.companyProfiles || []).filter((item) => item.key !== profile.key), profile];
 	data.users = data.users.map((user) => {
 		if (companyKeyForUser(companyOwnerForUser(data, user) || user) !== profile.key) return user;
@@ -1700,6 +1701,20 @@ app.get('/api/documents', auth, async (request, response) => {
 	const data = await readData();
 	response.json(data.documents.filter((document) => canAccessProject(data, request.user, document.projectId)));
 });
+app.get('/api/documents/:id/download', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
+});
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
@@ -1748,6 +1763,22 @@ app.get('/api/personal-documents', auth, async (request, response) => {
 	const callerOwner = companyOwnerForUser(data, caller) || caller;
 	const items = (data.personalDocuments || []).filter((item) => item.workerId === caller.id || item.ownerId === callerOwner.id);
 	response.json(items);
+});
+app.get('/api/personal-documents/:id/download', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.personalDocuments || []).find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
 });
 app.delete('/api/personal-documents/:id', auth, async (request, response) => {
 	const data = await readData();

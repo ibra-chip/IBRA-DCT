@@ -325,6 +325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		companyIdentityRemoveLogoQueued = false;
 		const name = companyProfileState?.name || currentUser?.company || currentUser?.employerCompany || '';
 		companyIdentityForm.elements.name.value = name;
+		companyIdentityForm.elements.accountantEmail.value = companyProfileState?.accountantEmail || '';
 		companyIdentityForm.elements.logo.value = '';
 		paintIdentityToken(document.querySelector('#company-identity-preview'), companyProfileState?.logoUrl || '', name);
 		const removeButton = document.querySelector('#company-identity-remove-logo');
@@ -364,6 +365,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		submit.disabled = true; submit.setAttribute('aria-busy', 'true');
 		const body = new FormData();
 		body.set('name', companyIdentityForm.elements.name.value.trim());
+		body.set('accountantEmail', companyIdentityForm.elements.accountantEmail.value.trim());
 		if (companyIdentityForm.elements.logo.files[0]) body.set('logo', companyIdentityForm.elements.logo.files[0]);
 		if (companyIdentityRemoveLogoQueued) body.set('removeLogo', 'true');
 		try {
@@ -758,12 +760,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			const days = daysUntilExpiry(item.expiresAt);
 			const expiryLabel = days == null ? '' : days < 0 ? 'Expiré' : days <= 30 ? `Expire dans ${days} j` : `Valide jusqu’au ${item.expiresAt.slice(0, 10)}`;
 			const stateClass = days == null ? '' : days < 0 ? 'bad' : days <= 30 ? 'warn' : 'ok';
-			return `<div class="list-item ${stateClass}"><strong>${escapeHtml(item.docType)}</strong><small>${escapeHtml(item.originalName)} · ${item.direction === 'gerant-to-worker' ? 'Envoyé par le gérant' : 'Envoyé par l’ouvrier'}${expiryLabel ? ' · ' + expiryLabel : ''}</small><button class="secondary delete-personal-document" data-document="${item.id}" type="button">Supprimer</button></div>`;
+			return `<div class="list-item ${stateClass}"><strong>${escapeHtml(item.docType)}</strong><small>${escapeHtml(item.originalName)} · ${item.direction === 'gerant-to-worker' ? 'Envoyé par le gérant' : 'Envoyé par l’ouvrier'}${expiryLabel ? ' · ' + expiryLabel : ''}</small><div class="document-actions"><button class="secondary send-personal-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}" type="button">Envoyer par email</button><button class="secondary delete-personal-document" data-document="${item.id}" type="button">Supprimer</button></div></div>`;
 		}).join('');
 		target.querySelectorAll('.delete-personal-document').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm('Supprimer ce document ?')) return;
 			try { await request(`/personal-documents/${button.dataset.document}`, { method: 'DELETE' }); await Promise.allSettled([loadWorkerDetailDocuments(workerRosterState.detailWorkerId), loadMyDocuments()]); toast('Document supprimé.'); } catch { toast('Document non supprimé.'); }
 		}));
+		target.querySelectorAll('.send-personal-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/personal-documents/${button.dataset.document}/download`, button.dataset.name, button)));
 	}
 	async function loadWorkerDetailDocuments(workerId) {
 		if (!workerId) return;
@@ -815,6 +818,28 @@ document.addEventListener('DOMContentLoaded', () => {
 			link.remove();
 			URL.revokeObjectURL(url);
 		} catch { toast('PDF nije preuzet.'); }
+		finally { if (trigger) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); } }
+	}
+	async function sendDocumentByEmail(downloadPath, filename, trigger) {
+		if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
+		try {
+			const response = await fetch(`${api}${downloadPath}`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename || 'document';
+			document.body.append(link);
+			link.click();
+			link.remove();
+			setTimeout(() => URL.revokeObjectURL(url), 10000);
+			const to = companyProfileState?.accountantEmail || '';
+			const subject = encodeURIComponent(`Document IBRA-BA : ${filename || ''}`);
+			const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver ci-joint le document « ${filename || ''} » (téléchargé automatiquement — joignez-le manuellement à cet e-mail).\n\nCordialement.`);
+			window.open(`mailto:${encodeURIComponent(to)}?subject=${subject}&body=${body}`, '_blank');
+			toast('Document téléchargé. Joignez-le à l’e-mail qui vient de s’ouvrir.');
+		} catch { toast('Le document n’a pas pu être téléchargé.'); }
 		finally { if (trigger) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); } }
 	}
 	async function markWorkerPaid(userId, month, trigger) {
@@ -1734,10 +1759,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	const documentGroupOrder = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after', 'other'];
 	const documentGroupLabels = { plan: 'Plans', 'fiche-technique': 'Fiches techniques', 'photo-before': 'Photos avant travaux', 'photo-during': 'Photos pendant les travaux', 'photo-after': 'Photos après travaux', other: 'Autres' };
 	async function loadDocuments() { await loadProjectOptions(); const activeProject = currentProjectId(); const documents = (await request('/documents')).filter((item) => !activeProject || item.projectId === activeProject); const canManage = isOwner();
-		const renderItem = (item) => `<div class="list-item"><strong>${item.originalName}</strong><small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small>${canManage ? `<div class="document-actions"><button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button></div>` : ''}</div>`;
+		const renderItem = (item) => `<div class="list-item"><strong>${item.originalName}</strong><small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small>${canManage ? `<div class="document-actions"><button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button></div>` : ''}</div>`;
 		const groups = documentGroupOrder.map((type) => ({ type, items: documents.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length);
 		document.querySelector('#documents').innerHTML = groups.length ? groups.map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('') : '<small>Aucun document enregistré.</small>';
-		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); }
+		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); }
 	async function loadBudget() {
 		await loadProjectOptions();
 		const target = document.querySelector('#budget-summary');
