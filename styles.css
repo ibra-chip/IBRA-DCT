@@ -716,3 +716,10 @@ label{font-size:.86rem;color:#3d5a8a}
 .calendar-icon-btn:hover{background:#00000035}
 .calendar-icon-btn.danger{color:#c53030}
 .calendar-icon-btn.danger:hover{background:#c5303033}
+
+/* Extend the hero blue gradient to the top header bar, present on every page */
+header{background:linear-gradient(120deg,#16265e,#2454d1 68%,#3d70e6);border-color:transparent;box-shadow:0 8px 24px #1c25301f;position:relative;overflow:hidden}
+header::before{content:"";position:absolute;inset:0;background:linear-gradient(90deg,#ffffff0e 1px,transparent 1px) 0 0/34px 34px,linear-gradient(0deg,#ffffff0e 1px,transparent 1px) 0 0/34px 34px;mask-image:radial-gradient(circle at 90% 0%,black,transparent 70%);pointer-events:none}
+header #current-role{color:#c9d8fb;position:relative}
+header #page-title{color:#ffffff;position:relative}
+header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;position:relative}
