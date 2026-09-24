@@ -684,3 +684,23 @@ label{font-size:.86rem;color:#3d5a8a}
 .list-item .document-actions,.list-item .production-report-actions{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)}
 .document-group h4{color:var(--blue-strong);font-weight:700}
 .purchase-category h3,.purchase-groups h3{color:var(--text)}
+
+/* Calendar: darker, clearer cells per feedback */
+.calendar-cell{background:#eef1f6;border-color:var(--border-soft);color:var(--text)}
+.calendar-cell strong{color:var(--text);font-weight:700}
+.calendar-cell.weekend{opacity:.72;background:#e4e9f0}
+.calendar-cell.empty{background:transparent;border-color:transparent}
+.calendar-add-rdv{opacity:.62;border-color:var(--border-strong);color:var(--muted)}
+.calendar-cell:hover .calendar-add-rdv,.calendar-add-rdv:hover,.calendar-add-rdv:focus-visible{opacity:1;color:var(--blue);border-color:var(--blue)}
+.calendar-cell.worked{border-color:#16a34a;background:#bbf0cf;color:#0d5b32}
+.calendar-cell.worked strong{color:#0d5b32}
+.calendar-cell.worked.entry-pending{border-color:#c2620a;background:#fce0b0;color:#7a3c05}
+.calendar-cell.worked.entry-pending strong{color:#7a3c05}
+.calendar-cell.worked.entry-rejected{border-color:#c53030;background:#f7c6c6;color:#7a1d1d}
+.calendar-cell.worked.entry-rejected strong{color:#7a1d1d}
+.calendar-cell.has-rendezvous{border-color:#c2620a;background:#fce0b0}
+.calendar-cell.has-rendezvous strong{color:#7a3c05}
+.calendar-cell.has-rendezvous.worked{background:linear-gradient(135deg,#bbf0cf,#fce0b0)}
+.calendar-quick-edit{color:inherit;font-weight:800}
+.calendar-stat{background:#eef1f6;border-color:var(--border-soft)}
+.calendar-stat strong{color:var(--text)}
