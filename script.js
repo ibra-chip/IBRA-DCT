@@ -400,6 +400,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView(); }));
+	document.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.addEventListener('click', () => {
+		const tabs = tabButton.closest('.mobile-tabs');
+		tabs?.querySelectorAll('.mobile-tab').forEach((item) => item.classList.toggle('active', item === tabButton));
+		const targetId = tabButton.dataset.tabTarget;
+		tabs?.parentElement?.querySelectorAll('.grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== targetId));
+	}));
 
 	let projectsCache = [];
 	let activeProjectId = localStorage.getItem('ibra-active-project') || '';
