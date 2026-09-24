@@ -1001,7 +1001,10 @@ app.get('/api/projects/:id/weather', auth, async (request, response) => {
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
 	if (project.weatherLat == null || project.weatherLon == null) {
-		const geocoded = await geocodeLocation(project.location);
+		console.log(`[weather] geocoding project ${project.id} location="${project.location}"`);
+		let geocoded;
+		try { geocoded = await geocodeLocation(project.location); } catch (error) { console.error('[weather] geocodeLocation threw:', error.message, error.stack); }
+		console.log(`[weather] geocode result:`, JSON.stringify(geocoded));
 		if (!geocoded) return response.json({ available: false });
 		project.weatherLat = geocoded.lat;
 		project.weatherLon = geocoded.lon;
