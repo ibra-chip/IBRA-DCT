@@ -704,3 +704,15 @@ label{font-size:.86rem;color:#3d5a8a}
 .calendar-quick-edit{color:inherit;font-weight:800}
 .calendar-stat{background:#eef1f6;border-color:var(--border-soft)}
 .calendar-stat strong{color:var(--text)}
+
+/* Fix: quick-edit pills (8.0h, +RDV, Absence) inherited a dark overlay meant for the old dark theme — invisible on light cells */
+.calendar-quick-edit{background:#ffffffcc;color:currentColor;border-color:currentColor;box-shadow:0 1px 3px #1c253022}
+.calendar-quick-edit:hover{background:#ffffff}
+.calendar-cell.worked .calendar-quick-edit{color:#0d5b32}
+.calendar-cell.worked.entry-pending .calendar-quick-edit{color:#7a3c05}
+.calendar-cell.worked.entry-rejected .calendar-quick-edit{color:#7a1d1d}
+.calendar-cell.has-rendezvous .calendar-quick-edit{color:#7a3c05}
+.calendar-icon-btn{background:#0000001c;color:inherit}
+.calendar-icon-btn:hover{background:#00000035}
+.calendar-icon-btn.danger{color:#c53030}
+.calendar-icon-btn.danger:hover{background:#c5303033}
