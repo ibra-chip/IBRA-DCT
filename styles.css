@@ -770,3 +770,9 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .calendar-cell.has-absence{border-color:#c53030;background:#fbeaea}
 .calendar-cell.has-absence strong{color:#7a1d1d}
 .calendar-cell.has-absence.worked{background:linear-gradient(135deg,#bbf0cf,#fbeaea)}
+
+/* Sidebar nav: expandable submenu (e.g. Tâches et communication -> Temps de travail / Communication) */
+.nav-item-group{display:flex;flex-direction:column;gap:2px}
+.nav-submenu{display:flex;flex-direction:column;gap:2px;padding-left:14px;margin:2px 0 4px}
+.nav-sub{display:flex;align-items:center;gap:8px;padding:8px 10px;border:0;border-left:2px solid #ffffff1c;border-radius:8px;background:transparent;color:#aab5c9;font:inherit;font-size:.85rem;font-weight:600;text-align:left;cursor:pointer}
+.nav-sub:hover{background:#ffffff0d;color:#dfe5f0;border-left-color:#ffffff40}

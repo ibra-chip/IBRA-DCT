@@ -418,7 +418,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
-	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => { setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView(); }));
+	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => {
+		if (button.dataset.navParent) { document.getElementById(button.dataset.navParent)?.toggleAttribute('hidden'); return; }
+		setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
+	}));
+	document.querySelectorAll('.nav-sub').forEach((button) => button.addEventListener('click', async () => {
+		setMobileNav(false);
+		showView(button.dataset.view);
+		if (button.dataset.subTab) document.querySelector(`.mobile-tab[data-tab-target="${button.dataset.subTab}"]`)?.click();
+		if (!currentUser) return;
+		await refreshActiveView();
+	}));
 	document.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.addEventListener('click', () => {
 		const tabs = tabButton.closest('.mobile-tabs');
 		tabs?.querySelectorAll('.mobile-tab').forEach((item) => item.classList.toggle('active', item === tabButton));
