@@ -578,3 +578,85 @@ input:focus,select:focus,textarea:focus{outline-color:#2f6fed66;border-color:#2f
 @media(max-width:850px){.weather-days{grid-template-columns:repeat(5,minmax(56px,1fr));overflow-x:auto}}
 
 .status.offline{background:#fef3c7;color:#92400e;border-color:#d9770655}
+
+/* ===== Professional refresh: IBM Plex type, blueprint-inspired palette, dark sidebar ===== */
+:root{
+	--bg:#eef1f6;--panel:#ffffff;--panel2:#fafbfd;
+	--surface-0:#eef1f6;--surface-1:#ffffff;--surface-2:#ffffff;--surface-3:#fafbfd;
+	--text:#1c2530;--muted:#5b6b82;
+	--blue:#2454d1;--blue-strong:#173a99;--green:#1a8754;--yellow:#c2620a;--red:#c53030;--focus:#2454d1;
+	--border-soft:#dde3ec;--border-focus:#2454d1;--border-strong:#c9d2df;--roster-line:#e8edf3;--roster-header:#8a97ac;
+	--shadow-panel:0 1px 2px #1c25300c,0 10px 28px #1c253012;--shadow-drawer:-24px 0 70px #1c253026;
+	--status-critical:#c53030;--status-critical-bg:#fbeaea;
+	--status-attention:#c2620a;--status-attention-bg:#fbeee0;
+	--status-pending:#c2620a;--status-pending-bg:#fbeee0;
+	--status-good:#1a8754;--status-good-bg:#e6f4ec;
+	--identity-surface:#fafbfd;--identity-border:#dde3ec;--identity-fallback:#dfe9fb;--identity-initials:#173a99;
+}
+body{font-family:"IBM Plex Sans",Inter,Segoe UI,sans-serif}
+h1,h2,h3,.primary,.secondary,.nav{font-family:"IBM Plex Sans",Inter,Segoe UI,sans-serif}
+#progress-value,#site-progress-value,#open-controls,#total-hours,#payroll-total,#budget-remaining,
+.cards strong,.worker-roster-table td strong,.worker-amount,.metric,.status-swatches ~ *,
+.time-live-calculation strong,.detail-summary-amount strong,.worker-roster-summary dd,
+.worker-detail-summary strong,.production-live-calc,#time-summary,.chantier-progress-label,
+.site-progress-label,#hero-progress-bar,.weather-day-temps{font-family:"IBM Plex Mono",monospace;font-variant-numeric:tabular-nums}
+
+/* Sidebar: dark, matches the mockup's app-shell */
+.sidebar{background:#141b2b;border-right-color:transparent;box-shadow:4px 0 24px #1c25301a}
+.sidebar .brand{border-bottom-color:#ffffff16}
+.sidebar .brand strong{color:#ffffff}
+.company-identity-strip{background:#ffffff0d;border-color:#ffffff16}
+.company-identity-strip strong{color:#ffffff}
+.company-identity-strip small{color:#8a97ac}
+#company-identity-edit{color:#8a97ac}
+#company-identity-edit:hover{color:#ffffff;background:#ffffff14}
+.nav-group{color:#5f6d87}
+.nav{color:#aab5c9;display:flex;align-items:center;gap:10px}
+.nav-icon{width:17px;height:17px;flex:none;opacity:.85}
+.nav:hover{background:#ffffff0d;color:#dfe5f0}
+.nav.active{background:#5b8def29;color:#ffffff;border-color:transparent}
+.nav.active .nav-icon{opacity:1;color:#5b8def}
+.nav.active::before{background:linear-gradient(180deg,var(--blue),#5b8def)}
+#logout-button{background:#ffffff0d;border-color:#ffffff1c;color:#dfe5f0}
+#logout-button:hover{background:#ffffff16;border-color:#ffffff2c}
+.mobile-nav-toggle{background:#141b2bee;color:#fff;border-color:#5b8def55}
+
+/* KPI cards: side stripe + icon */
+.cards article{border-left-width:3px;padding:17px 19px}
+.kpi-head{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.kpi-icon{width:16px;height:16px;opacity:.45;flex:none}
+#dashboard-view .cards article:nth-child(1){border-left-color:var(--red)}
+#dashboard-view .cards article:nth-child(2){border-left-color:var(--blue)}
+#dashboard-view .cards article:nth-child(3){border-left-color:var(--yellow)}
+#dashboard-view .cards article:nth-child(4){border-left-color:var(--blue)}
+#dashboard-view .cards article:nth-child(5){border-left-color:var(--green)}
+#dashboard-view .cards article:nth-child(6){border-left-color:var(--green)}
+
+/* Hero: blueprint grid + deeper gradient */
+.hero,#dashboard-view .hero{background:linear-gradient(135deg,#16265e,#2454d1 62%,#3d70e6);position:relative;overflow:hidden}
+.hero::before{background:radial-gradient(circle,#ffffff20 0,transparent 65%)}
+.hero::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,#ffffff0e 1px,transparent 1px) 0 0/36px 36px,linear-gradient(0deg,#ffffff0e 1px,transparent 1px) 0 0/36px 36px;mask-image:radial-gradient(circle at 85% 15%,black,transparent 65%);pointer-events:none}
+.hero small,#dashboard-view .hero small{color:#ffffffb8}
+.hero h2,#dashboard-view .hero h2,.cards strong,.site-progress-label{background:linear-gradient(135deg,#ffffff,#cfe0ff);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.hero p{color:#ffffffcc}
+.risk-indicator{background:#fbeee0;border-color:#c2620a44}
+.risk-indicator.risk-red{background:#fbeaea;border-color:#c5303044}
+.risk-indicator.risk-orange{background:#fbeee0;border-color:#c2620a44}
+.risk-indicator.risk-green{background:#e6f4ec;border-color:#1a875444}
+
+/* Worker roster: header row + row hover, matches mockup table */
+.worker-roster-table thead th{background:var(--panel2);color:var(--roster-header)}
+.worker-roster-table tbody tr:hover{background:var(--panel2)}
+.worker-avatar{background:linear-gradient(135deg,var(--blue),var(--blue-strong));color:#fff;font-family:"IBM Plex Mono",monospace}
+.identity-logo{background:var(--identity-fallback);color:var(--identity-initials)}
+.worker-status{font-family:"IBM Plex Sans",sans-serif}
+.assignment-table thead th{background:var(--panel2)}
+
+/* Buttons: crisper, less glow */
+.primary{background:linear-gradient(135deg,var(--blue),var(--blue-strong));box-shadow:0 10px 24px #2454d13a}
+.primary:hover{filter:brightness(1.08)}
+.secondary{background:var(--panel);border-color:var(--border-soft);color:var(--text)}
+.secondary:hover{border-color:var(--blue);color:var(--blue);background:#eef3fd}
+.status{background:var(--status-good-bg);color:#0f5c37;border-color:#1a875444}
+
+::selection{background:#2454d133;color:#0f172a}
