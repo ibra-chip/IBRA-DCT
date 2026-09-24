@@ -754,10 +754,10 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .login-card input:focus,.login-card select:focus{box-shadow:0 0 0 4px #4a505818}
 .login-card::-webkit-scrollbar-thumb{background:#4a505845}
 
-/* Calendar: hide +RDV/+Absence quick-add on days that already have an entry, until hovered/focused — declutters cells that were already showing hours or a rendezvous */
-.calendar-cell.worked .calendar-add-rdv,.calendar-cell.has-rendezvous .calendar-add-rdv{display:none}
+/* Calendar: hide +RDV/+Absence quick-add on days that already have an entry, until hovered/focused — declutters cells that were already showing hours or a rendezvous. Uses visibility (not display) so cell height stays constant and the grid doesn't reflow/jump row to row. */
+.calendar-cell.worked .calendar-add-rdv,.calendar-cell.has-rendezvous .calendar-add-rdv{visibility:hidden;pointer-events:none}
 .calendar-cell.worked:hover .calendar-add-rdv,.calendar-cell.has-rendezvous:hover .calendar-add-rdv,
-.calendar-cell.worked:focus-within .calendar-add-rdv,.calendar-cell.has-rendezvous:focus-within .calendar-add-rdv{display:inline-flex}
+.calendar-cell.worked:focus-within .calendar-add-rdv,.calendar-cell.has-rendezvous:focus-within .calendar-add-rdv{visibility:visible;pointer-events:auto}
 
 /* Login card: fill the whole screen on narrow phones instead of floating as a small centered card */
 @media(max-width:520px){

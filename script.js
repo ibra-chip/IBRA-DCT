@@ -17,6 +17,25 @@ document.addEventListener('DOMContentLoaded', () => {
 	mobileNavToggle?.addEventListener('click', () => setMobileNav(!appShell?.classList.contains('mobile-nav-open')));
 	mobileNavBackdrop?.addEventListener('click', () => setMobileNav(false));
 	document.addEventListener('keydown', (event) => { if (event.key === 'Escape') setMobileNav(false); });
+	const installBtn = document.querySelector('#install-app-btn');
+	let deferredInstallPrompt = null;
+	const isStandaloneApp = () => window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+	if (installBtn) {
+		if (isStandaloneApp()) installBtn.hidden = true;
+		window.addEventListener('beforeinstallprompt', (event) => { event.preventDefault(); deferredInstallPrompt = event; });
+		window.addEventListener('appinstalled', () => { installBtn.hidden = true; deferredInstallPrompt = null; });
+		installBtn.addEventListener('click', async () => {
+			if (deferredInstallPrompt) {
+				deferredInstallPrompt.prompt();
+				const choice = await deferredInstallPrompt.userChoice;
+				deferredInstallPrompt = null;
+				if (choice.outcome === 'accepted') installBtn.hidden = true;
+				return;
+			}
+			const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+			toast(isIOS ? 'Pour installer : ouvrez le menu Partager puis « Sur l’écran d’accueil ».' : 'Ouvrez le menu de votre navigateur et choisissez « Installer l’application ».');
+		});
+	}
 	const syncAuthModalState = () => { const hidden = loginModal.classList.contains('hidden'); loginModal.setAttribute('aria-hidden', String(hidden)); appShell?.setAttribute('aria-hidden', String(!hidden)); };
 	new MutationObserver(syncAuthModalState).observe(loginModal, { attributes: true, attributeFilter: ['class'] });
 	syncAuthModalState();
