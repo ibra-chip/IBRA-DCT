@@ -609,6 +609,10 @@ app.get('/api/health', (_request, response) => response.json({
 }));
 app.get('/api/debug/weather-check', async (request, response) => {
 	if (request.query.key !== 'ibra-temp-diag-7f3a') return response.status(404).end();
+	if (request.query.listProjects) {
+		const data = await readData();
+		return response.json((data.projects || []).map((p) => ({ id: p.id, name: p.name, location: p.location, weatherLat: p.weatherLat, weatherLon: p.weatherLon, weatherLabel: p.weatherLabel })));
+	}
 	const location = String(request.query.location || '42 avenue Henri Barbusse 93140 Bondy France');
 	const result = { location };
 	try {
