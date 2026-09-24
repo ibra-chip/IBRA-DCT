@@ -418,19 +418,27 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
+	const selectSubTab = (viewId, tabTarget) => {
+		if (!tabTarget) return;
+		const view = document.getElementById(viewId);
+		view?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
+		view?.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.classList.toggle('active', tabButton.dataset.tabTarget === tabTarget));
+	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => {
 		if (button.dataset.navParent) document.getElementById(button.dataset.navParent)?.removeAttribute('hidden');
-		setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
+		setMobileNav(false);
+		showView(button.dataset.view);
+		selectSubTab(button.dataset.view, button.dataset.subTab);
+		if (button.dataset.subTab) {
+			document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item === button));
+			document.querySelector('#page-title').textContent = button.dataset.title || 'IBRA-BA';
+		}
+		if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
 	}));
 	document.querySelectorAll('.nav-sub').forEach((button) => button.addEventListener('click', async () => {
 		setMobileNav(false);
 		showView(button.dataset.view);
-		const tabTarget = button.dataset.subTab;
-		if (tabTarget) {
-			const view = document.getElementById(button.dataset.view);
-			view?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
-			view?.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.classList.toggle('active', tabButton.dataset.tabTarget === tabTarget));
-		}
+		selectSubTab(button.dataset.view, button.dataset.subTab);
 		if (!currentUser) return;
 		await refreshActiveView();
 	}));
