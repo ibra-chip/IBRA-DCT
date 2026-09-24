@@ -1,5 +1,9 @@
 document.addEventListener('DOMContentLoaded', () => {
 	const api = window.location.protocol === 'file:' ? 'http://localhost:3000/api' : `${window.location.origin}/api`;
+	const updateOfflineBadge = () => document.querySelector('#offline-badge')?.toggleAttribute('hidden', navigator.onLine);
+	window.addEventListener('online', updateOfflineBadge);
+	window.addEventListener('offline', updateOfflineBadge);
+	updateOfflineBadge();
 	const loginModal = document.querySelector('#login-modal');
 	const appShell = document.querySelector('.app-shell');
 	const mobileNavToggle = document.querySelector('#mobile-nav-toggle');
@@ -472,8 +476,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.querySelector('#project-risk-state').textContent = 'À configurer';
 			document.querySelector('#project-risk-detail').textContent = 'Sélectionnez un chantier pour afficher les priorités.';
 			document.querySelector('#project-risk-action').textContent = 'Action : créer ou sélectionner un chantier.';
+			document.querySelector('#weather-card')?.setAttribute('hidden', '');
 			return;
 		}
+		loadWeather(projectId);
 		const controls = await request(`/projects/${projectId}/chantier-controls`);
 		const completedControls = controls.filter((item) => item.status === 'complete').length;
 		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : 0;
@@ -505,7 +511,25 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#controls').innerHTML = `<div class="list-item chantier-progress"><strong>${escapeHtml(project?.name || 'Chantier')} · ${progress}% zavrseno</strong><small>${completedControls}/${controls.length} kontrola zavrseno</small></div><details class="chantier-controls-details"><summary>Voir le détail des contrôles RGE</summary>${controls.map((item) => `<div class="list-item ${item.status === 'complete' ? 'ok' : item.status === 'incomplete' ? 'bad' : 'warn'}"><strong>${item.name}</strong><small>${item.owner} · ${item.status}</small>${canUpdate ? `<div class="control-actions"><button class="secondary control-action" data-control="${item.id}" data-status="complete">Terminer</button><button class="secondary control-action" data-control="${item.id}" data-status="incomplete">Vrati na ispravku</button></div>` : ''}</div>`).join('')}</details>`;
 		document.querySelectorAll('.control-action').forEach((button) => button.addEventListener('click', async () => { try { await request(`/chantier-controls/${button.dataset.control}`, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status: button.dataset.status }) }); await Promise.allSettled([loadDashboard(), loadEvidenceSummary(), loadControlHistory()]); toast('Le contrôle a été mis à jour.'); } catch (error) { try { const details = JSON.parse(error.message); toast(details.missing ? `Nedostaje dokaz: ${details.missing.join(', ')}` : 'Le contrôle n’a pas été mis à jour.'); } catch { toast('Le contrôle n’a pas été mis à jour.'); } } }));
 	}
-		async function loadEvidenceSummary() { 
+	async function loadWeather(projectId) {
+		const cards = document.querySelectorAll('.weather-card');
+		if (!cards.length) return;
+		try {
+			const forecast = projectId ? await request(`/projects/${projectId}/weather`) : { available: false };
+			if (!forecast.available || !forecast.days?.length) { cards.forEach((card) => card.setAttribute('hidden', '')); return; }
+			const daysHtml = forecast.days.map((day) => {
+				const date = new Date(`${day.date}T00:00:00`);
+				const dayName = new Intl.DateTimeFormat(language === 'fr' ? 'fr-FR' : 'sr-Latn-RS', { weekday: 'short' }).format(date);
+				return `<div class="weather-day"><span class="weather-day-name">${escapeHtml(dayName)}</span><span class="weather-day-icon" title="${escapeHtml(day.label || '')}">${day.icon || '🌡️'}</span><span class="weather-day-temps">${day.tempMax != null ? Math.round(day.tempMax) : '-'}°<small>/${day.tempMin != null ? Math.round(day.tempMin) : '-'}°</small></span>${day.precipProbability != null ? `<span class="weather-day-rain">💧 ${day.precipProbability}%</span>` : ''}</div>`;
+			}).join('');
+			cards.forEach((card) => {
+				card.querySelector('.weather-label').textContent = `Prévisions · ${forecast.label || ''}`;
+				card.querySelector('.weather-days').innerHTML = daysHtml;
+				card.removeAttribute('hidden');
+			});
+		} catch { cards.forEach((card) => card.setAttribute('hidden', '')); }
+	}
+		async function loadEvidenceSummary() {
 			await loadProjectOptions();
 			const projectId = currentProjectId();
 			if (!projectId) return;
@@ -1785,7 +1809,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const showLogin = () => { if (authChoice) authChoice.hidden = true; registrationForm.hidden = true; registrationSuccess.hidden = true; resetForm.hidden = true; loginForm.hidden = false; loginForm.elements.phone.focus(); };
 	const showRegistration = () => { authChoice.hidden = true; loginForm.hidden = true; registrationSuccess.hidden = true; registrationForm.hidden = false; };
 	const loadInitialData = async () => {
-		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadCompanyProfile()];
+		const loads = [loadDashboard(), loadEvidenceSummary(), loadRgeQualibat(), loadControlHistory(), loadBudget(), loadFinancialSummary(), loadSchedule(), loadUsers(), loadMessages(), loadTime(), loadPayroll(), loadDocuments(), loadPurchases(), loadProduction(), loadWorkSequence(), loadCompanyProfile(), loadWeather(currentProjectId())];
 		const results = await Promise.allSettled(loads);
 		results.filter((result) => result.status === 'rejected').forEach((result) => console.warn('Initial load failed', result.reason));
 		ensureHoursPdfButton();
@@ -1799,7 +1823,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
-			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction()]),
+			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId())]),
 			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()]),
 			'account-settings-view': () => Promise.allSettled([loadAccountSettings()])
 		};

@@ -564,3 +564,17 @@ input:focus,select:focus,textarea:focus{outline-color:#2f6fed66;border-color:#2f
 ::-webkit-scrollbar-thumb{background:#0f172a26}
 ::-webkit-scrollbar-thumb:hover{background:#0f172a40}
 ::placeholder{color:#94a3b880}
+
+/* ===== Weather-per-chantier widget ===== */
+.weather-strip{margin-bottom:18px}
+.weather-days{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;margin-top:12px}
+.weather-day{display:grid;justify-items:center;gap:4px;padding:12px 8px;border:1px solid var(--border-soft);border-radius:12px;background:#f8fafc;text-align:center}
+.weather-day-name{font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--muted)}
+.weather-day-icon{font-size:1.6rem;line-height:1}
+.weather-day-temps{font-size:.85rem;font-weight:800}
+.weather-day-temps small{color:var(--muted);font-weight:600}
+.weather-day-rain{font-size:.68rem;color:var(--blue)}
+.chantier-weather-strip{margin-top:14px}
+@media(max-width:850px){.weather-days{grid-template-columns:repeat(5,minmax(56px,1fr));overflow-x:auto}}
+
+.status.offline{background:#fef3c7;color:#92400e;border-color:#d9770655}

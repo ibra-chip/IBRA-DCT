@@ -15,6 +15,7 @@ import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
+import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
@@ -988,6 +989,27 @@ app.patch('/api/projects/:id/progress', auth, manager, async (request, response)
 	project.progressUpdatedBy = request.user.sub;
 	await writeData(data);
 	response.json(project);
+});
+app.get('/api/projects/:id/weather', auth, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const project = (data.projects || []).find((item) => item.id === request.params.id);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (project.weatherLat == null || project.weatherLon == null) {
+		const geocoded = await geocodeLocation(project.location);
+		if (!geocoded) return response.json({ available: false });
+		project.weatherLat = geocoded.lat;
+		project.weatherLon = geocoded.lon;
+		project.weatherLabel = geocoded.label;
+		await writeData(data);
+	}
+	try {
+		const forecast = await fetchForecast(project.weatherLat, project.weatherLon);
+		response.json({ available: true, label: project.weatherLabel || project.location, days: forecast.days.map((day) => ({ ...day, ...weatherCodeLabel(day.code) })) });
+	} catch (error) {
+		console.error('Weather forecast fetch failed:', error.message);
+		response.json({ available: false });
+	}
 });
 app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	if (request.params.id === 'lot-a') return response.status(400).json({ error: 'Default chantier cannot be removed' });
