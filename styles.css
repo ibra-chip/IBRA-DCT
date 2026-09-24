@@ -733,3 +733,18 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 
 /* The logo is now a self-contained white SVG badge — drop the leftover .brand-mark blue/purple glow */
 .brand-logo{box-shadow:none;background:none}
+
+/* Primary buttons: graphite instead of blue, matching the sidebar/header theme */
+.primary{background:linear-gradient(135deg,#3c424b,#1c1f24);box-shadow:0 10px 24px #1c25303a}
+.primary:hover{filter:brightness(1.15)}
+
+/* Replace remaining blue accents with graphite: tokens cascade to buttons, KPI text, worker avatars, etc. */
+:root{--blue:#4a5058;--blue-strong:#1c1f24;--focus:#5a6169;--border-focus:#5a6169}
+.nav.active{background:#ffffff20;color:#ffffff}
+.nav.active .nav-icon{color:#ffffff}
+.nav.active::before{background:linear-gradient(180deg,#8a92a0,#4a5058)}
+.mobile-nav-toggle{border-color:#ffffff33}
+.secondary:hover{background:#eef1f6}
+.calendar-add-rdv:hover{background:#eef1f6}
+.identity-fallback{background:#e4e7ec}
+:root{--identity-fallback:#e4e7ec;--identity-initials:#3c424b}
