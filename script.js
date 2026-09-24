@@ -419,7 +419,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => {
-		if (button.dataset.navParent) { document.getElementById(button.dataset.navParent)?.toggleAttribute('hidden'); return; }
+		if (button.dataset.navParent) document.getElementById(button.dataset.navParent)?.removeAttribute('hidden');
 		setMobileNav(false); showView(button.dataset.view); if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
 	}));
 	document.querySelectorAll('.nav-sub').forEach((button) => button.addEventListener('click', async () => {
