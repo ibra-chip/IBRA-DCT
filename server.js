@@ -1000,12 +1000,9 @@ app.get('/api/projects/:id/weather', auth, async (request, response) => {
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
-	console.log(`[weather] project=${project.id} cachedLat=${project.weatherLat} cachedLon=${project.weatherLon} cachedLabel=${project.weatherLabel}`);
 	if (project.weatherLat == null || project.weatherLon == null) {
-		console.log(`[weather] geocoding project ${project.id} location="${project.location}"`);
 		let geocoded;
-		try { geocoded = await geocodeLocation(project.location); } catch (error) { console.error('[weather] geocodeLocation threw:', error.message, error.stack); }
-		console.log(`[weather] geocode result:`, JSON.stringify(geocoded));
+		try { geocoded = await geocodeLocation(project.location); } catch (error) { console.error('[weather] geocodeLocation failed:', error.message); }
 		if (!geocoded) return response.json({ available: false });
 		project.weatherLat = geocoded.lat;
 		project.weatherLon = geocoded.lon;
@@ -1015,10 +1012,9 @@ app.get('/api/projects/:id/weather', auth, async (request, response) => {
 	try {
 		const forecast = await fetchForecast(project.weatherLat, project.weatherLon);
 		const payload = { available: true, label: project.weatherLabel || project.location, days: forecast.days.map((day) => ({ ...day, ...weatherCodeLabel(day.code) })) };
-		console.log('[weather] responding with', payload.days.length, 'days for', payload.label);
 		response.json(payload);
 	} catch (error) {
-		console.error('[weather] forecast fetch failed:', error.message, error.stack);
+		console.error('[weather] forecast fetch failed:', error.message);
 		response.json({ available: false });
 	}
 });
