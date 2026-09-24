@@ -748,3 +748,8 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .calendar-add-rdv:hover{background:#eef1f6}
 .identity-fallback{background:#e4e7ec}
 :root{--identity-fallback:#e4e7ec;--identity-initials:#3c424b}
+
+/* Login card: drop the leftover blue border tint and input focus glow */
+.modal .login-card{border-color:#4a505835}
+.login-card input:focus,.login-card select:focus{box-shadow:0 0 0 4px #4a505818}
+.login-card::-webkit-scrollbar-thumb{background:#4a505845}
