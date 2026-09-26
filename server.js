@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { attachReferenceLinks } from './lib/reference-library.js';
 import { createDataCache } from './lib/data-cache.js';
+import { createDailyBackup } from './lib/daily-backup.js';
 import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
@@ -122,6 +123,19 @@ const dataCache = createDataCache({
 	ttlMs: Number(process.env.DATA_CACHE_TTL_MS ?? 2000),
 	staleMs: Number(process.env.DATA_CACHE_STALE_MS ?? 300000),
 });
+const restHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
+const restCall = async (pathAndQuery, options = {}) => {
+	const result = await fetch(`${supabaseUrl}/rest/v1/${pathAndQuery}`, { ...options, headers: { ...restHeaders, ...(options.headers || {}) }, signal: AbortSignal.timeout(8000) });
+	if (!result.ok) throw new Error(`Supabase ${options.method || 'GET'} ${pathAndQuery.split('?')[0]} failed with ${result.status}`);
+	return result;
+};
+const dailyBackup = createDailyBackup({
+	readRow: async (id) => (await (await restCall(`app_state?id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data ?? null,
+	rowExists: async (id) => (await (await restCall(`app_state?id=eq.${encodeURIComponent(id)}&select=id`)).json()).length > 0,
+	writeRow: async (id, data) => { await restCall('app_state', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id, data }) }); },
+	listBackupIds: async () => (await (await restCall('app_state?id=like.backup-*&select=id')).json()).map((row) => row.id),
+	deleteRow: async (id) => { await restCall(`app_state?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+});
 const loadFromSupabase = async () => {
 	const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
 	if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
@@ -150,6 +164,7 @@ const writeData = async (data) => {
 	await fs.writeFile(temporaryPath, serialized, 'utf8');
 	await fs.rename(temporaryPath, dataPath);
 	if (supabaseConfigured) {
+		if (process.env.DAILY_BACKUP !== 'off') await dailyBackup.beforeWrite();
 		dataCache.invalidate();
 		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
 		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
