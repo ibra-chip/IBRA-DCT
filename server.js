@@ -106,11 +106,14 @@ const identityUploadMiddleware = (field) => (request, response, next) => identit
 app.use(compression());
 app.use(cors());
 app.use(express.json());
-app.use(express.static(root, {
+const publicFiles = new Set(['/', '/index.html', '/script.js', '/styles.css', '/logo.svg', '/manifest.webmanifest', '/sw.js', '/knowledge-base/rge-qualibat-ite.json']);
+const serveStatic = express.static(root, {
+	dotfiles: 'deny',
 	setHeaders(response, filePath) {
 		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-cache, must-revalidate');
 	}
-}));
+});
+app.use((request, response, next) => (publicFiles.has(request.path) ? serveStatic(request, response, next) : next()));
 app.get('/identity-assets/:filename', (request, response) => response.redirect(publicUrl(request.params.filename)));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
