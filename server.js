@@ -12,6 +12,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { attachReferenceLinks } from './lib/reference-library.js';
+import { createDataCache } from './lib/data-cache.js';
 import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
@@ -107,24 +108,31 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(root, {
 	setHeaders(response, filePath) {
-		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-cache, must-revalidate');
 	}
 }));
 app.get('/identity-assets/:filename', (request, response) => response.redirect(publicUrl(request.params.filename)));
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
+const dataCache = createDataCache({
+	ttlMs: Number(process.env.DATA_CACHE_TTL_MS ?? 2000),
+	staleMs: Number(process.env.DATA_CACHE_STALE_MS ?? 300000),
+});
+const loadFromSupabase = async () => {
+	const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
+	if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
+	const rows = await result.json();
+	if (rows[0]?.data) return rows[0].data;
+	const local = await readLocalData();
+	const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
+	if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
+	return local;
+};
 const readData = async () => {
 	if (!supabaseConfigured) return readLocalData();
 	try {
-		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
-		if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
-		const rows = await result.json();
-		if (rows[0]?.data) return rows[0].data;
-		const local = await readLocalData();
-		const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
-		if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
-		return local;
+		return await dataCache.read(loadFromSupabase);
 	} catch (error) {
 		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable:', error.message); supabaseWarningShown = true; }
 		if (process.env.NODE_ENV === 'production') throw error;
@@ -139,8 +147,10 @@ const writeData = async (data) => {
 	await fs.writeFile(temporaryPath, serialized, 'utf8');
 	await fs.rename(temporaryPath, dataPath);
 	if (supabaseConfigured) {
+		dataCache.invalidate();
 		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
 		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
+		dataCache.set(data);
 	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
