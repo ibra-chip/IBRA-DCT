@@ -17,7 +17,7 @@ import { createDailyBackup } from './lib/daily-backup.js';
 import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
-import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
+import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset } from './lib/storage.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -115,7 +115,11 @@ const serveStatic = express.static(root, {
 	}
 });
 app.use((request, response, next) => (publicFiles.has(request.path) ? serveStatic(request, response, next) : next()));
-app.get('/identity-assets/:filename', (request, response) => response.redirect(publicUrl(request.params.filename)));
+app.get('/identity-assets/:filename', async (request, response) => {
+	const pooled = await poolAsset(request.params.filename).catch(() => null);
+	if (pooled) { response.set('Cache-Control', 'public, max-age=31536000, immutable'); response.type(pooled.contentType); return response.send(pooled.body); }
+	response.redirect(publicUrl(request.params.filename));
+});
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
