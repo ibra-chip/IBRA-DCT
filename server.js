@@ -114,6 +114,27 @@ const serveStatic = express.static(root, {
 		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-cache, must-revalidate');
 	}
 });
+const assetVersionCache = new Map();
+const assetVersion = async (relativePath) => {
+	if (assetVersionCache.has(relativePath)) return assetVersionCache.get(relativePath);
+	const version = crypto.createHash('md5').update(await fs.readFile(path.join(root, relativePath))).digest('hex').slice(0, 10);
+	assetVersionCache.set(relativePath, version);
+	return version;
+};
+app.get(['/', '/index.html'], async (request, response, next) => {
+	try {
+		const [html, scriptVersion, stylesVersion] = await Promise.all([
+			fs.readFile(path.join(root, 'index.html'), 'utf8'),
+			assetVersion('script.js'),
+			assetVersion('styles.css'),
+		]);
+		const versioned = html
+			.replace('src="script.js"', `src="script.js?v=${scriptVersion}"`)
+			.replace('href="styles.css"', `href="styles.css?v=${stylesVersion}"`);
+		response.setHeader('Cache-Control', 'no-cache, must-revalidate');
+		response.type('html').send(versioned);
+	} catch (error) { next(error); }
+});
 app.use((request, response, next) => (publicFiles.has(request.path) ? serveStatic(request, response, next) : next()));
 app.get('/identity-assets/:filename', async (request, response) => {
 	const pooled = await poolAsset(request.params.filename).catch(() => null);
