@@ -1141,6 +1141,36 @@ const inspectDevisWithGemini = async (file) => {
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
 };
+const extractDevisLineItemsWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return [];
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = 'Read this French construction quote/devis PDF. Extract every individual line item (descriptif/désignation) from the pricing table. Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number }. Keep the original row order. Use 0 for numeric fields you cannot find, and an empty string for unit if not specified (e.g. m2, ml, u, forfait).';
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+		})
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini devis line items rejected', geminiResponse.status, details.slice(0, 500));
+		return [];
+	}
+	const result = await geminiResponse.json();
+	try {
+		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		return Array.isArray(parsed) ? parsed.map((item) => ({
+			description: String(item.description || '').trim(),
+			quantity: Number(item.quantity) || 0,
+			unit: String(item.unit || ''),
+			unitPrice: Number(item.unitPrice) || 0,
+			lineTotal: Number(item.lineTotal) || 0
+		})) : [];
+	} catch { return []; }
+};
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
 	let text = '';
@@ -1157,7 +1187,8 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 			source = `${request.file.originalname} · Gemini`;
 		}
 	}
-	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') });
+	const lineItems = await extractDevisLineItemsWithGemini(request.file);
+	response.json({ extracted, lineItems, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItems.length > 0 });
 });
 app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
@@ -1217,6 +1248,180 @@ app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUp
 	data.projectBudgets = [...(data.projectBudgets || []).filter((item) => item.projectId !== request.params.id), budget];
 	await writeData(data); response.status(201).json(budget);
 });
+app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = Array.isArray(request.body.items) ? request.body.items : [];
+	if (!items.length) return response.status(400).json({ error: 'At least one line item is required' });
+	const existingCount = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).length;
+	const created = items.map((item, index) => ({
+		id: `line-item-${Date.now()}-${index}`,
+		projectId: request.params.id,
+		description: String(item.description || '').trim(),
+		quantity: Number(item.quantity) || 0,
+		unit: String(item.unit || ''),
+		unitPrice: Number(item.unitPrice) || 0,
+		lineTotal: Number(item.lineTotal) || 0,
+		status: 'unassigned',
+		assignedTo: null,
+		assignedToName: '',
+		assignedBy: null,
+		assignedAt: null,
+		completedAt: null,
+		progressPercent: 0,
+		sortOrder: existingCount + index,
+		attachmentFile: null,
+		attachmentName: '',
+		attachmentMimeType: '',
+		createdAt: new Date().toISOString()
+	}));
+	data.devisLineItems = [...(data.devisLineItems || []), ...created];
+	await writeData(data);
+	response.status(201).json(created);
+});
+app.get('/api/projects/:id/budget/line-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const items = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).sort((a, b) => a.sortOrder - b.sortOrder);
+	const purchases = (data.purchases || []).filter((item) => item.projectId === request.params.id && item.lineItemId);
+	const workReports = (data.workReports || []).filter((item) => item.projectId === request.params.id && item.lineItemId && item.status === 'approved');
+	response.json(items.map((item) => {
+		const materialSpent = purchases.filter((purchase) => purchase.lineItemId === item.id).reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+		const laborSpent = workReports.filter((report) => report.lineItemId === item.id).reduce((sum, report) => sum + Number(report.calculatedAmount || 0), 0);
+		const spent = materialSpent + laborSpent;
+		return { ...item, spent, profit: item.lineTotal - spent };
+	}));
+});
+app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Line item not found' });
+	try { assertProjectAccess(data, request.user, item.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const worker = (data.users || []).find((user) => user.id === String(request.body.workerId || ''));
+	if (!worker) return response.status(400).json({ error: 'A valid worker is required' });
+	if (!isOwnerRole(worker.role) && !(worker.projectIds || []).includes(item.projectId)) return response.status(403).json({ error: 'Le chantier sélectionné n’est pas accessible à cet ouvrier' });
+	if (request.file) {
+		const attachmentFile = storageKeyFor(request.file.originalname);
+		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
+		item.attachmentFile = attachmentFile;
+		item.attachmentName = request.file.originalname;
+		item.attachmentMimeType = request.file.mimetype;
+	}
+	item.assignedTo = worker.id;
+	item.assignedToName = worker.name;
+	item.assignedBy = request.user.sub;
+	item.assignedAt = new Date().toISOString();
+	item.status = 'assigned';
+	await writeData(data);
+	response.json(item);
+});
+const stripLineItemPricing = ({ unitPrice: _unitPrice, lineTotal: _lineTotal, assignedBy: _assignedBy, ...item }) => item;
+app.get('/api/tasks/mine', auth, async (request, response) => {
+	const data = await readData();
+	const items = (data.devisLineItems || []).filter((item) => item.assignedTo === request.user.sub).sort((a, b) => a.sortOrder - b.sortOrder);
+	response.json(items.map(stripLineItemPricing));
+});
+app.get('/api/tasks/:itemId/attachment', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.attachmentFile) return response.status(404).json({ error: 'No attachment stored for this task' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.attachmentFile);
+		response.setHeader('Content-Type', item.attachmentMimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${(item.attachmentName || 'attachment').replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Attachment download failed: ' + error.message });
+	}
+});
+app.patch('/api/tasks/:itemId/progress', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	const progressPercent = Number(request.body.progressPercent);
+	if (!Number.isFinite(progressPercent) || progressPercent < 0 || progressPercent > 100) return response.status(400).json({ error: 'Progress must be a number between 0 and 100' });
+	item.progressPercent = Math.round(progressPercent);
+	item.status = item.progressPercent >= 100 ? 'done' : 'in_progress';
+	if (item.status === 'done') item.completedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(stripLineItemPricing(item));
+});
+const factureColorStatus = (facture, now = new Date()) => {
+	if (facture.status === 'paid') return 'green';
+	const overdueThreshold = new Date(new Date(facture.dueDate).getTime() + 30 * 24 * 60 * 60 * 1000);
+	return now > overdueThreshold ? 'red' : 'orange';
+};
+app.get('/api/projects/:id/factures', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const factures = (data.factures || []).filter((item) => item.projectId === request.params.id);
+	response.json(factures.map((item) => ({ ...item, colorStatus: factureColorStatus(item) })));
+});
+app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const amount = Number(request.body.amount || 0);
+	if (!Number.isFinite(amount) || amount <= 0) return response.status(400).json({ error: 'A positive invoice amount is required' });
+	const issuedDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.issuedDate || '') ? request.body.issuedDate : new Date().toISOString().slice(0, 10);
+	const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.dueDate || '') ? request.body.dueDate : new Date(new Date(issuedDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	let sourceFile = null;
+	if (request.file) {
+		sourceFile = storageKeyFor(request.file.originalname);
+		try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
+	}
+	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber: String(request.body.invoiceNumber || ''), clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.factures = [...(data.factures || []), facture];
+	await writeData(data);
+	response.status(201).json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.patch('/api/factures/:factureId/mark-paid', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	facture.status = 'paid';
+	facture.paidAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.post('/api/factures/:factureId/relance', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (factureColorStatus(facture) !== 'red') return response.status(400).json({ error: 'La relance est disponible uniquement pour les factures en retard de plus de 30 jours' });
+	if (!facture.clientEmail) return response.status(400).json({ error: 'Aucun email client renseigné' });
+	try {
+		await sendMailSafe({
+			to: facture.clientEmail,
+			subject: `Rappel: facture ${facture.invoiceNumber || facture.id} de ${facture.amount}€ en retard`,
+			text: `Bonjour ${facture.clientName || ''},\n\nLa facture ${facture.invoiceNumber || facture.id} d'un montant de ${facture.amount}€, échue le ${facture.dueDate}, reste impayée. Merci de procéder au règlement dans les meilleurs délais.\n\nCordialement.`
+		});
+	} catch (error) {
+		return response.status(502).json({ error: 'Relance email failed: ' + error.message });
+	}
+	facture.lastRelanceAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.get('/api/factures/:factureId/document', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!facture.sourceFile) return response.status(404).json({ error: 'No document stored for this facture' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, facture.sourceFile);
+		response.setHeader('Content-Type', 'application/pdf');
+		response.setHeader('Content-Disposition', `attachment; filename="${(facture.sourceName || facture.sourceFile).replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
+});
 app.get('/api/purchases', auth, async (request, response) => {
 	const data = await readData();
 	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
@@ -1231,7 +1436,7 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFil
 	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const invoiceFile = storageKeyFor(request.file.originalname);
 	try { await uploadFile(UPLOADS_BUCKET, invoiceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
-	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, lineItemId: request.body.lineItemId || null, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
@@ -1666,7 +1871,7 @@ app.post('/api/work-reports', auth, upload.single('photo'), fixUploadFilenameEnc
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, user); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const photoFile = request.file ? storageKeyFor(request.file.originalname) : null;
 	if (request.file) { try { await uploadFile(UPLOADS_BUCKET, photoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); } }
-	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file?.originalname || '', aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, lineItemId: request.body.lineItemId || null, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file?.originalname || '', aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {

@@ -402,9 +402,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); } };
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
 			worker: ['tasks-view','evidence-summary-view','account-settings-view'],
 			user: ['tasks-view','evidence-summary-view','account-settings-view']
 		};
@@ -416,6 +416,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#quick-worker-form')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#evidence-upload-panel')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
+		document.querySelector('#my-tasks-tab-button')?.toggleAttribute('hidden', canSeeFinancials);
+		document.querySelector('#my-tasks-panel')?.toggleAttribute('hidden', canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	const selectSubTab = (viewId, tabTarget) => {
@@ -1936,10 +1938,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			'dashboard-view': () => Promise.allSettled([loadDashboard()]),
 			'devis-view': () => Promise.allSettled([loadBudget(), loadFinancialSummary()]),
 			'purchases-view': () => Promise.allSettled([loadPurchases(), loadBudget(), loadFinancialSummary()]),
+			'line-items-view': () => Promise.allSettled([loadProjectOptions(), loadLineItems()]),
+			'factures-view': () => Promise.allSettled([loadProjectOptions(), loadFactures()]),
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
-			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId())]),
+			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId()), loadMyTasks()]),
 			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()]),
 			'account-settings-view': () => Promise.allSettled([loadAccountSettings(), loadMyDocuments()])
 		};
@@ -2184,8 +2188,171 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (message) message.textContent = (language === 'fr' ? 'Impossible d’obtenir une réponse : ' : 'Réponse non obtenue : ') + (details || (language === 'fr' ? 'réessayez.' : 'réessayez.'));
 		}
 	});
+	let pendingDevisLineItems = [];
+	function renderPendingLineItems() {
+		const panel = document.querySelector('#devis-line-items-pending-panel');
+		const container = document.querySelector('#devis-line-items-pending-table');
+		if (!panel || !container) return;
+		if (!pendingDevisLineItems.length) { panel.hidden = true; container.innerHTML = ''; return; }
+		panel.hidden = false;
+		container.innerHTML = pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
+	}
+	document.querySelector('#devis-line-items-confirm-button')?.addEventListener('click', async () => {
+		const button = document.querySelector('#devis-line-items-confirm-button');
+		const projectSelect = document.querySelector('#budget-form [name="projectId"]');
+		const projectId = projectSelect && projectSelect.value !== '__new' ? projectSelect.value : currentProjectId();
+		if (!projectId) { toast('Enregistrez d’abord le devis pour créer le chantier.'); return; }
+		const rows = [...document.querySelectorAll('#devis-line-items-pending-table [data-pending-index]')];
+		const items = rows.filter((row) => row.querySelector('[data-field="include"]').checked).map((row) => ({
+			description: row.querySelector('[data-field="description"]').value.trim(),
+			quantity: Number(row.querySelector('[data-field="quantity"]').value || 0),
+			unit: row.querySelector('[data-field="unit"]').value.trim(),
+			unitPrice: Number(row.querySelector('[data-field="unitPrice"]').value || 0),
+			lineTotal: Number(row.querySelector('[data-field="lineTotal"]').value || 0)
+		})).filter((item) => item.description);
+		if (!items.length) { toast('Sélectionnez au moins une ligne.'); return; }
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			await request(`/projects/${projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+			pendingDevisLineItems = [];
+			renderPendingLineItems();
+			toast('Tâches créées à partir du devis.');
+			if (document.querySelector('.view.active')?.id === 'line-items-view') await loadLineItems();
+		} catch { toast('Impossible de créer les tâches.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
+	const lineItemStatusMeta = {
+		unassigned: { label: 'Non assignée', className: 'status-pending' },
+		assigned: { label: 'Assignée', className: 'status-attention' },
+		in_progress: { label: 'En cours', className: 'status-attention' },
+		done: { label: 'Terminée', className: 'status-good' }
+	};
+	async function loadLineItems() {
+		const container = document.querySelector('#line-items-list');
+		if (!container) return;
+		const select = document.querySelector('#line-items-project-select');
+		const projectId = select?.value || currentProjectId();
+		if (!projectId) { container.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
+		try {
+			const [items, contacts] = await Promise.all([request(`/projects/${projectId}/budget/line-items`), request('/contacts')]);
+			if (!items.length) { container.innerHTML = '<small>Aucune ligne de devis pour ce chantier. Importez un devis depuis Budget.</small>'; return; }
+			const eligibleWorkers = contacts.filter((contact) => isOwner(contact.role) || (contact.projectIds || []).includes(projectId));
+			const workerOptions = eligibleWorkers.map((contact) => `<option value="${escapeHtml(contact.id)}">${escapeHtml(contact.name)}</option>`).join('');
+			container.innerHTML = items.map((item) => {
+				const meta = lineItemStatusMeta[item.status] || lineItemStatusMeta.unassigned;
+				const assignedName = eligibleWorkers.find((contact) => contact.id === item.assignedTo)?.name || item.assignedTo || '';
+				return `<div class="list-item" data-line-item="${item.id}"><strong>${escapeHtml(item.description)}</strong><span>${item.quantity} ${escapeHtml(item.unit || '')} · ${formatEUR(item.unitPrice)} · total ${formatEUR(item.lineTotal)}</span><span>Dépensé : ${formatEUR(item.spent)} · Profit : ${formatEUR(item.profit)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span><form class="line-item-assign-form form-row" data-line-item-assign="${item.id}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner</button></form></div>`;
+			}).join('');
+			container.querySelectorAll('[data-line-item-assign]').forEach((form) => form.addEventListener('submit', async (event) => {
+				event.preventDefault();
+				const itemId = form.dataset.lineItemAssign;
+				const button = form.querySelector('button');
+				const body = new FormData(form);
+				if (!body.get('workerId')) { toast('Choisissez un ouvrier.'); return; }
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try {
+					const response = await fetch(`${api}/budget/line-items/${itemId}/assign`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}` }, body });
+					if (!response.ok) throw new Error();
+					toast('Tâche assignée.');
+					await loadLineItems();
+				} catch { toast('Assignation impossible.'); }
+				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+		} catch { container.innerHTML = '<small>Impossible de charger les lignes de devis.</small>'; }
+	}
+	document.querySelector('#line-items-project-select')?.addEventListener('change', loadLineItems);
+	async function loadMyTasks() {
+		const container = document.querySelector('#my-tasks-list');
+		if (!container || isOwner()) return;
+		try {
+			const tasks = await request('/tasks/mine');
+			if (!tasks.length) { container.innerHTML = '<small>Aucune tâche assignée.</small>'; return; }
+			container.innerHTML = tasks.map((task) => `<div class="list-item" data-task="${task.id}"><strong>${escapeHtml(task.description)}</strong><span>${task.quantity} ${escapeHtml(task.unit || '')}</span>${task.attachmentName ? `<button type="button" class="secondary view-task-attachment" data-task-attachment="${task.id}">Voir le plan / la fiche</button>` : ''}<form class="task-progress-form form-row" data-task-progress="${task.id}"><label>Avancement %<input type="number" name="progressPercent" min="0" max="100" value="${task.progressPercent || 0}" /></label><button type="submit" class="secondary">Mettre à jour</button></form></div>`).join('');
+			container.querySelectorAll('.view-task-attachment').forEach((button) => button.addEventListener('click', () => viewDocument(`/tasks/${button.dataset.taskAttachment}/attachment`, button)));
+			container.querySelectorAll('[data-task-progress]').forEach((form) => form.addEventListener('submit', async (event) => {
+				event.preventDefault();
+				const itemId = form.dataset.taskProgress;
+				const progressPercent = Number(form.querySelector('[name="progressPercent"]').value || 0);
+				const button = form.querySelector('button');
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try {
+					await request(`/tasks/${itemId}/progress`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progressPercent }) });
+					toast('Avancement enregistré.');
+					await loadMyTasks();
+				} catch { toast('Mise à jour impossible.'); }
+				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+		} catch { container.innerHTML = '<small>Impossible de charger vos tâches.</small>'; }
+	}
+	const factureStatusMeta = {
+		green: { label: 'Payée', className: 'status-good' },
+		orange: { label: 'En attente', className: 'status-attention' },
+		red: { label: 'En retard', className: 'status-critical' }
+	};
+	async function loadFactures() {
+		const container = document.querySelector('#factures-list');
+		if (!container) return;
+		const select = document.querySelector('#facture-project-select');
+		const projectId = select?.value || currentProjectId();
+		if (!projectId) { container.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
+		try {
+			const factures = await request(`/projects/${projectId}/factures`);
+			if (!factures.length) { container.innerHTML = '<small>Aucune facture.</small>'; return; }
+			container.innerHTML = factures.map((facture) => {
+				const meta = factureStatusMeta[facture.colorStatus] || factureStatusMeta.orange;
+				return `<div class="list-item" data-facture="${facture.id}"><strong>${escapeHtml(facture.invoiceNumber || 'Facture')} · ${escapeHtml(facture.clientName || '')}</strong><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><span>${formatEUR(facture.amount)} · échéance ${escapeHtml(facture.dueDate || '')}</span><div class="form-row">${facture.sourceFile ? `<button type="button" class="secondary view-facture-document" data-facture-document="${facture.id}">Voir le PDF</button>` : ''}${facture.status !== 'paid' ? `<button type="button" class="secondary mark-facture-paid" data-facture-mark-paid="${facture.id}">Marquer payée</button>` : ''}${facture.colorStatus === 'red' ? `<button type="button" class="secondary send-facture-relance" data-facture-relance="${facture.id}">Envoyer un rappel</button>` : ''}</div></div>`;
+			}).join('');
+			container.querySelectorAll('.view-facture-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/factures/${button.dataset.factureDocument}/document`, button)));
+			container.querySelectorAll('.mark-facture-paid').forEach((button) => button.addEventListener('click', async () => {
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try { await request(`/factures/${button.dataset.factureMarkPaid}/mark-paid`, { method: 'PATCH' }); toast('Facture marquée payée.'); await loadFactures(); }
+				catch { toast('Impossible de marquer la facture payée.'); }
+				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+			container.querySelectorAll('.send-facture-relance').forEach((button) => button.addEventListener('click', async () => {
+				if (!window.confirm('Envoyer un e-mail de rappel au client pour cette facture ?')) return;
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try { await request(`/factures/${button.dataset.factureRelance}/relance`, { method: 'POST' }); toast('Rappel envoyé au client.'); await loadFactures(); }
+				catch (error) { let details = ''; try { details = JSON.parse(error.message)?.error || ''; } catch { details = ''; } toast(details || 'Envoi du rappel impossible.'); }
+				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+		} catch { container.innerHTML = '<small>Impossible de charger les factures.</small>'; }
+	}
+	document.querySelector('#facture-project-select')?.addEventListener('change', loadFactures);
+	document.querySelector('#facture-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const projectId = form.querySelector('[name="projectId"]').value || currentProjectId();
+		if (!projectId) { toast('Sélectionnez un chantier.'); return; }
+		const body = new FormData(form);
+		body.set('projectId', projectId);
+		const file = document.querySelector('#facture-file').files[0];
+		if (file) body.set('file', file, file.name);
+		const submitButton = form.querySelector('button.primary');
+		submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true');
+		try {
+			const response = await fetch(`${api}/projects/${projectId}/factures`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			if (!response.ok) throw new Error();
+			form.reset();
+			toast('Facture enregistrée.');
+			await loadFactures();
+		} catch { toast('Facture non enregistrée.'); }
+		finally { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); }
+	});
+	async function populatePurchaseLineItemSelect() {
+		const select = document.querySelector('#purchase-form [name="lineItemId"]');
+		const projectSelect = document.querySelector('#purchase-form [name="projectId"]');
+		if (!select || !projectSelect) return;
+		const projectId = projectSelect.value;
+		if (!projectId) { select.innerHTML = '<option value="">Aucune</option>'; return; }
+		try {
+			const items = await request(`/projects/${projectId}/budget/line-items`);
+			select.innerHTML = `<option value="">Aucune</option>${items.map((item) => `<option value="${item.id}">${escapeHtml(item.description)}</option>`).join('')}`;
+		} catch { select.innerHTML = '<option value="">Aucune</option>'; }
+	}
+	document.querySelector('#purchase-form [name="projectId"]')?.addEventListener('change', populatePurchaseLineItemSelect);
 	document.querySelector('#budget-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#budget-file').files[0]; const form = event.currentTarget; const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } const ensureProjectId = async () => { const select = form.querySelector('[name="projectId"]'); if (select.value !== '__new') return select.value; const chantierName = form.querySelector('[name="chantierName"]').value.trim() || form.querySelector('[name="client"]').value.trim() || 'Nouveau chantier'; const project = await request('/projects', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ name: chantierName, chantierName }) }); await loadProjectOptions(); select.value = project.id; return project.id; }; const sendBudget = async (replaceExisting = false) => { const projectId = await ensureProjectId(); const body = new FormData(form); body.set('projectId', projectId); if (file) body.set('file', file, file.name); if (replaceExisting) body.set('replaceExisting', 'true'); return fetch(`${api}/projects/${projectId}/budget`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); }; try { let response = await sendBudget(false); if (response.status === 409 && window.confirm('Un Devis existe deja pour ce chantier. Remplacer par le nouveau PDF ?')) response = await sendBudget(true); if (!response.ok) { const details = await response.text(); throw new Error(`${response.status}: ${details}`); } form.reset(); await refreshActiveView(); toast('Devis et chantier enregistres.'); } catch (error) { toast(`Devis non enregistre : ${error.message || 'erreur inconnue'}`); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
-	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Lecture du PDF...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'Le PDF a été lu partiellement. Vérifiez les champs signalés avant d’enregistrer.' : `Lu automatiquement depuis : ${result.source}`; } catch { status.textContent = 'Impossible de lire le PDF automatiquement. Saisissez les valeurs manuellement.'; } });
+	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Lecture du PDF...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'Le PDF a été lu partiellement. Vérifiez les champs signalés avant d’enregistrer.' : `Lu automatiquement depuis : ${result.source}`; pendingDevisLineItems = Array.isArray(result.lineItems) ? result.lineItems : []; renderPendingLineItems(); } catch { status.textContent = 'Impossible de lire le PDF automatiquement. Saisissez les valeurs manuellement.'; } });
 	document.querySelector('#budget-form [name="projectId"]')?.addEventListener('change', loadBudget);
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture PDF ou un justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et la facture PDF ont été enregistrées ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
 	document.querySelector('#invoice-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#purchase-extraction-status'); status.textContent = 'Lecture de la facture PDF...'; try { const response = await fetch(`${api}/pdf/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#purchase-form'); form.querySelector('[name="supplier"]').value = result.extracted.supplier; form.querySelector('[name="amount"]').value = result.extracted.amount || ''; form.querySelector('[name="purchaseDate"]').value = result.extracted.date || ''; status.textContent = result.needsOcr ? 'Le PDF est scanné. Une vérification manuelle/OCR est nécessaire.' : `Lu automatiquement depuis : ${result.source}`; } catch { status.textContent = 'Impossible de lire le PDF automatiquement. Saisissez les valeurs manuellement.'; } });
