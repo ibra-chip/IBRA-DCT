@@ -1120,13 +1120,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	function startMessagePolling() {
 		if (messagePollTimer) return;
-		messagePollTimer = setInterval(pollForNewMessages, 6000);
+		messagePollTimer = setInterval(() => { if (document.visibilityState === 'visible') pollForNewMessages(); }, 20000);
+		pollForNewMessages();
 	}
 	function stopMessagePolling() {
 		if (messagePollTimer) { clearInterval(messagePollTimer); messagePollTimer = null; }
 		unreadMessageCount = 0;
 		setChatBadge(0);
 	}
+	document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && messagePollTimer) pollForNewMessages(); });
 	function urlBase64ToUint8Array(base64String) {
 		const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
 		const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
