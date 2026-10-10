@@ -660,7 +660,7 @@ const companyBrandingForPdf = async (data, worker) => {
 app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
-	commit: process.env.RENDER_GIT_COMMIT || 'devis-gemini-lineitems-retry-2026-10-10j',
+	commit: process.env.RENDER_GIT_COMMIT || 'devis-gemini-inspect-retry-2026-10-10k',
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
@@ -1156,31 +1156,42 @@ const inspectDevisWithGemini = async (file) => {
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 	const prompt = 'Read this French construction quote/devis PDF very carefully. Return JSON with fields: number, client, chantier, total. The "chantier" field is the site/jobsite address where the work takes place (often near "chantier", "lieu d\'exécution", or a second address block) — it is NEVER a sentence from the terms, conditions, or legal clauses of the devis; if no distinct site address is printed, reuse the client address. Copy the client name and chantier/site address text EXACTLY and COMPLETELY as printed in the PDF — full legal name, full address, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. If a field is genuinely not visible anywhere in the PDF, use empty string or 0.';
-	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			generationConfig: {
-				temperature: 0,
-				responseMimeType: 'application/json',
-				responseSchema: {
-					type: 'OBJECT',
-					properties: {
-						number: { type: 'STRING' },
-						client: { type: 'STRING' },
-						chantier: { type: 'STRING', description: "Site/jobsite address only, never a legal/terms sentence" },
-						total: { type: 'NUMBER' }
-					},
-					required: ['number', 'client', 'chantier', 'total']
-				}
-			},
-			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
-		})
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			responseSchema: {
+				type: 'OBJECT',
+				properties: {
+					number: { type: 'STRING' },
+					client: { type: 'STRING' },
+					chantier: { type: 'STRING', description: "Site/jobsite address only, never a legal/terms sentence" },
+					total: { type: 'NUMBER' }
+				},
+				required: ['number', 'client', 'chantier', 'total']
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 	});
-	if (!geminiResponse.ok) {
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini devis inspect network error', networkError.message);
+			return null;
+		}
+		if (geminiResponse.ok) break;
 		const details = await geminiResponse.text();
-		console.error('Gemini devis inspect rejected', geminiResponse.status, details.slice(0, 500));
-		return null;
+		console.error('Gemini devis inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
 	}
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
