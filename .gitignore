@@ -13,4 +13,3 @@ apps/web/out
 prisma/*.db
 prisma/*.db-journal
 uploads/
-apps/ibraapp-server/data/
