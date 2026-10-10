@@ -2198,16 +2198,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		panel.hidden = false;
 		container.innerHTML = pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Catégorie<input type="text" data-field="category" value="${escapeHtml(item.category || '')}" /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
 	}
+	let pendingBudgetProjectCreation = null;
 	async function ensureBudgetProjectId() {
 		const form = document.querySelector('#budget-form');
 		const select = form?.querySelector('[name="projectId"]');
 		if (!select) return currentProjectId();
 		if (select.value !== '__new') return select.value;
-		const chantierName = form.querySelector('[name="chantierName"]').value.trim() || form.querySelector('[name="client"]').value.trim() || 'Nouveau chantier';
-		const project = await request('/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: chantierName, chantierName }) });
-		await loadProjectOptions();
-		select.value = project.id;
-		return project.id;
+		if (pendingBudgetProjectCreation) return pendingBudgetProjectCreation;
+		pendingBudgetProjectCreation = (async () => {
+			const chantierName = form.querySelector('[name="chantierName"]').value.trim() || form.querySelector('[name="client"]').value.trim() || 'Nouveau chantier';
+			const project = await request('/projects', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: chantierName, chantierName }) });
+			await loadProjectOptions();
+			select.value = project.id;
+			return project.id;
+		})();
+		try { return await pendingBudgetProjectCreation; }
+		finally { pendingBudgetProjectCreation = null; }
 	}
 	document.querySelector('#devis-line-items-confirm-button')?.addEventListener('click', async () => {
 		const button = document.querySelector('#devis-line-items-confirm-button');
