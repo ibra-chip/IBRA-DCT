@@ -660,7 +660,7 @@ const companyBrandingForPdf = async (data, worker) => {
 app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
-	commit: process.env.RENDER_GIT_COMMIT || 'devis-line-items-no-duplicate-project-2026-10-10i',
+	commit: process.env.RENDER_GIT_COMMIT || 'devis-gemini-lineitems-retry-2026-10-10j',
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
@@ -1190,43 +1190,51 @@ const extractDevisLineItemsWithGemini = async (file) => {
 	if (!geminiApiKey) return { items: [], error: 'Aucune clé GEMINI_API_KEY/GOOGLE_AI_API_KEY configurée sur le serveur.' };
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Also identify the section/phase/lot heading that each row is printed under (for example "TRAVAUX DEMOLITION" or "REALISATION TRAVAUX") and put it in "category", reusing the exact same category string for every row under that same heading; if a row has no nearby section heading, use its own description as the category. Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number, "category": string }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			maxOutputTokens: 8192,
+			responseSchema: {
+				type: 'ARRAY',
+				items: {
+					type: 'OBJECT',
+					properties: {
+						description: { type: 'STRING' },
+						quantity: { type: 'NUMBER' },
+						unit: { type: 'STRING' },
+						unitPrice: { type: 'NUMBER' },
+						lineTotal: { type: 'NUMBER' },
+						category: { type: 'STRING' }
+					},
+					required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal', 'category']
+				}
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
 	let geminiResponse;
-	try {
-		geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify({
-				generationConfig: {
-					temperature: 0,
-					responseMimeType: 'application/json',
-					maxOutputTokens: 8192,
-					responseSchema: {
-						type: 'ARRAY',
-						items: {
-							type: 'OBJECT',
-							properties: {
-								description: { type: 'STRING' },
-								quantity: { type: 'NUMBER' },
-								unit: { type: 'STRING' },
-								unitPrice: { type: 'NUMBER' },
-								lineTotal: { type: 'NUMBER' },
-								category: { type: 'STRING' }
-							},
-							required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal', 'category']
-						}
-					}
-				},
-				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
-			})
-		});
-	} catch (networkError) {
-		console.error('Gemini devis line items network error', networkError.message);
-		return { items: [], error: `Erreur réseau vers Gemini (modèle ${model}) : ${networkError.message}` };
-	}
-	if (!geminiResponse.ok) {
-		const details = await geminiResponse.text();
-		console.error('Gemini devis line items rejected', geminiResponse.status, details.slice(0, 500));
-		return { items: [], error: `Gemini a refusé la requête (HTTP ${geminiResponse.status}, modèle ${model}) : ${details.slice(0, 300)}` };
+	let lastDetails = '';
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini devis line items network error', networkError.message);
+			return { items: [], error: `Erreur réseau vers Gemini (modèle ${model}) : ${networkError.message}` };
+		}
+		if (geminiResponse.ok) break;
+		lastDetails = await geminiResponse.text();
+		console.error('Gemini devis line items rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, lastDetails.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) {
+			return { items: [], error: `Gemini a refusé la requête (HTTP ${geminiResponse.status}, modèle ${model}) : ${lastDetails.slice(0, 300)}` };
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
 	}
 	const result = await geminiResponse.json();
 	if (result.promptFeedback?.blockReason) {
