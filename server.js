@@ -1173,7 +1173,7 @@ const extractDevisLineItemsWithGemini = async (file) => {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+				generationConfig: { temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 8192 },
 				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 			})
 		});
