@@ -2253,7 +2253,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				const total = rows.reduce((sum, row) => sum + Number(row.lineTotal || 0), 0);
 				const spent = rows.reduce((sum, row) => sum + Number(row.spent || 0), 0);
 				const rowsHtml = rows.map((row) => `<li>${escapeHtml(row.description)} — ${row.quantity} ${escapeHtml(row.unit || '')} · ${formatEUR(row.lineTotal)}</li>`).join('');
-				return `<div class="list-item" data-category="${encodeURIComponent(category)}"><strong>${escapeHtml(category)}</strong><ul class="category-rows">${rowsHtml}</ul><span>Total : ${formatEUR(total)} · Dépensé : ${formatEUR(spent)} · Profit : ${formatEUR(total - spent)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span>${allDone ? '' : `<form class="line-item-assign-form form-row" data-category-assign="${encodeURIComponent(category)}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner la catégorie</button></form>`}</div>`;
+				return `<div class="list-item" data-category="${encodeURIComponent(category)}"><strong>${escapeHtml(category)}</strong><ul class="category-rows">${rowsHtml}</ul><span>Total : ${formatEUR(total)} · Dépensé : ${formatEUR(spent)} · Profit : ${formatEUR(total - spent)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span>${allDone ? '' : `<form class="line-item-assign-form form-row" data-category-assign="${encodeURIComponent(category)}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner la catégorie</button></form>`}<button type="button" class="danger" data-category-delete="${encodeURIComponent(category)}">Supprimer cette catégorie</button></div>`;
 			}).join('');
 			container.querySelectorAll('[data-category-assign]').forEach((form) => form.addEventListener('submit', async (event) => {
 				event.preventDefault();
@@ -2269,6 +2269,16 @@ document.addEventListener('DOMContentLoaded', () => {
 					await loadLineItems();
 				} catch { toast('Assignation impossible.'); }
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+			container.querySelectorAll('[data-category-delete]').forEach((button) => button.addEventListener('click', async () => {
+				const category = button.dataset.categoryDelete;
+				if (!confirm('Supprimer définitivement cette catégorie et toutes ses lignes de devis ?')) return;
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try {
+					await request(`/projects/${projectId}/budget/categories/${category}`, { method: 'DELETE' });
+					toast('Catégorie supprimée.');
+					await loadLineItems();
+				} catch { toast('Suppression impossible.'); button.disabled = false; button.removeAttribute('aria-busy'); }
 			}));
 		} catch { container.innerHTML = '<small>Impossible de charger les lignes de devis.</small>'; }
 	}

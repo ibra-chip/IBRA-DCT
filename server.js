@@ -660,7 +660,7 @@ const companyBrandingForPdf = async (data, worker) => {
 app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
-	commit: process.env.RENDER_GIT_COMMIT || 'devis-category-assignment-workflow-2026-10-10d',
+	commit: process.env.RENDER_GIT_COMMIT || 'devis-category-delete-2026-10-10e',
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
@@ -1090,6 +1090,8 @@ app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	data.messages = (data.messages || []).filter((item) => item.projectId !== request.params.id);
 	data.rendezvous = (data.rendezvous || []).filter((item) => item.projectId !== request.params.id);
 	data.timeEntries = (data.timeEntries || []).filter((item) => item.projectId !== request.params.id);
+	data.devisLineItems = (data.devisLineItems || []).filter((item) => item.projectId !== request.params.id);
+	data.factures = (data.factures || []).filter((item) => item.projectId !== request.params.id);
 	data.users = (data.users || []).map((user) => ({ ...user, projectIds: (user.projectIds || []).filter((id) => id !== request.params.id) }));
 	await writeData(data);
 	response.json({ removed: true, id: project.id, name: project.name });
@@ -1505,6 +1507,16 @@ app.patch('/api/projects/:id/budget/categories/:category/assign', auth, manager,
 	await writeData(data);
 	sendPushToUser(data, worker.id, { title: 'Nouvelle tâche', body: `${request.user.name} vous a assigné : ${request.params.category}`, tag: 'ibra-task', url: '/' }).catch(() => {});
 	response.json(items);
+});
+app.delete('/api/projects/:id/budget/categories/:category', auth, manager, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category);
+	if (!items.length) return response.status(404).json({ error: 'Category not found' });
+	const removedIds = new Set(items.map((item) => item.id));
+	data.devisLineItems = (data.devisLineItems || []).filter((entry) => !removedIds.has(entry.id));
+	await writeData(data);
+	response.json({ ok: true });
 });
 const stripLineItemPricing = ({ unitPrice: _unitPrice, lineTotal: _lineTotal, assignedBy: _assignedBy, ...item }) => item;
 app.get('/api/tasks/mine', auth, async (request, response) => {
