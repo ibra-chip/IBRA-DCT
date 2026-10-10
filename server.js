@@ -1222,6 +1222,71 @@ app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenam
 	const amount = amountMatch ? Number(amountMatch[1].replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
 	response.json({ textFound: text.length > 0, extracted: { number, supplier, date: dateMatch?.[1] || '', amount: Number.isFinite(amount) ? amount : 0 }, source: request.file.originalname, needsOcr: text.length === 0 });
 });
+const parseFrenchDate = (raw) => {
+	const match = String(raw || '').match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
+	if (!match) return '';
+	let [, day, month, year] = match;
+	if (year.length === 2) year = `20${year}`;
+	const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+	return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : '';
+};
+const extractFactureFields = (text) => {
+	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
+	const rawAmount = amountMatches.at(-1)?.[1] || '';
+	const dateMatches = [...normalized.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g)].map((item) => item[0]);
+	const issuedLabelDate = normalized.match(/(?:date d'émission|date de facturation|émis le|le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
+	const dueLabelDate = normalized.match(/(?:date d'échéance|échéance|à régler avant le|payable avant le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
+	return {
+		invoiceNumber: normalized.match(/(?:facture|facture n(?:°|o)?|invoice|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
+		clientName: normalized.match(/(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i)?.[1]?.trim() || '',
+		clientEmail: normalized.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i)?.[0] || '',
+		amount: parseAmount(rawAmount),
+		issuedDate: parseFrenchDate(issuedLabelDate || dateMatches[0]),
+		dueDate: parseFrenchDate(dueLabelDate || dateMatches[1])
+	};
+};
+const inspectFactureWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this French client invoice/facture PDF. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Use the final TTC/net payable total when available. If a field is not visible, use an empty string or 0.";
+	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify({
+			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+		})
+	});
+	if (!geminiResponse.ok) {
+		const details = await geminiResponse.text();
+		console.error('Gemini facture inspect rejected', geminiResponse.status, details.slice(0, 500));
+		return null;
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
+app.post('/api/factures/inspect', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Facture PDF is required' });
+	let text = '';
+	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); }
+	const extracted = extractFactureFields(text);
+	let source = request.file.originalname;
+	if (!extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate) {
+		const ai = await inspectFactureWithGemini(request.file);
+		if (ai) {
+			extracted.invoiceNumber = extracted.invoiceNumber || String(ai.invoiceNumber || '');
+			extracted.clientName = extracted.clientName || String(ai.clientName || '');
+			extracted.clientEmail = extracted.clientEmail || String(ai.clientEmail || '');
+			extracted.amount = extracted.amount || parseAmount(ai.amount);
+			extracted.issuedDate = extracted.issuedDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(ai.issuedDate || '')) ? ai.issuedDate : '');
+			extracted.dueDate = extracted.dueDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(ai.dueDate || '')) ? ai.dueDate : '');
+			source = `${request.file.originalname} · Gemini`;
+		}
+	}
+	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate, source, aiFallbackUsed: source.includes('Gemini') });
+});
 app.get('/api/projects/:id/financial-summary', auth, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
