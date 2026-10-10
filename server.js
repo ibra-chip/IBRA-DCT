@@ -1187,15 +1187,27 @@ const extractDevisLineItemsWithGemini = async (file) => {
 		return { items: [], error: `Gemini a refusé la requête (HTTP ${geminiResponse.status}, modèle ${model}) : ${details.slice(0, 300)}` };
 	}
 	const result = await geminiResponse.json();
+	if (result.promptFeedback?.blockReason) {
+		console.error('Gemini devis line items blocked', result.promptFeedback.blockReason);
+		return { items: [], error: `Contenu bloqué par Gemini (${result.promptFeedback.blockReason}).` };
+	}
+	const candidate = result.candidates?.[0];
+	const rawText = String(candidate?.content?.parts?.[0]?.text || '').trim();
+	if (!rawText) {
+		console.error('Gemini devis line items empty response', JSON.stringify(result).slice(0, 500));
+		return { items: [], error: `Gemini n'a renvoyé aucun contenu (finishReason: ${candidate?.finishReason || 'inconnu'}).` };
+	}
 	try {
-		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
-		return { items: Array.isArray(parsed) ? parsed.map((item) => ({
+		const parsed = JSON.parse(rawText.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		const items = Array.isArray(parsed) ? parsed.map((item) => ({
 			description: String(item.description || '').trim(),
 			quantity: Number(item.quantity) || 0,
 			unit: String(item.unit || ''),
 			unitPrice: Number(item.unitPrice) || 0,
 			lineTotal: Number(item.lineTotal) || 0
-		})) : [], error: null };
+		})) : [];
+		if (!items.length) return { items: [], error: `Gemini n'a identifié aucune ligne dans le tableau de prix (finishReason: ${candidate?.finishReason || 'inconnu'}).` };
+		return { items, error: null };
 	} catch (parseError) { return { items: [], error: `Réponse Gemini illisible : ${parseError.message}` }; }
 };
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
