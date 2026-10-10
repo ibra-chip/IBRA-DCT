@@ -423,7 +423,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const selectSubTab = (viewId, tabTarget) => {
 		if (!tabTarget) return;
 		const view = document.getElementById(viewId);
-		view?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
+		view?.querySelectorAll(':scope > .panel[id]:not(#devis-line-items-pending-panel), :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
 		view?.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.classList.toggle('active', tabButton.dataset.tabTarget === tabTarget));
 	};
 	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => {
@@ -448,7 +448,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const tabs = tabButton.closest('.mobile-tabs');
 		tabs?.querySelectorAll('.mobile-tab').forEach((item) => item.classList.toggle('active', item === tabButton));
 		const targetId = tabButton.dataset.tabTarget;
-		tabs?.parentElement?.querySelectorAll(':scope > .panel[id], :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== targetId));
+		tabs?.parentElement?.querySelectorAll(':scope > .panel[id]:not(#devis-line-items-pending-panel), :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== targetId));
 	}));
 
 	let projectsCache = [];
