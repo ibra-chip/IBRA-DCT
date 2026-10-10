@@ -660,7 +660,7 @@ const companyBrandingForPdf = async (data, worker) => {
 app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
-	commit: process.env.RENDER_GIT_COMMIT || 'line-items-panel-tab-hidden-fix-2026-10-10c',
+	commit: process.env.RENDER_GIT_COMMIT || 'devis-category-assignment-workflow-2026-10-10d',
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
@@ -1187,7 +1187,7 @@ const extractDevisLineItemsWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return { items: [], error: 'Aucune clé GEMINI_API_KEY/GOOGLE_AI_API_KEY configurée sur le serveur.' };
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Also identify the section/phase/lot heading that each row is printed under (for example "TRAVAUX DEMOLITION" or "REALISATION TRAVAUX") and put it in "category", reusing the exact same category string for every row under that same heading; if a row has no nearby section heading, use its own description as the category. Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number, "category": string }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
 	let geminiResponse;
 	try {
 		geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
@@ -1207,9 +1207,10 @@ const extractDevisLineItemsWithGemini = async (file) => {
 								quantity: { type: 'NUMBER' },
 								unit: { type: 'STRING' },
 								unitPrice: { type: 'NUMBER' },
-								lineTotal: { type: 'NUMBER' }
+								lineTotal: { type: 'NUMBER' },
+								category: { type: 'STRING' }
 							},
-							required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal']
+							required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal', 'category']
 						}
 					}
 				},
@@ -1243,7 +1244,8 @@ const extractDevisLineItemsWithGemini = async (file) => {
 			quantity: Number(item.quantity) || 0,
 			unit: String(item.unit || ''),
 			unitPrice: Number(item.unitPrice) || 0,
-			lineTotal: Number(item.lineTotal) || 0
+			lineTotal: Number(item.lineTotal) || 0,
+			category: String(item.category || '').trim() || String(item.description || '').trim()
 		})) : [];
 		if (!items.length) return { items: [], error: `Gemini n'a identifié aucune ligne dans le tableau de prix (finishReason: ${candidate?.finishReason || 'inconnu'}).` };
 		return { items, error: null };
@@ -1422,6 +1424,7 @@ app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, r
 		unit: String(item.unit || ''),
 		unitPrice: Number(item.unitPrice) || 0,
 		lineTotal: Number(item.lineTotal) || 0,
+		category: String(item.category || '').trim() || String(item.description || '').trim(),
 		status: 'unassigned',
 		assignedTo: null,
 		assignedToName: '',
@@ -1433,6 +1436,8 @@ app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, r
 		attachmentFile: null,
 		attachmentName: '',
 		attachmentMimeType: '',
+		completionPhotoFile: null,
+		completionPhotoName: '',
 		createdAt: new Date().toISOString()
 	}));
 	data.devisLineItems = [...(data.devisLineItems || []), ...created];
@@ -1475,6 +1480,32 @@ app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single(
 	await writeData(data);
 	response.json(item);
 });
+app.patch('/api/projects/:id/budget/categories/:category/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category);
+	if (!items.length) return response.status(404).json({ error: 'Category not found' });
+	const worker = (data.users || []).find((user) => user.id === String(request.body.workerId || ''));
+	if (!worker) return response.status(400).json({ error: 'A valid worker is required' });
+	if (!isOwnerRole(worker.role) && !(worker.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Le chantier sélectionné n’est pas accessible à cet ouvrier' });
+	let attachmentFile = null;
+	if (request.file) {
+		attachmentFile = storageKeyFor(request.file.originalname);
+		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
+	}
+	const now = new Date().toISOString();
+	items.forEach((item) => {
+		if (attachmentFile) { item.attachmentFile = attachmentFile; item.attachmentName = request.file.originalname; item.attachmentMimeType = request.file.mimetype; }
+		item.assignedTo = worker.id;
+		item.assignedToName = worker.name;
+		item.assignedBy = request.user.sub;
+		item.assignedAt = now;
+		if (item.status !== 'done') item.status = 'assigned';
+	});
+	await writeData(data);
+	sendPushToUser(data, worker.id, { title: 'Nouvelle tâche', body: `${request.user.name} vous a assigné : ${request.params.category}`, tag: 'ibra-task', url: '/' }).catch(() => {});
+	response.json(items);
+});
 const stripLineItemPricing = ({ unitPrice: _unitPrice, lineTotal: _lineTotal, assignedBy: _assignedBy, ...item }) => item;
 app.get('/api/tasks/mine', auth, async (request, response) => {
 	const data = await readData();
@@ -1508,6 +1539,49 @@ app.patch('/api/tasks/:itemId/progress', auth, async (request, response) => {
 	if (item.status === 'done') item.completedAt = new Date().toISOString();
 	await writeData(data);
 	response.json(stripLineItemPricing(item));
+});
+app.patch('/api/projects/:id/tasks/category/:category/complete', auth, memoryUpload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category && entry.assignedTo === request.user.sub);
+	if (!items.length) return response.status(404).json({ error: 'Task category not found' });
+	let completionPhotoFile = null;
+	if (request.file) {
+		completionPhotoFile = storageKeyFor(request.file.originalname);
+		try { await uploadFile(UPLOADS_BUCKET, completionPhotoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
+	}
+	const now = new Date().toISOString();
+	const assignerIds = new Set();
+	items.forEach((item) => {
+		if (completionPhotoFile) { item.completionPhotoFile = completionPhotoFile; item.completionPhotoName = request.file.originalname; }
+		item.status = 'done';
+		item.progressPercent = 100;
+		item.completedAt = now;
+		if (item.assignedBy) assignerIds.add(item.assignedBy);
+	});
+	const notificationText = `${request.user.name || 'Un ouvrier'} a terminé la catégorie « ${request.params.category} » — assignez la suite.`;
+	const notifications = [...assignerIds].map((assignerId) => {
+		const assigner = data.users.find((user) => user.id === assignerId);
+		return { id: `notification-${Date.now()}-${assignerId}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: assignerId, recipientName: assigner?.name || '', projectId: request.params.id, text: notificationText, createdAt: now, read: false, type: 'task-category-done' };
+	});
+	data.messages = [...(data.messages || []), ...notifications];
+	await writeData(data);
+	assignerIds.forEach((assignerId) => sendPushToUser(data, assignerId, { title: 'Tâche terminée', body: notificationText, tag: 'ibra-task', url: '/' }).catch(() => {}));
+	response.json(items.map(stripLineItemPricing));
+});
+app.get('/api/tasks/:itemId/completion-photo', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.completionPhotoFile) return response.status(404).json({ error: 'No completion photo stored for this task' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.completionPhotoFile);
+		response.setHeader('Content-Type', 'image/jpeg');
+		response.setHeader('Content-Disposition', `attachment; filename="${(item.completionPhotoName || 'photo').replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Photo download failed: ' + error.message });
+	}
 });
 const factureColorStatus = (facture, now = new Date()) => {
 	if (facture.status === 'paid') return 'green';

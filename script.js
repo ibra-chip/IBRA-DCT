@@ -2195,7 +2195,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!panel || !container) return;
 		if (!pendingDevisLineItems.length) { panel.hidden = true; container.innerHTML = ''; return; }
 		panel.hidden = false;
-		container.innerHTML = pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
+		container.innerHTML = pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Catégorie<input type="text" data-field="category" value="${escapeHtml(item.category || '')}" /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
 	}
 	document.querySelector('#devis-line-items-confirm-button')?.addEventListener('click', async () => {
 		const button = document.querySelector('#devis-line-items-confirm-button');
@@ -2204,6 +2204,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!projectId) { toast('Enregistrez d’abord le devis pour créer le chantier.'); return; }
 		const rows = [...document.querySelectorAll('#devis-line-items-pending-table [data-pending-index]')];
 		const items = rows.filter((row) => row.querySelector('[data-field="include"]').checked).map((row) => ({
+			category: row.querySelector('[data-field="category"]').value.trim(),
 			description: row.querySelector('[data-field="description"]').value.trim(),
 			quantity: Number(row.querySelector('[data-field="quantity"]').value || 0),
 			unit: row.querySelector('[data-field="unit"]').value.trim(),
@@ -2238,22 +2239,33 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (!items.length) { container.innerHTML = '<small>Aucune ligne de devis pour ce chantier. Importez un devis depuis Budget.</small>'; return; }
 			const eligibleWorkers = contacts.filter((contact) => isOwner(contact.role) || (contact.projectIds || []).includes(projectId));
 			const workerOptions = eligibleWorkers.map((contact) => `<option value="${escapeHtml(contact.id)}">${escapeHtml(contact.name)}</option>`).join('');
-			container.innerHTML = items.map((item) => {
-				const meta = lineItemStatusMeta[item.status] || lineItemStatusMeta.unassigned;
-				const assignedName = eligibleWorkers.find((contact) => contact.id === item.assignedTo)?.name || item.assignedTo || '';
-				return `<div class="list-item" data-line-item="${item.id}"><strong>${escapeHtml(item.description)}</strong><span>${item.quantity} ${escapeHtml(item.unit || '')} · ${formatEUR(item.unitPrice)} · total ${formatEUR(item.lineTotal)}</span><span>Dépensé : ${formatEUR(item.spent)} · Profit : ${formatEUR(item.profit)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span><form class="line-item-assign-form form-row" data-line-item-assign="${item.id}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner</button></form></div>`;
+			const categories = new Map();
+			items.forEach((item) => {
+				const key = item.category || item.description;
+				if (!categories.has(key)) categories.set(key, []);
+				categories.get(key).push(item);
+			});
+			container.innerHTML = [...categories.entries()].map(([category, rows]) => {
+				const allDone = rows.every((row) => row.status === 'done');
+				const anyAssigned = rows.some((row) => row.status !== 'unassigned');
+				const meta = allDone ? lineItemStatusMeta.done : anyAssigned ? lineItemStatusMeta.assigned : lineItemStatusMeta.unassigned;
+				const assignedName = eligibleWorkers.find((contact) => contact.id === rows[0].assignedTo)?.name || rows[0].assignedToName || '';
+				const total = rows.reduce((sum, row) => sum + Number(row.lineTotal || 0), 0);
+				const spent = rows.reduce((sum, row) => sum + Number(row.spent || 0), 0);
+				const rowsHtml = rows.map((row) => `<li>${escapeHtml(row.description)} — ${row.quantity} ${escapeHtml(row.unit || '')} · ${formatEUR(row.lineTotal)}</li>`).join('');
+				return `<div class="list-item" data-category="${encodeURIComponent(category)}"><strong>${escapeHtml(category)}</strong><ul class="category-rows">${rowsHtml}</ul><span>Total : ${formatEUR(total)} · Dépensé : ${formatEUR(spent)} · Profit : ${formatEUR(total - spent)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span>${allDone ? '' : `<form class="line-item-assign-form form-row" data-category-assign="${encodeURIComponent(category)}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner la catégorie</button></form>`}</div>`;
 			}).join('');
-			container.querySelectorAll('[data-line-item-assign]').forEach((form) => form.addEventListener('submit', async (event) => {
+			container.querySelectorAll('[data-category-assign]').forEach((form) => form.addEventListener('submit', async (event) => {
 				event.preventDefault();
-				const itemId = form.dataset.lineItemAssign;
+				const category = form.dataset.categoryAssign;
 				const button = form.querySelector('button');
 				const body = new FormData(form);
 				if (!body.get('workerId')) { toast('Choisissez un ouvrier.'); return; }
 				button.disabled = true; button.setAttribute('aria-busy', 'true');
 				try {
-					const response = await fetch(`${api}/budget/line-items/${itemId}/assign`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}` }, body });
+					const response = await fetch(`${api}/projects/${projectId}/budget/categories/${category}/assign`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}` }, body });
 					if (!response.ok) throw new Error();
-					toast('Tâche assignée.');
+					toast('Catégorie assignée.');
 					await loadLineItems();
 				} catch { toast('Assignation impossible.'); }
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2267,17 +2279,29 @@ document.addEventListener('DOMContentLoaded', () => {
 		try {
 			const tasks = await request('/tasks/mine');
 			if (!tasks.length) { container.innerHTML = '<small>Aucune tâche assignée.</small>'; return; }
-			container.innerHTML = tasks.map((task) => `<div class="list-item" data-task="${task.id}"><strong>${escapeHtml(task.description)}</strong><span>${task.quantity} ${escapeHtml(task.unit || '')}</span>${task.attachmentName ? `<button type="button" class="secondary view-task-attachment" data-task-attachment="${task.id}">Voir le plan / la fiche</button>` : ''}<form class="task-progress-form form-row" data-task-progress="${task.id}"><label>Avancement %<input type="number" name="progressPercent" min="0" max="100" value="${task.progressPercent || 0}" /></label><button type="submit" class="secondary">Mettre à jour</button></form></div>`).join('');
+			const categories = new Map();
+			tasks.forEach((task) => {
+				const key = `${task.projectId}::${task.category || task.description}`;
+				if (!categories.has(key)) categories.set(key, { projectId: task.projectId, category: task.category || task.description, rows: [] });
+				categories.get(key).rows.push(task);
+			});
+			container.innerHTML = [...categories.values()].map((group) => {
+				const allDone = group.rows.every((row) => row.status === 'done');
+				const rowsHtml = group.rows.map((row) => `<li>${escapeHtml(row.description)} — ${row.quantity} ${escapeHtml(row.unit || '')}${row.attachmentName ? ` · <button type="button" class="secondary view-task-attachment" data-task-attachment="${row.id}">Voir le plan / la fiche</button>` : ''}</li>`).join('');
+				return `<div class="list-item" data-task-category="${encodeURIComponent(group.category)}" data-task-project="${group.projectId}"><strong>${escapeHtml(group.category)}</strong><ul class="category-rows">${rowsHtml}</ul>${allDone ? '<span class="worker-status status-good"><span class="worker-status-dot" aria-hidden="true"></span>Terminée · en attente de la prochaine tâche du gérant</span>' : `<form class="task-complete-form form-row" data-task-complete="${encodeURIComponent(group.category)}" data-task-complete-project="${group.projectId}"><label>Photo (optionnelle)<input type="file" name="photo" accept="image/jpeg,image/png" /></label><button type="submit" class="secondary">Marquer la catégorie terminée</button></form>`}</div>`;
+			}).join('');
 			container.querySelectorAll('.view-task-attachment').forEach((button) => button.addEventListener('click', () => viewDocument(`/tasks/${button.dataset.taskAttachment}/attachment`, button)));
-			container.querySelectorAll('[data-task-progress]').forEach((form) => form.addEventListener('submit', async (event) => {
+			container.querySelectorAll('[data-task-complete]').forEach((form) => form.addEventListener('submit', async (event) => {
 				event.preventDefault();
-				const itemId = form.dataset.taskProgress;
-				const progressPercent = Number(form.querySelector('[name="progressPercent"]').value || 0);
+				const category = form.dataset.taskComplete;
+				const projectId = form.dataset.taskCompleteProject;
 				const button = form.querySelector('button');
+				const body = new FormData(form);
 				button.disabled = true; button.setAttribute('aria-busy', 'true');
 				try {
-					await request(`/tasks/${itemId}/progress`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ progressPercent }) });
-					toast('Avancement enregistré.');
+					const response = await fetch(`${api}/projects/${projectId}/tasks/category/${category}/complete`, { method: 'PATCH', headers: { Authorization: `Bearer ${token()}` }, body });
+					if (!response.ok) throw new Error();
+					toast('Catégorie marquée terminée. Le gérant a été notifié.');
 					await loadMyTasks();
 				} catch { toast('Mise à jour impossible.'); }
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
