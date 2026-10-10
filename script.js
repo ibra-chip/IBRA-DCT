@@ -418,6 +418,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#my-tasks-tab-button')?.toggleAttribute('hidden', canSeeFinancials);
 		document.querySelector('#my-tasks-panel')?.toggleAttribute('hidden', canSeeFinancials);
+		if (!canSeeFinancials) selectSubTab('tasks-view', 'my-tasks-panel');
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	const selectSubTab = (viewId, tabTarget) => {
