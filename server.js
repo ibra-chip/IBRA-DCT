@@ -1145,12 +1145,25 @@ const inspectDevisWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = 'Read this French construction quote/devis PDF very carefully. Return only JSON with fields: number string, client string, chantier string, total number. Copy the client name and chantier/site address text EXACTLY and COMPLETELY as printed in the PDF — full legal name, full address, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. If a field is genuinely not visible anywhere in the PDF, use empty string or 0.';
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Return JSON with fields: number, client, chantier, total. The "chantier" field is the site/jobsite address where the work takes place (often near "chantier", "lieu d\'exécution", or a second address block) — it is NEVER a sentence from the terms, conditions, or legal clauses of the devis; if no distinct site address is printed, reuse the client address. Copy the client name and chantier/site address text EXACTLY and COMPLETELY as printed in the PDF — full legal name, full address, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. If a field is genuinely not visible anywhere in the PDF, use empty string or 0.';
 	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+			generationConfig: {
+				temperature: 0,
+				responseMimeType: 'application/json',
+				responseSchema: {
+					type: 'OBJECT',
+					properties: {
+						number: { type: 'STRING' },
+						client: { type: 'STRING' },
+						chantier: { type: 'STRING', description: "Site/jobsite address only, never a legal/terms sentence" },
+						total: { type: 'NUMBER' }
+					},
+					required: ['number', 'client', 'chantier', 'total']
+				}
+			},
 			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 		})
 	});
@@ -1173,7 +1186,25 @@ const extractDevisLineItemsWithGemini = async (file) => {
 			method: 'POST',
 			headers: { 'Content-Type': 'application/json' },
 			body: JSON.stringify({
-				generationConfig: { temperature: 0, responseMimeType: 'application/json', maxOutputTokens: 8192 },
+				generationConfig: {
+					temperature: 0,
+					responseMimeType: 'application/json',
+					maxOutputTokens: 8192,
+					responseSchema: {
+						type: 'ARRAY',
+						items: {
+							type: 'OBJECT',
+							properties: {
+								description: { type: 'STRING' },
+								quantity: { type: 'NUMBER' },
+								unit: { type: 'STRING' },
+								unitPrice: { type: 'NUMBER' },
+								lineTotal: { type: 'NUMBER' }
+							},
+							required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal']
+						}
+					}
+				},
 				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 			})
 		});
@@ -1273,7 +1304,22 @@ const inspectFactureWithGemini = async (file) => {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
 		body: JSON.stringify({
-			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+			generationConfig: {
+				temperature: 0,
+				responseMimeType: 'application/json',
+				responseSchema: {
+					type: 'OBJECT',
+					properties: {
+						invoiceNumber: { type: 'STRING' },
+						clientName: { type: 'STRING' },
+						clientEmail: { type: 'STRING' },
+						amount: { type: 'NUMBER' },
+						issuedDate: { type: 'STRING', description: 'YYYY-MM-DD' },
+						dueDate: { type: 'STRING', description: 'YYYY-MM-DD' }
+					},
+					required: ['invoiceNumber', 'clientName', 'amount']
+				}
+			},
 			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 		})
 	});
