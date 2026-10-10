@@ -2234,6 +2234,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!container) return;
 		const select = document.querySelector('#line-items-project-select');
 		const projectId = select?.value || currentProjectId();
+		const deleteProjectButton = document.querySelector('#line-items-delete-project-button');
+		if (deleteProjectButton) {
+			deleteProjectButton.hidden = !projectId || projectId === 'lot-a';
+			deleteProjectButton.dataset.project = projectId || '';
+		}
 		if (!projectId) { container.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
 		try {
 			const [items, contacts] = await Promise.all([request(`/projects/${projectId}/budget/line-items`), request('/contacts')]);
@@ -2284,6 +2289,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { container.innerHTML = '<small>Impossible de charger les lignes de devis.</small>'; }
 	}
 	document.querySelector('#line-items-project-select')?.addEventListener('change', loadLineItems);
+	document.querySelector('#line-items-delete-project-button')?.addEventListener('click', async (event) => {
+		const button = event.currentTarget;
+		const projectId = button.dataset.project;
+		if (!projectId) return;
+		const projectName = projectsCache.find((project) => project.id === projectId)?.name || projectId;
+		if (!window.confirm(`Supprimer le chantier ${projectName} et les données associées ?`)) return;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			await request(`/projects/${projectId}`, { method: 'DELETE' });
+			toast('Chantier je obrisan.');
+			await loadProjectOptions();
+			await loadLineItems();
+		} catch { toast('Suppression impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
 	async function loadMyTasks() {
 		const container = document.querySelector('#my-tasks-list');
 		if (!container || isOwner()) return;
