@@ -181,7 +181,20 @@ const readData = async () => {
 		return readLocalData();
 	}
 };
-const writeData = async (data) => {
+// Every call site does readData() -> mutate its own copy -> writeData(copy). With one shared JSON
+// blob and no per-record transactions, two overlapping writes on this same instance could otherwise
+// race on the local .tmp file (both write it before either renames, corrupting whichever renames
+// second) or land out of request order against Supabase. Queuing writes on this instance removes
+// that local-file hazard and makes write order deterministic; it does not make two users' concurrent
+// edits merge -- the second writer's snapshot still wins. A real fix needs row-level transactions,
+// which is exactly what the in-progress apps/api (Prisma/Postgres) move is for.
+let writeQueue = Promise.resolve();
+const writeData = (data) => {
+	const next = writeQueue.then(() => writeDataNow(data));
+	writeQueue = next.catch(() => {});
+	return next;
+};
+const writeDataNow = async (data) => {
 	const serialized = `${JSON.stringify(data, null, 2)}\n`;
 	const backupPath = `${dataPath}.bak`;
 	const temporaryPath = `${dataPath}.tmp`;
@@ -499,7 +512,7 @@ async function sendSmsSafe({ to, text }) {
 		if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
 		return { skipped: false, provider: 'twilio' };
 	}
-	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || 'IBRABA';
+	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || '';
 	if (process.env.BREVO_API_KEY && brevoSender) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
 			method: 'POST',
