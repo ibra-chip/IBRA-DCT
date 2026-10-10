@@ -1130,14 +1130,22 @@ const parseAmount = (value) => {
 	const number = Number(String(value || '').replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'));
 	return Number.isFinite(number) ? number : 0;
 };
+// Regex keyword matches can land inside a pricing-table header or a terms/conditions
+// clause instead of the actual field (e.g. "...Mention datée et signée : TASH N° Désignation
+// Qté PU TVA" or "...ajustement des fournitures et/ou de leurs prix."). Those captures are
+// non-empty but wrong, so they must be rejected here rather than silently accepted — otherwise
+// the Gemini AI fallback below never runs because the field already looks "found".
+const looksLikeGarbageDevisField = (value) => /désignation|qté|p\.?u\.?|tva|mention datée|ajustement des fournitures|conditions générales/i.test(value);
 const extractDevisFields = (text) => {
 	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
 	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
 	const rawAmount = amountMatches.at(-1)?.[1] || '';
+	const client = normalized.match(/(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '';
+	const chantier = normalized.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '';
 	return {
 		number: normalized.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
-		client: normalized.match(/(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '',
-		chantier: normalized.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '',
+		client: looksLikeGarbageDevisField(client) ? '' : client,
+		chantier: looksLikeGarbageDevisField(chantier) ? '' : chantier,
 		total: parseAmount(rawAmount)
 	};
 };
@@ -1251,8 +1259,10 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 		const ai = await inspectDevisWithGemini(request.file);
 		if (ai) {
 			extracted.number = extracted.number || String(ai.number || '');
-			extracted.client = extracted.client || String(ai.client || '');
-			extracted.chantier = extracted.chantier || String(ai.chantier || '');
+			const aiClient = String(ai.client || '').trim();
+			extracted.client = extracted.client || (looksLikeGarbageDevisField(aiClient) ? '' : aiClient);
+			const aiChantier = String(ai.chantier || '').trim();
+			extracted.chantier = extracted.chantier || (looksLikeGarbageDevisField(aiChantier) ? '' : aiChantier);
 			extracted.total = extracted.total || parseAmount(ai.total);
 			source = `${request.file.originalname} · Gemini`;
 		}
