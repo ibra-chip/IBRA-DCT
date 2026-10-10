@@ -1164,33 +1164,39 @@ const inspectDevisWithGemini = async (file) => {
 };
 const extractDevisLineItemsWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
-	if (!geminiApiKey) return [];
+	if (!geminiApiKey) return { items: [], error: 'Aucune clé GEMINI_API_KEY/GOOGLE_AI_API_KEY configurée sur le serveur.' };
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
 	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
-	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
-		})
-	});
+	let geminiResponse;
+	try {
+		geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				generationConfig: { temperature: 0, responseMimeType: 'application/json' },
+				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+			})
+		});
+	} catch (networkError) {
+		console.error('Gemini devis line items network error', networkError.message);
+		return { items: [], error: `Erreur réseau vers Gemini (modèle ${model}) : ${networkError.message}` };
+	}
 	if (!geminiResponse.ok) {
 		const details = await geminiResponse.text();
 		console.error('Gemini devis line items rejected', geminiResponse.status, details.slice(0, 500));
-		return [];
+		return { items: [], error: `Gemini a refusé la requête (HTTP ${geminiResponse.status}, modèle ${model}) : ${details.slice(0, 300)}` };
 	}
 	const result = await geminiResponse.json();
 	try {
 		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '[]').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
-		return Array.isArray(parsed) ? parsed.map((item) => ({
+		return { items: Array.isArray(parsed) ? parsed.map((item) => ({
 			description: String(item.description || '').trim(),
 			quantity: Number(item.quantity) || 0,
 			unit: String(item.unit || ''),
 			unitPrice: Number(item.unitPrice) || 0,
 			lineTotal: Number(item.lineTotal) || 0
-		})) : [];
-	} catch { return []; }
+		})) : [], error: null };
+	} catch (parseError) { return { items: [], error: `Réponse Gemini illisible : ${parseError.message}` }; }
 };
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
@@ -1208,8 +1214,8 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 			source = `${request.file.originalname} · Gemini`;
 		}
 	}
-	const lineItems = await extractDevisLineItemsWithGemini(request.file);
-	response.json({ extracted, lineItems, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItems.length > 0 });
+	const lineItemsResult = await extractDevisLineItemsWithGemini(request.file);
+	response.json({ extracted, lineItems: lineItemsResult.items, lineItemsError: lineItemsResult.error, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItemsResult.items.length > 0 });
 });
 app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
