@@ -1145,7 +1145,7 @@ const inspectDevisWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = 'Read this French construction quote/devis PDF. Return only JSON with fields: number string, client string, chantier string, total number. Use the final TTC/net payable total when available. If a field is not visible, use empty string or 0.';
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Return only JSON with fields: number string, client string, chantier string, total number. Copy the client name and chantier/site address text EXACTLY and COMPLETELY as printed in the PDF — full legal name, full address, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. If a field is genuinely not visible anywhere in the PDF, use empty string or 0.';
 	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -1166,7 +1166,7 @@ const extractDevisLineItemsWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return [];
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = 'Read this French construction quote/devis PDF. Extract every individual line item (descriptif/désignation) from the pricing table. Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number }. Keep the original row order. Use 0 for numeric fields you cannot find, and an empty string for unit if not specified (e.g. m2, ml, u, forfait).';
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
 	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -1250,7 +1250,7 @@ const inspectFactureWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = "Read this French client invoice/facture PDF. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Use the final TTC/net payable total when available. If a field is not visible, use an empty string or 0.";
+	const prompt = "Read this French client invoice/facture PDF very carefully. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Copy the client name EXACTLY and COMPLETELY as printed — full legal name, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. Convert any date you find to YYYY-MM-DD precisely as printed, do not guess a date that is not in the document. If a field is genuinely not visible anywhere in the PDF, use an empty string or 0.";
 	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
