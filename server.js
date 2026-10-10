@@ -660,7 +660,7 @@ const companyBrandingForPdf = async (data, worker) => {
 app.get('/api/health', (_request, response) => response.json({
 	status: 'ok',
 	service: 'ibra-ba-api',
-	commit: process.env.RENDER_GIT_COMMIT || '',
+	commit: process.env.RENDER_GIT_COMMIT || 'DEPLOY_MARKER_PENDING',
 }));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
