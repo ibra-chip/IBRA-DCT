@@ -1921,7 +1921,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				try {
 					const result = await request(`/documents/${button.dataset.document}/explain`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ responseLanguage: language }) });
 					if (result.status === 'not_configured') { toast('Objašnjenje trenutno nije dostupno.'); }
-					else if (panel) { panel.innerHTML = `<strong>Objašnjenje</strong><p>${escapeHtml(result.explanation || '').replace(/\n/g, '<br>')}</p>`; panel.hidden = false; }
+					else if (panel) { panel.innerHTML = `<strong>⚠ Objašnjenje (IA) — kote provjeriti na dokumentu</strong><p>${escapeHtml(result.explanation || '').replace(/\n/g, '<br>')}</p>`; panel.hidden = false; }
 				} catch { toast('Objašnjenje nije učitano.'); }
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 			}));
