@@ -6,7 +6,7 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import test from 'node:test';
 
-function fakeProvider() {
+function fakeProvider({ rejectPresignedUrls = false } = {}) {
 	const files = new Map();
 	const server = http.createServer((request, response) => {
 		const chunks = []; request.on('data', (c) => chunks.push(c));
@@ -16,6 +16,7 @@ function fakeProvider() {
 			const key = decodeURIComponent(pathname.replace(/^\/ibra-ba-test\//, ''));
 			const headerSigned = (request.headers.authorization || '').startsWith('AWS4-HMAC-SHA256 Credential=testkey/');
 			const presigned = /X-Amz-Signature=[0-9a-f]{64}/.test(query) && query.includes('Credential=testkey');
+			if (presigned && rejectPresignedUrls) { response.statusCode = 403; return response.end(); } // simulates a provider whose header-signing and query-signing validation disagree
 			if (!headerSigned && !presigned) { response.statusCode = 403; return response.end(); }
 			if (request.method === 'PUT') { files.set(key, { body, type: request.headers['content-type'] }); return response.end(); }
 			if (request.method === 'DELETE') { files.delete(key); return response.end(); }
@@ -29,13 +30,17 @@ function fakeProvider() {
 	return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, files, port: server.address().port })));
 }
 
-// A fake Supabase Storage sign endpoint, just enough to exercise the fallback path.
+// A fake Supabase Storage sign endpoint, and it actually serves the signed URL it hands out too, so a
+// test can verify the full round trip, not just that a sign request was made.
 function fakeSupabase() {
 	const server = http.createServer((request, response) => {
-		if (request.url.startsWith('/storage/v1/object/sign/')) {
+		if (request.method === 'POST' && request.url.startsWith('/storage/v1/object/sign/')) {
 			response.setHeader('content-type', 'application/json');
 			const path = request.url.replace('/storage/v1/object/sign/', '');
 			return response.end(JSON.stringify({ signedURL: `/object/sign/${path}?token=fake-token` }));
+		}
+		if (request.url.startsWith('/storage/v1/object/sign/') && request.url.includes('token=fake-token')) {
+			return response.end('signed supabase file bytes');
 		}
 		response.statusCode = 404;
 		response.end();
@@ -113,6 +118,33 @@ test('getDownloadUrl falls back to a Supabase signed URL when the pool does not 
 	} finally {
 		supabase.server.close();
 		for (const key of ['STORAGE_POOL', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) delete process.env[key];
+	}
+});
+
+test('getDownloadUrl never hands back a URL it has not verified: a pool provider that accepts header signing but rejects its own presigned URL is skipped in favor of Supabase', async () => {
+	const provider = await fakeProvider({ rejectPresignedUrls: true });
+	const supabase = await fakeSupabase();
+	process.env.STORAGE_POOL = 'b2';
+	process.env.B2_ENDPOINT = `http://127.0.0.1:${provider.port}`;
+	process.env.B2_REGION = 'eu';
+	process.env.B2_KEY_ID = 'testkey';
+	process.env.B2_SECRET = 'testsecret';
+	process.env.B2_BUCKET = 'ibra-ba-test';
+	process.env.SUPABASE_URL = `http://127.0.0.1:${supabase.port}`;
+	process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key';
+	try {
+		const storage = await import(`../lib/storage.js?t=${Date.now()}`);
+		await storage.ensureBuckets();
+		await storage.uploadFile(storage.UPLOADS_BUCKET, 'devis/13.pdf', Buffer.from('devis bytes'), 'application/pdf');
+
+		const url = await storage.getDownloadUrl(storage.UPLOADS_BUCKET, 'devis/13.pdf', 300);
+		assert.ok(url?.startsWith(`http://127.0.0.1:${supabase.port}/`), `expected the working Supabase URL, got: ${url}`);
+		const response = await fetch(url);
+		assert.equal(await response.text(), 'signed supabase file bytes');
+	} finally {
+		provider.server.close();
+		supabase.server.close();
+		for (const key of ['STORAGE_POOL', 'B2_ENDPOINT', 'B2_REGION', 'B2_KEY_ID', 'B2_SECRET', 'B2_BUCKET', 'SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY']) delete process.env[key];
 	}
 });
 
