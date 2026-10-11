@@ -54,6 +54,16 @@ test('compressUpload falls back to the original buffer for an unsupported mimety
 	assert.ok(result.equals(buffer));
 });
 
+test('compressUpload skips small PDFs and images outright (not worth the latency)', async () => {
+	const smallPdf = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(10 * 1024, 'x')]);
+	const result = await compressUpload(smallPdf, 'application/pdf');
+	assert.ok(result === smallPdf || result.equals(smallPdf));
+
+	const smallJpeg = await sharp({ create: { width: 200, height: 200, channels: 3, background: { r: 10, g: 20, b: 30 } } }).jpeg().toBuffer();
+	const imageResult = await compressUpload(smallJpeg, 'image/jpeg');
+	assert.ok(imageResult.equals(smallJpeg));
+});
+
 test('compressUpload leaves svg images untouched', async () => {
 	const svg = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>');
 	const result = await compressUpload(svg, 'image/svg+xml');
