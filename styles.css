@@ -377,6 +377,10 @@ button[disabled],button[aria-busy="true"]{cursor:not-allowed;opacity:.6}
 .production-report-row>small{display:block;margin-top:3px;color:var(--muted)}
 .production-report-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:.78rem;color:var(--text)}
 .production-method-tag{padding:2px 7px;border:1px solid #9bd5ff35;border-radius:999px;color:var(--blue);font-size:.68rem;font-weight:800}
+.production-method-ar{border-color:#31d3a466;color:var(--green)}
+.production-method-photo{border-color:#f4c86f66;color:var(--yellow)}
+.production-method-ai{border-color:#f77d7d66;color:var(--red)}
+.production-method-manual{border-color:#9bd5ff35;color:var(--blue)}
 .production-report-actions{display:flex;gap:6px;margin-top:8px}
 .production-report-actions button{min-height:34px;padding:5px 10px;font-size:.75rem}
 ::selection{background:#72b9ff4a;color:#fff}
