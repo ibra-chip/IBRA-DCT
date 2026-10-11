@@ -247,9 +247,11 @@
 					<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
 					<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
 					<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
+					<button type="button" class="secondary" id="plan-measure-undo-point" hidden>↺ Annuler le dernier point</button>
 					<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>
 					<button type="button" class="secondary" id="plan-measure-cancel-draw" hidden>Annuler le tracé</button>
 					<button type="button" class="secondary" id="plan-measure-info">Lire les infos du plan (IA)</button>
+					<span class="plan-measure-zoom"><button type="button" class="secondary" id="plan-measure-zoom-out" aria-label="Zoom arrière">−</button><span id="plan-measure-zoom-level">100%</span><button type="button" class="secondary" id="plan-measure-zoom-in" aria-label="Zoom avant">+</button><button type="button" class="secondary" id="plan-measure-zoom-reset">Ajuster</button></span>
 					<span id="plan-measure-status" class="plan-measure-status"></span>
 				</div>
 				<div id="plan-measure-scale-suggestion" class="plan-measure-info-box" hidden><strong>Échelle détectée sur le plan PDF</strong><span id="plan-measure-scale-suggestion-text"></span><div><button type="button" class="secondary" id="plan-measure-scale-accept">Utiliser cette échelle</button><button type="button" class="secondary" id="plan-measure-scale-dismiss">Non, je calibre manuellement</button></div></div>

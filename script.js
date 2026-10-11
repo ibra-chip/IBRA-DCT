@@ -1972,7 +1972,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (item.type === 'polygon') ctx.fill();
 			ctx.stroke();
 			ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif';
-			ctx.fillText(item.label, item.points[0].x * scale + 5, item.points[0].y * scale - 6);
+			ctx.fillText(item.repeatCount > 1 ? `${item.label} ×${item.repeatCount}` : item.label, item.points[0].x * scale + 5, item.points[0].y * scale - 6);
 		});
 		if (planMeasureState.mode === 'calibrate' && planMeasureState.calibratePoints.length) {
 			ctx.fillStyle = '#31d3a4';
@@ -2000,21 +2000,56 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
 	}
+	function planMeasureApplyZoom(newScale) {
+		if (!planMeasureState?.image) return;
+		const canvas = document.querySelector('#plan-measure-canvas');
+		if (!canvas) return;
+		// Capped at 8x the "fit to screen" size - enough to place a precise point on a phone without
+		// letting the canvas balloon to an unusable size on a very small source image.
+		const clamped = Math.max(planMeasureState.baseScale, Math.min(planMeasureState.baseScale * 8, newScale));
+		planMeasureState.scale = clamped;
+		canvas.width = Math.round(planMeasureState.image.naturalWidth * clamped);
+		canvas.height = Math.round(planMeasureState.image.naturalHeight * clamped);
+		const zoomLabel = document.querySelector('#plan-measure-zoom-level');
+		if (zoomLabel) zoomLabel.textContent = `${Math.round(clamped * 100)}%`;
+		planMeasureRedraw();
+	}
+	function planMeasureUndoLastPoint() {
+		if (!planMeasureState || !planMeasureState.drawPoints.length) return;
+		planMeasureState.drawPoints.pop();
+		planMeasureUpdateStatus();
+		planMeasureRedraw();
+	}
 	function planMeasureRenderList() {
 		const totals = document.querySelector('#plan-measure-totals');
 		const list = document.querySelector('#plan-measure-list');
 		if (!totals || !list) return;
-		const totalMl = planMeasureState.measurements.filter((item) => item.unit === 'ml').reduce((sum, item) => sum + item.value, 0);
+		// repeatCount lets one traced shape stand in for several identical copies (e.g. 5 identical
+		// windows) - every total below uses value*repeatCount ("effective" value), never the raw traced
+		// value alone, so a repeated opening is never silently under-counted.
+		const effective = (item) => item.value * (item.repeatCount || 1);
+		const totalMl = planMeasureState.measurements.filter((item) => item.unit === 'ml').reduce((sum, item) => sum + effective(item), 0);
 		const surfaces = planMeasureState.measurements.filter((item) => item.unit === 'm2' && item.role !== 'opening');
 		const openings = planMeasureState.measurements.filter((item) => item.unit === 'm2' && item.role === 'opening');
-		const totalGrossM2 = surfaces.reduce((sum, item) => sum + item.value, 0);
-		const totalOpeningsM2 = openings.reduce((sum, item) => sum + item.value, 0);
+		const totalGrossM2 = surfaces.reduce((sum, item) => sum + effective(item), 0);
+		const totalOpeningsM2 = openings.reduce((sum, item) => sum + effective(item), 0);
 		const totalNetM2 = Math.max(0, totalGrossM2 - totalOpeningsM2);
-		totals.innerHTML = `<span>Total : ${totalMl.toFixed(2)} ml</span><span>Total brut : ${totalGrossM2.toFixed(2)} m²</span>${openings.length ? `<span>Ouvertures à déduire : −${totalOpeningsM2.toFixed(2)} m²</span><span><strong>Total net : ${totalNetM2.toFixed(2)} m²</strong></span><button type="button" class="secondary add-net-total-to-devis">Ajouter le total net au devis</button>` : ''}`;
+		// A window/door isn't only "m² to deduct" - it's also usually its own billable item: supplied and
+		// installed per piece (unité), and/or sealed/trimmed around its perimeter (ml). Both are offered
+		// as one-click aggregates so the user never has to add each opening to the devis individually.
+		const openingsCount = openings.reduce((sum, item) => sum + (item.repeatCount || 1), 0);
+		const openingsPerimeterMl = openings.reduce((sum, item) => sum + (item.perimeterM || 0) * (item.repeatCount || 1), 0);
+		totals.innerHTML = `<span>Total : ${totalMl.toFixed(2)} ml</span><span>Total brut : ${totalGrossM2.toFixed(2)} m²</span>${openings.length ? `<span>Ouvertures à déduire : −${totalOpeningsM2.toFixed(2)} m²</span><span><strong>Total net : ${totalNetM2.toFixed(2)} m²</strong></span><button type="button" class="secondary add-net-total-to-devis">Ajouter le total net au devis</button><span>Ouvertures : ${openingsCount} unité · pourtour ${openingsPerimeterMl.toFixed(2)} ml</span><button type="button" class="secondary add-openings-unit-to-devis">Ajouter ouvertures (unité)</button><button type="button" class="secondary add-openings-ml-to-devis">Ajouter pourtour ouvertures (ml)</button>` : ''}`;
 		list.innerHTML = planMeasureState.measurements.length ? planMeasureState.measurements.map((item) => {
 			const isOpening = item.role === 'opening';
 			const sign = isOpening ? '− ' : '';
-			return `<div class="list-item"><strong>${escapeHtml(item.label)}${isOpening ? ' <span class="production-method-tag plan-type-existant-tag">Ouverture (déduite)</span>' : ''}</strong><small>${sign}${item.value.toFixed(2)} ${item.unit === 'm2' ? 'm²' : 'ml'}</small><div>${isOpening ? '' : `<button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button>`}<button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`;
+			const repeatTag = item.repeatCount > 1 ? ` <span class="production-method-tag">×${item.repeatCount}</span>` : '';
+			const effectiveValue = effective(item);
+			const perUnit = item.repeatCount > 1 ? ` (1× = ${item.value.toFixed(2)})` : '';
+			const detail = item.unit === 'm2'
+				? `${sign}${effectiveValue.toFixed(2)} m²${perUnit}${Number.isFinite(item.perimeterM) ? ` · pourtour ${(item.perimeterM * (item.repeatCount || 1)).toFixed(2)} ml` : ''}`
+				: `${effectiveValue.toFixed(2)} ml${perUnit}`;
+			return `<div class="list-item"><strong>${escapeHtml(item.label)}${repeatTag}${isOpening ? ' <span class="production-method-tag plan-type-existant-tag">Ouverture (déduite)</span>' : ''}</strong><small>${detail}</small><div>${isOpening ? '' : `<button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button>`}<button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`;
 		}).join('') : '<small>Aucune mesure pour ce plan.</small>';
 		list.querySelectorAll('.delete-measurement').forEach((button) => button.addEventListener('click', async () => {
 			button.disabled = true;
@@ -2027,7 +2062,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: item.label, quantity: Number(item.value.toFixed(2)), unit: item.unit === 'm2' ? 'm²' : 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: item.repeatCount > 1 ? `${item.label} (×${item.repeatCount})` : item.label, quantity: Number(effective(item).toFixed(2)), unit: item.unit === 'm2' ? 'm²' : 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Stavka dodana u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2039,6 +2074,26 @@ document.addEventListener('DOMContentLoaded', () => {
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Surface nette (ouvertures déduites)', quantity: Number(totalNetM2.toFixed(2)), unit: 'm²', unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Total net dodat u devis.');
+			} catch { toast('Stavka nije dodana.'); }
+			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+		});
+		totals.querySelector('.add-openings-unit-to-devis')?.addEventListener('click', async (event) => {
+			const button = event.currentTarget;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			try {
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Ouvertures (fenêtres/portes) - fourniture et pose', quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }] }) });
+				toast('Ouvertures (unité) dodate u devis.');
+			} catch { toast('Stavka nije dodana.'); }
+			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+		});
+		totals.querySelector('.add-openings-ml-to-devis')?.addEventListener('click', async (event) => {
+			const button = event.currentTarget;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			try {
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Pourtour ouvertures (étanchéité/finition)', quantity: Number(openingsPerimeterMl.toFixed(2)), unit: 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
+				toast('Pourtour ouvertures (ml) dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
@@ -2061,6 +2116,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (mode === 'polygon') document.querySelector(role === 'opening' ? '#plan-measure-opening' : '#plan-measure-polygon')?.classList.add('active');
 		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon';
 		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
+		document.querySelector('#plan-measure-undo-point').hidden = !mode;
 		planMeasureUpdateStatus();
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
@@ -2083,11 +2139,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			const objectUrl = URL.createObjectURL(blob);
 			await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = objectUrl; });
 			const maxWidth = Math.min(900, document.querySelector('.plan-measure-canvas-wrap').clientWidth || 900);
-			const scale = Math.min(1, maxWidth / image.naturalWidth);
-			canvas.width = Math.round(image.naturalWidth * scale);
-			canvas.height = Math.round(image.naturalHeight * scale);
+			// baseScale is the "fit to screen" size - on a narrow phone this can shrink a large plan enough
+			// that a small window's corners are a few blurry pixels apart, too imprecise to tap accurately.
+			// Zoom in/out (below) lets the user scale up past this before placing a point; the canvas-wrap
+			// already scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
+			const baseScale = Math.min(1, maxWidth / image.naturalWidth);
+			canvas.width = Math.round(image.naturalWidth * baseScale);
+			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
+			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
+			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
 			planMeasureRenderList();
 			planMeasureSetMode(null);
 			const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
@@ -2118,6 +2180,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
 	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
 	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
+	document.querySelector('#plan-measure-undo-point')?.addEventListener('click', () => planMeasureState && planMeasureUndoLastPoint());
+	document.querySelector('#plan-measure-zoom-in')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale * 1.25));
+	document.querySelector('#plan-measure-zoom-out')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale / 1.25));
+	document.querySelector('#plan-measure-zoom-reset')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.baseScale));
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
 		const { mode, drawPoints, drawRole } = planMeasureState;
@@ -2126,8 +2192,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		const defaultLabel = mode === 'polygon' ? (drawRole === 'opening' ? 'Fenêtre' : 'Surface') : 'Ligne';
 		const label = window.prompt('Nom de cette mesure (ex. Façade Nord, Fenêtre salon) :', defaultLabel);
 		if (!label?.trim()) return;
+		// Only asked for openings, where identical repeats (e.g. 5 windows of the same 1.20x1.20 size) are
+		// the common real case - tracing one and typing the count beats re-tracing every one, and is still
+		// an exact number the user confirms, never a guess from pattern-matching the plan image.
+		let repeatCount = 1;
+		if (drawRole === 'opening') {
+			const repeatInput = window.prompt('Combien de fois ce type se répète à l’identique sur ce plan ? (ex. 5 fenêtres identiques - laissez 1 pour une seule)', '1');
+			repeatCount = Math.max(1, Math.round(Number(repeatInput)) || 1);
+		}
 		try {
-			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, role: drawRole, label: label.trim(), points: drawPoints }) });
+			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, role: drawRole, label: label.trim(), points: drawPoints, repeatCount }) });
 			planMeasureState.measurements.push(measurement);
 			planMeasureRenderList();
 			planMeasureSetMode(null);

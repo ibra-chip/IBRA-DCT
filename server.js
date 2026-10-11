@@ -2696,7 +2696,16 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	const role = type === 'polygon' && request.body.role === 'opening' ? 'opening' : 'surface';
 	const { pixelsPerMeter } = item.calibration;
 	const value = type === 'polygon' ? polygonAreaPx(points) / (pixelsPerMeter ** 2) : polylineLengthPx(points) / pixelsPerMeter;
-	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	// A window/door opening is usually billed per piece (fourniture + pose) and/or by the linear meter
+	// of trim/sealant around it, not by its m2 - so every polygon also gets its closed-loop perimeter
+	// (ml), independent of the m2 used to deduct it from the wall's net surface.
+	const perimeterM = type === 'polygon' ? polylineLengthPx([...points, points[0]]) / pixelsPerMeter : null;
+	// Lets one traced shape stand in for several identical copies (e.g. 5 identical 1.20x1.20 windows)
+	// instead of re-tracing every one - still a manual, exact count the user types in, never a guess from
+	// pattern-matching the image. Clamped to a sane range so a typo (or a stray huge number) can't silently
+	// multiply a total by something absurd.
+	const repeatCount = Math.max(1, Math.min(999, Math.round(Number(request.body.repeatCount)) || 1));
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.planMeasurements = [...(data.planMeasurements || []), measurement];
 	await writeData(data);
 	response.status(201).json(measurement);

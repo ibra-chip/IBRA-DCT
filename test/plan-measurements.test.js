@@ -395,6 +395,15 @@ test('a polygon marked role: opening is stored as an opening', async () => {
 	assert.equal(response.body.role, 'opening');
 	// 20x20px at 10px/m -> 2x2m -> exactly 4.00 m2, same shoelace math as any other polygon.
 	assert.equal(response.body.value, 4);
+	// Perimeter (closed loop): 4 x 20px = 80px at 10px/m -> exactly 8.00 ml. A window is usually billed
+	// per piece and/or by the linear meter of trim/sealant around it, not by its m2 alone.
+	assert.equal(response.body.perimeterM, 8);
+});
+
+test('a line measurement has no perimeterM (only polygons have a closed loop to measure around)', async () => {
+	const response = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Bavette test', points: [{ x: 0, y: 0 }, { x: 30, y: 0 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.perimeterM, null);
 });
 
 test('a polygon with no role, or an unrecognized role, defaults to surface (never silently becomes a deduction)', async () => {
@@ -428,4 +437,32 @@ test('net area (gross wall minus two windows) matches hand-computed expectation'
 	assert.equal(gross, 50);
 	assert.equal(deducted, 8);
 	assert.equal(gross - deducted, 42);
+});
+
+test('repeatCount defaults to 1 when absent', async () => {
+	const response = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'Porte', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.repeatCount, 1);
+});
+
+test('repeatCount lets one traced window stand in for several identical ones (e.g. 5 identical 1.20x1.20 windows)', async () => {
+	const response = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'Fenêtre type A', repeatCount: 5, points: [{ x: 0, y: 0 }, { x: 12, y: 0 }, { x: 12, y: 12 }, { x: 0, y: 12 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.repeatCount, 5);
+	// The server stores the traced value for ONE window (1.44 m2 at 10px/m for a 12x12px square) -
+	// multiplying by repeatCount for the effective total is the client's job, proven in script.js by
+	// the "effective()" helper; here we just prove the raw single-unit value is exact and repeatCount
+	// is stored as given, not silently pre-multiplied into value (which would double-count on the client).
+	assert.equal(response.body.value, 1.44);
+});
+
+test('repeatCount is clamped to a sane range - never 0, never absurdly large from a typo', async () => {
+	const zero = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'x', repeatCount: 0, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(zero.body.repeatCount, 1);
+	const negative = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'x', repeatCount: -5, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(negative.body.repeatCount, 1);
+	const huge = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'x', repeatCount: 50000, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(huge.body.repeatCount, 999);
+	const notANumber = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'x', repeatCount: 'plenty', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(notANumber.body.repeatCount, 1);
 });
