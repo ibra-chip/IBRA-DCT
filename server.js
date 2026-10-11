@@ -2026,6 +2026,28 @@ app.get('/api/projects/:id/factures', auth, manager, async (request, response) =
 	response.json(factures.map((item) => ({ ...item, colorStatus: factureColorStatus(item) })));
 	notifyOverdueFactures(request.params.id).catch(() => {});
 });
+// A single "what needs your attention" view across every chantier the company owns, instead of having
+// to open each chantier's Factures/Devis tab one by one to notice an overdue invoice or a priceless
+// line. All three categories are read from state that already exists and is already trusted elsewhere
+// (factureColorStatus for overdue, unitPrice for missing prices, source+editedAt for an AI-read line a
+// human has never touched since) - nothing new is tracked or guessed here.
+app.get('/api/attention-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	const companyProjects = projectsForCompany(data, ownerIdFor(data, request.user));
+	const projectIds = new Set(companyProjects.map((project) => project.id));
+	const projectName = (projectId) => companyProjects.find((project) => project.id === projectId)?.name || projectId;
+	const now = new Date();
+	const overdueFactures = (data.factures || [])
+		.filter((item) => projectIds.has(item.projectId) && factureColorStatus(item, now) === 'red')
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), clientName: item.clientName, invoiceNumber: item.invoiceNumber, amount: item.amount, daysOverdue: Math.floor((now - new Date(item.dueDate)) / (24 * 60 * 60 * 1000)) }));
+	const unpricedLineItems = (data.devisLineItems || [])
+		.filter((item) => projectIds.has(item.projectId) && Number(item.unitPrice) <= 0)
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), description: item.description, quantity: item.quantity, unit: item.unit }));
+	const unverifiedAiLineItems = (data.devisLineItems || [])
+		.filter((item) => projectIds.has(item.projectId) && item.source === 'ai' && !item.editedAt)
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), description: item.description, quantity: item.quantity, unit: item.unit, unitPrice: item.unitPrice }));
+	response.json({ overdueFactures, unpricedLineItems, unverifiedAiLineItems });
+});
 app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const data = await readData();
 	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }

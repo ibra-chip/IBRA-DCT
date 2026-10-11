@@ -580,8 +580,46 @@ document.addEventListener('DOMContentLoaded', () => {
 			select.disabled = !projectsCache.length;
 		});
 	}
+	async function loadAttentionItems() {
+		const panel = document.querySelector('#attention-panel');
+		const list = document.querySelector('#attention-list');
+		if (!panel || !list || !isOwner()) { if (panel) panel.hidden = true; return; }
+		try {
+			const data = await request('/attention-items');
+			const sections = [];
+			if (data.overdueFactures.length) {
+				sections.push({
+					title: `Factures impayées depuis plus de 30 jours (${data.overdueFactures.length})`,
+					items: data.overdueFactures.map((item) => `${escapeHtml(item.projectName)} · ${escapeHtml(item.clientName || 'Client')} ${item.invoiceNumber ? `(${escapeHtml(item.invoiceNumber)})` : ''} · ${formatEUR(item.amount)} · ${item.daysOverdue} j`),
+					action: () => { showView('factures-view'); const select = document.querySelector('#facture-project-select'); if (select) select.value = data.overdueFactures[0].projectId; loadFactures(); },
+					actionLabel: 'Voir les factures',
+				});
+			}
+			if (data.unpricedLineItems.length) {
+				sections.push({
+					title: `Stavke devisa bez cijene (${data.unpricedLineItems.length})`,
+					items: data.unpricedLineItems.map((item) => `${escapeHtml(item.projectName)} · ${escapeHtml(item.description)} — ${item.quantity} ${escapeHtml(item.unit || '')}`),
+					action: () => { showView('line-items-view'); const select = document.querySelector('#line-items-project-select'); if (select) select.value = data.unpricedLineItems[0].projectId; loadLineItems(); },
+					actionLabel: 'Voir les lignes de devis',
+				});
+			}
+			if (data.unverifiedAiLineItems.length) {
+				sections.push({
+					title: `Lignes lues par IA jamais vérifiées (${data.unverifiedAiLineItems.length})`,
+					items: data.unverifiedAiLineItems.map((item) => `${escapeHtml(item.projectName)} · ${escapeHtml(item.description)} — ${item.quantity} ${escapeHtml(item.unit || '')} · ${formatEUR(item.unitPrice)}`),
+					action: () => { showView('line-items-view'); const select = document.querySelector('#line-items-project-select'); if (select) select.value = data.unverifiedAiLineItems[0].projectId; loadLineItems(); },
+					actionLabel: 'Vérifier ces lignes',
+				});
+			}
+			panel.hidden = !sections.length;
+			if (!sections.length) return;
+			list.innerHTML = sections.map((section, index) => `<div class="list-item attention-item"><strong>${section.title}</strong><small>${section.items.slice(0, 3).map((line) => `<div>${line}</div>`).join('')}${section.items.length > 3 ? `<div>… et ${section.items.length - 3} autre(s)</div>` : ''}</small><button type="button" class="secondary" data-attention-action="${index}">${section.actionLabel}</button></div>`).join('');
+			list.querySelectorAll('[data-attention-action]').forEach((button) => button.addEventListener('click', () => sections[Number(button.dataset.attentionAction)].action()));
+		} catch { panel.hidden = true; }
+	}
 	async function loadDashboard() {
 		await loadProjectOptions();
+		await loadAttentionItems();
 		const projectId = currentProjectId();
 		const project = currentProject();
 		if (!projectId) {
