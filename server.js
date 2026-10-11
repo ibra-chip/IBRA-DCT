@@ -113,8 +113,17 @@ const publicFiles = new Set(['/', '/index.html', '/script.js', '/styles.css', '/
 const serveStatic = express.static(root, {
 	dotfiles: 'deny',
 	setHeaders(response, filePath) {
+		if (response.getHeader('Cache-Control')) return; // already set below for a versioned script.js/styles.css request
 		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-cache, must-revalidate');
 	}
+});
+// index.html links to script.js/styles.css with a ?v=<content-hash> query (see assetVersion below), so a
+// request carrying that query is for one exact, never-changing version of the file - safe to cache for a
+// year. A request without ?v= (an old cached page, or someone hitting the file directly) still revalidates
+// every time, since that URL's content can change on the next deploy.
+app.get(['/script.js', '/styles.css'], (request, response, next) => {
+	response.setHeader('Cache-Control', typeof request.query.v === 'string' && request.query.v ? 'public, max-age=31536000, immutable' : 'no-cache, must-revalidate');
+	next();
 });
 const assetVersionCache = new Map();
 const assetVersion = async (relativePath) => {
