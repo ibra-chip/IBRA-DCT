@@ -112,6 +112,38 @@ test('devis inspect prefers a Chantier: label over an earlier Reference chantier
 	assert.equal(result.body.extracted.chantier, "Isolation thermique exterieure - 45 rue Victor Hugo");
 });
 
+test('a "Chantier ::" stray-double-colon label never leaves chantier as the literal ":" garbage value', async () => {
+	// A PDF export quirk can put a blank field out as "Label ::" — the first colon is the label
+	// separator the regex already expects, so (.+) used to grab the second colon as if it were real
+	// content. That falsy-looking-but-truthy ":" then silently blocked the Gemini fallback in
+	// /api/budget/inspect from ever filling in the real chantier address, with no error anywhere.
+	const pdf = await makeTextPdf([
+		'Devis n: 2026-DV-200',
+		'Client : SMAC',
+		'Chantier ::',
+		'Total TTC: 14200.00',
+	]);
+	const result = await postFile('/api/budget/inspect', 'file', 'devis-colon.pdf', pdf, token());
+	assert.equal(result.status, 200);
+	assert.notEqual(result.body.extracted.chantier, ':', 'the stray double colon must never surface as the chantier value');
+	assert.equal(result.body.extracted.chantier, '');
+	assert.equal(result.body.needsConfirmation, true);
+});
+
+test('the same stray-colon protection applies to Client: and to facture clientName, not just Chantier:', async () => {
+	const devisPdf = await makeTextPdf(['Devis n: 2026-DV-201', 'Client ::', 'Chantier : 10 rue de Paris', 'Total TTC: 500.00']);
+	const devisResult = await postFile('/api/budget/inspect', 'file', 'devis-client-colon.pdf', devisPdf, token());
+	assert.equal(devisResult.status, 200);
+	assert.notEqual(devisResult.body.extracted.client, ':');
+	assert.equal(devisResult.body.extracted.client, '');
+
+	const facturePdf = await makeTextPdf(['Facture n 2026-77', 'Client ::', 'Total TTC: 999.00']);
+	const factureResult = await postFile('/api/factures/inspect', 'file', 'facture-client-colon.pdf', facturePdf, token());
+	assert.equal(factureResult.status, 200);
+	assert.notEqual(factureResult.body.extracted.clientName, ':');
+	assert.equal(factureResult.body.extracted.clientName, '');
+});
+
 test('facture inspect keeps the client name clean of a following unrelated date line', async () => {
 	const pdf = await makeTextPdf([
 		'Facture n 2026-55',

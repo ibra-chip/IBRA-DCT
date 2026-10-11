@@ -1255,6 +1255,11 @@ const parseAmount = (value) => {
 // non-empty but wrong, so they must be rejected here rather than silently accepted — otherwise
 // the Gemini AI fallback below never runs because the field already looks "found".
 const looksLikeGarbageDevisField = (value) => /désignation|qté|p\.?u\.?|tva|mention datée|ajustement des fournitures|conditions générales/i.test(value);
+// A label like "Chantier ::" (a stray double colon some PDF exports produce) made the capture group
+// match just ":" - non-empty, so `extracted.chantier || aiChantier` in /api/budget/inspect treated it as
+// "already found" and discarded Gemini's real answer instead of falling back to it. Reject anything that
+// isn't at least 2 characters with a real letter or digit in it, not only the specific garbage phrases.
+const isMeaningfulDevisValue = (value) => value.length >= 2 && /[\p{L}\d]/u.test(value);
 // Devis/facture labels (Client:, Chantier:, etc.) are almost always on their own line, immediately
 // followed by the value up to the end of that same line — a far more reliable stop boundary than
 // hand-curated keywords. Tried first; the keyword-bounded match on whitespace-collapsed text (passed
@@ -1266,21 +1271,26 @@ const extractLabeledField = (rawText, normalized, linePatterns, normalizedPatter
 	for (const pattern of Array.isArray(linePatterns) ? linePatterns : [linePatterns]) {
 		for (const line of String(rawText || '').split(/\r?\n/)) {
 			const value = line.match(pattern)?.[1]?.trim();
-			if (value && !looksLikeGarbageDevisField(value)) return value;
+			if (value && isMeaningfulDevisValue(value) && !looksLikeGarbageDevisField(value)) return value;
 		}
 	}
 	const fallback = normalized.match(normalizedPattern)?.[1]?.trim() || '';
-	return looksLikeGarbageDevisField(fallback) ? '' : fallback;
+	return (fallback && isMeaningfulDevisValue(fallback) && !looksLikeGarbageDevisField(fallback)) ? fallback : '';
 };
 const extractDevisFields = (rawText) => {
 	const normalized = String(rawText || '').replace(/\s+/g, ' ').trim();
 	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
 	const rawAmount = amountMatches.at(-1)?.[1] || '';
-	const client = extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i);
+	// The lookahead below uses \s* (zero-or-more), not \s+: when a stray separator leaves the lazy
+	// capture already sitting right in front of the next label (no whitespace left to consume), a \s+
+	// requirement can never be satisfied there, so the lazy match keeps growing - silently swallowing
+	// the rest of the document instead of stopping, right up to the next field's own value. See the
+	// "Chantier ::" regression test for the exact failure this caused.
+	const client = extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s*(?:adresse|chantier|travaux|total|montant)\b|$)/i);
 	const chantier = extractLabeledField(
 		rawText, normalized,
 		[/^\s*(?:chantier|projet|lieu des travaux)\s*[:#-]?\s*(.+)/i, /^\s*(?:adresse du projet|adresse chantier)\s*[:#-]?\s*(.+)/i],
-		/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i
+		/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s*(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i
 	);
 	return {
 		number: normalized.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
@@ -1471,7 +1481,7 @@ const extractFactureFields = (rawText) => {
 	const dueLabelDate = normalized.match(/(?:date d'échéance|échéance|à régler avant le|payable avant le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
 	return {
 		invoiceNumber: normalized.match(/(?:facture|facture n(?:°|o)?|invoice|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
-		clientName: extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i),
+		clientName: extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s*(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i),
 		clientEmail: normalized.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i)?.[0] || '',
 		amount: parseAmount(rawAmount),
 		issuedDate: parseFrenchDate(issuedLabelDate || dateMatches[0]),
