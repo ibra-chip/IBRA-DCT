@@ -20,7 +20,8 @@
     "db:generate": "npx prisma generate --schema prisma/schema.prisma",
     "db:migrate:dev": "npx prisma migrate dev --schema prisma/schema.prisma",
     "db:migrate:deploy": "npx prisma migrate deploy --schema prisma/schema.prisma",
-    "smoke:api": "node scripts/smoke-api.mjs"
+    "smoke:api": "node scripts/smoke-api.mjs",
+    "build:pages": "node scripts/build-pages.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
