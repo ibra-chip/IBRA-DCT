@@ -233,12 +233,13 @@ test('plan-info is cached on the document once generated, served without calling
 	// the route returns it as "cached" without needing GEMINI_API_KEY at all.
 	const raw = JSON.parse(await fs.readFile(path.join(dataDir, 'data.json'), 'utf8'));
 	const doc = raw.documents.find((item) => item.id === documentId);
-	doc.planInfo = { chantierAddress: '12 Rue de la Paix, 75002 Paris', clientName: 'Jean Dupont', architecte: 'Cabinet Martin' };
+	doc.planInfo = { subject: 'Façade Nord - Détail fenêtre', chantierAddress: '12 Rue de la Paix, 75002 Paris', clientName: 'Jean Dupont', architecte: 'Cabinet Martin' };
 	await fs.writeFile(path.join(dataDir, 'data.json'), JSON.stringify(raw, null, 2));
 	const response = await call('POST', `/api/documents/${documentId}/plan-info`, tokenFor('owner-a', 'gerant'));
 	assert.equal(response.status, 200);
 	assert.equal(response.body.status, 'cached');
 	assert.equal(response.body.planInfo.clientName, 'Jean Dupont');
+	assert.equal(response.body.planInfo.subject, 'Façade Nord - Détail fenêtre');
 });
 
 test('owner B cannot read or trigger plan-info on owner A\'s plan', async () => {
@@ -264,6 +265,23 @@ test('a PDF plan with a printed "Échelle 1:50" is detected via text, not AI, as
 	assert.equal(suggestion.status, 200);
 	assert.equal(suggestion.body.scaleDenominator, 50);
 });
+
+// Proves the scale reader is general-purpose, not hardcoded to 1:50 - every common architectural plan
+// scale is read the same way, straight from whatever the plan's own title block actually prints.
+for (const denominator of [20, 25, 100, 200, 500, 1000]) {
+	test(`a PDF plan printed at 1:${denominator} is detected at exactly that scale, not just 1:50`, async () => {
+		const { PDFDocument: PDFDoc, StandardFonts } = await import('pdf-lib');
+		const pdfDoc = await PDFDoc.create();
+		const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+		pdfDoc.addPage([400, 300]).drawText(`Échelle 1:${denominator}`, { x: 20, y: 20, size: 10, font });
+		const pdfBytes = Buffer.from(await pdfDoc.save());
+		const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: `plan-1-${denominator}.pdf`, contentType: 'application/pdf', buffer: pdfBytes });
+		assert.equal(upload.status, 201);
+		const suggestion = await get(`/api/documents/${upload.body.id}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
+		assert.equal(suggestion.status, 200);
+		assert.equal(suggestion.body.scaleDenominator, denominator);
+	});
+}
 
 test('plan-scale-suggestion returns null for an image plan (no PDF text layer to read)', async () => {
 	const suggestion = await get(`/api/documents/${documentId}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));

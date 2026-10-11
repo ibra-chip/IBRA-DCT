@@ -2125,7 +2125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			} else {
 				const info = result.planInfo;
 				box.hidden = false;
-				box.innerHTML = `<strong>⚠ Lu par IA depuis le plan — à vérifier</strong><span>Chantier : ${escapeHtml(info.chantierAddress || '—')}</span><span>Client : ${escapeHtml(info.clientName || '—')}</span><span>Architecte : ${escapeHtml(info.architecte || '—')}</span>`;
+				box.innerHTML = `<strong>⚠ Lu par IA depuis le plan — à vérifier</strong><span>Sujet : ${escapeHtml(info.subject || '—')}</span><span>Chantier : ${escapeHtml(info.chantierAddress || '—')}</span><span>Client : ${escapeHtml(info.clientName || '—')}</span><span>Architecte : ${escapeHtml(info.architecte || '—')}</span>`;
 			}
 		} catch { toast('Lecture du plan impossible.'); }
 		finally { button.disabled = false; button.removeAttribute('aria-busy'); }

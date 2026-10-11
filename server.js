@@ -2567,9 +2567,9 @@ const extractPlanInfoWithGemini = async (buffer, mimeType) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = "Read this construction plan (architectural drawing) very carefully, especially its title block/cartouche. Return only JSON with fields: chantierAddress string (the jobsite/project address), clientName string, architecte string. Copy each EXACTLY and COMPLETELY as printed on the plan, no paraphrasing or guessing. If a field is genuinely not visible anywhere on the plan, use an empty string.";
+	const prompt = "Read this construction plan (architectural drawing) very carefully, especially its title block/cartouche. Return only JSON with fields: subject string (what this specific sheet shows, e.g. \"Façade Nord - Détail fenêtre\" or \"Coupe verticale ITE\" - copy the drawing's own title/désignation as printed, not a generic guess), chantierAddress string (the jobsite/project address), clientName string, architecte string. Copy each EXACTLY and COMPLETELY as printed on the plan, no paraphrasing or guessing. If a field is genuinely not visible anywhere on the plan, use an empty string.";
 	const requestBody = JSON.stringify({
-		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { chantierAddress: { type: 'STRING' }, clientName: { type: 'STRING' }, architecte: { type: 'STRING' } }, required: ['chantierAddress', 'clientName', 'architecte'] } },
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { subject: { type: 'STRING' }, chantierAddress: { type: 'STRING' }, clientName: { type: 'STRING' }, architecte: { type: 'STRING' } }, required: ['subject', 'chantierAddress', 'clientName', 'architecte'] } },
 		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
 	});
 	const maxAttempts = 3;
