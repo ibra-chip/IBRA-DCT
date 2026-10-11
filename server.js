@@ -1788,6 +1788,26 @@ app.get('/api/projects/:id/budget/line-items', auth, manager, async (request, re
 		return { ...item, spent, profit: item.lineTotal - spent };
 	}));
 });
+// A reminder of a price the company itself charged before, never an invented number - prices change
+// over time and "fourniture et pose" (supply+install) vs "pose" (install only) can be a 4x difference
+// for the same-sounding item, so this matches on the EXACT normalized description only (same rule as
+// the plan tool's devis discrepancy check), across every chantier the caller's own company owns, and
+// returns the single most recent match rather than an average that could blend unrelated scopes.
+const normalizeDevisDescription = (value) => String(value || '').trim().toLowerCase().replace(/\s*\(×\d+\)\s*$/, '');
+app.get('/api/price-catalog/suggest', auth, manager, async (request, response) => {
+	const data = await readData();
+	const description = String(request.query.description || '');
+	if (!description.trim()) return response.json({ found: false });
+	const target = normalizeDevisDescription(description);
+	const companyProjectIds = new Set(projectsForCompany(data, ownerIdFor(data, request.user)).map((project) => project.id));
+	const matches = (data.devisLineItems || [])
+		.filter((item) => companyProjectIds.has(item.projectId) && Number(item.unitPrice) > 0 && normalizeDevisDescription(item.description) === target)
+		.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+	if (!matches.length) return response.json({ found: false });
+	const latest = matches[0];
+	const project = projectById(data, latest.projectId);
+	response.json({ found: true, unitPrice: latest.unitPrice, unit: latest.unit, description: latest.description, projectName: project?.name || latest.projectId, source: latest.source || 'manual', date: latest.createdAt });
+});
 app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const data = await readData();
 	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);

@@ -2054,6 +2054,24 @@ document.addEventListener('DOMContentLoaded', () => {
 			return true;
 		}
 	}
+	// Suggests a unit price from the company's own past devis - never invented, never from another
+	// company, and matched on the exact description only (so "fourniture et pose" never suggests a
+	// "pose"-only price or vice versa, a 4x-scale mistake for the same-sounding item). Always a prompt
+	// the gérant confirms or edits, never silently applied - a historical price is a reminder, not a
+	// guarantee, since real prices move with materials/labor cost over time in a way a measurement never does.
+	async function planMeasureResolveLineItemPrice(description, unit) {
+		try {
+			const suggestion = await request(`/price-catalog/suggest?description=${encodeURIComponent(description)}`);
+			if (!suggestion.found) return 0;
+			const dateLabel = suggestion.date ? new Date(suggestion.date).toLocaleDateString('fr-FR') : '';
+			const entered = window.prompt(`Dernier prix connu pour « ${suggestion.description} » : ${Number(suggestion.unitPrice).toFixed(2)} €/${suggestion.unit} (${suggestion.projectName}${dateLabel ? ' · ' + dateLabel : ''}).\nPrix unitaire à utiliser (€), laissez vide pour ne pas en mettre :`, Number(suggestion.unitPrice).toFixed(2));
+			if (entered === null) return 0;
+			const parsed = Number(entered);
+			return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+		} catch {
+			return 0;
+		}
+	}
 	function planMeasureRenderList() {
 		const totals = document.querySelector('#plan-measure-totals');
 		const list = document.querySelector('#plan-measure-list');
@@ -2097,10 +2115,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			const unit = item.unit === 'm2' ? 'm²' : 'ml';
 			const quantity = Number(effective(item).toFixed(2));
 			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, unit))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, unit);
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Stavka dodana u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2110,10 +2129,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			const description = 'Surface nette (ouvertures déduites)';
 			const quantity = Number(totalNetM2.toFixed(2));
 			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'm²'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, 'm²');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Total net dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2122,10 +2142,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			const button = event.currentTarget;
 			const description = 'Ouvertures (fenêtres/portes) - fourniture et pose';
 			if (!(await planMeasureConfirmAgainstExistingLineItem(description, openingsCount, 'unité'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, 'unité');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice, lineTotal: Number((openingsCount * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Ouvertures (unité) dodate u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2135,10 +2156,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			const description = 'Pourtour ouvertures (étanchéité/finition)';
 			const quantity = Number(openingsPerimeterMl.toFixed(2));
 			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'ml'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, 'ml');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Pourtour ouvertures (ml) dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }

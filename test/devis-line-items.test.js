@@ -106,3 +106,58 @@ test('all items in one batch POST share the same source - a mixed-source batch i
 	assert.equal(response.status, 201);
 	assert.ok(response.body.every((item) => item.source === 'excel'));
 });
+
+test('price-catalog/suggest finds the most recent matching price across the company\'s own chantiers', async () => {
+	await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Isolation facade ITE', quantity: 10, unit: 'm²', unitPrice: 45, lineTotal: 450, category: 'Devis' }] });
+	await new Promise((resolve) => setTimeout(resolve, 5));
+	const newer = await call('POST', '/api/projects/proj-a2/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Isolation facade ITE', quantity: 10, unit: 'm²', unitPrice: 52, lineTotal: 520, category: 'Devis' }] });
+	assert.equal(newer.status, 201);
+
+	const suggestion = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Isolation facade ITE')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(suggestion.status, 200);
+	assert.equal(suggestion.body.found, true);
+	assert.equal(suggestion.body.unitPrice, 52, 'must be the MOST RECENT price, not the first one found');
+	assert.equal(suggestion.body.projectName, 'Chantier A2');
+});
+
+test('price-catalog/suggest never returns a price from a different company', async () => {
+	await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Stavka privatna A', quantity: 1, unit: 'm²', unitPrice: 999, lineTotal: 999, category: 'Devis' }] });
+	const projectB = await call('POST', '/api/projects', tokenFor('owner-b', 'gerant'), { name: 'Chantier B', chantierName: 'Chantier B' });
+	assert.equal(projectB.status, 201);
+	await call('POST', `/api/projects/${projectB.body.id}/budget/line-items`, tokenFor('owner-b', 'gerant'), { items: [{ description: 'Stavka privatna A', quantity: 1, unit: 'm²', unitPrice: 111, lineTotal: 111, category: 'Devis' }] });
+
+	const suggestionForB = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Stavka privatna A')}`, tokenFor('owner-b', 'gerant'));
+	assert.equal(suggestionForB.status, 200);
+	assert.equal(suggestionForB.body.found, true);
+	assert.equal(suggestionForB.body.unitPrice, 111, 'owner B must only ever see owner B\'s own price, never owner A\'s 999');
+});
+
+test('price-catalog/suggest matches the exact description only - "fourniture et pose" never suggests a "pose" price or vice versa', async () => {
+	await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [
+		{ description: 'Fenetre PVC - fourniture et pose', quantity: 1, unit: 'unité', unitPrice: 450, lineTotal: 450, category: 'Devis' },
+		{ description: 'Fenetre PVC - pose seule', quantity: 1, unit: 'unité', unitPrice: 80, lineTotal: 80, category: 'Devis' },
+	] });
+
+	const fournitureEtPose = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Fenetre PVC - fourniture et pose')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(fournitureEtPose.body.unitPrice, 450);
+
+	const poseSeule = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Fenetre PVC - pose seule')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(poseSeule.body.unitPrice, 80);
+
+	// A description that matches neither exactly (just "Fenetre PVC") must find nothing - never average
+	// or guess between the two completely different prices for what looks like "the same" item.
+	const ambiguous = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Fenetre PVC')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(ambiguous.body.found, false);
+});
+
+test('price-catalog/suggest returns found:false for no match, a zero-price line, or an empty description', async () => {
+	const noMatch = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Stavka koja ne postoji nigdje')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(noMatch.body.found, false);
+
+	await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Stavka bez cijene', quantity: 1, unit: 'm²', unitPrice: 0, lineTotal: 0, category: 'Devis' }] });
+	const zeroPrice = await get(`/api/price-catalog/suggest?description=${encodeURIComponent('Stavka bez cijene')}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(zeroPrice.body.found, false, 'a line with no real price must never be suggested as if it were one');
+
+	const empty = await get('/api/price-catalog/suggest?description=', tokenFor('owner-a', 'gerant'));
+	assert.equal(empty.body.found, false);
+});
