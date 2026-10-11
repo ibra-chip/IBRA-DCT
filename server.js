@@ -1162,16 +1162,37 @@ const parseAmount = (value) => {
 // non-empty but wrong, so they must be rejected here rather than silently accepted — otherwise
 // the Gemini AI fallback below never runs because the field already looks "found".
 const looksLikeGarbageDevisField = (value) => /désignation|qté|p\.?u\.?|tva|mention datée|ajustement des fournitures|conditions générales/i.test(value);
-const extractDevisFields = (text) => {
-	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+// Devis/facture labels (Client:, Chantier:, etc.) are almost always on their own line, immediately
+// followed by the value up to the end of that same line — a far more reliable stop boundary than
+// hand-curated keywords. Tried first; the keyword-bounded match on whitespace-collapsed text (passed
+// in as `normalizedPattern`) is only a fallback for text where line breaks didn't survive PDF parsing.
+// linePatterns can be a single pattern or an array tried in priority order (all lines checked against
+// the first pattern before moving to the next) - lets a more exact label (e.g. "Chantier:") win over a
+// looser one (e.g. "Adresse du projet:") even when the looser label's line comes first in the document.
+const extractLabeledField = (rawText, normalized, linePatterns, normalizedPattern) => {
+	for (const pattern of Array.isArray(linePatterns) ? linePatterns : [linePatterns]) {
+		for (const line of String(rawText || '').split(/\r?\n/)) {
+			const value = line.match(pattern)?.[1]?.trim();
+			if (value && !looksLikeGarbageDevisField(value)) return value;
+		}
+	}
+	const fallback = normalized.match(normalizedPattern)?.[1]?.trim() || '';
+	return looksLikeGarbageDevisField(fallback) ? '' : fallback;
+};
+const extractDevisFields = (rawText) => {
+	const normalized = String(rawText || '').replace(/\s+/g, ' ').trim();
 	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
 	const rawAmount = amountMatches.at(-1)?.[1] || '';
-	const client = normalized.match(/(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '';
-	const chantier = normalized.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '';
+	const client = extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i);
+	const chantier = extractLabeledField(
+		rawText, normalized,
+		[/^\s*(?:chantier|projet|lieu des travaux)\s*[:#-]?\s*(.+)/i, /^\s*(?:adresse du projet|adresse chantier)\s*[:#-]?\s*(.+)/i],
+		/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i
+	);
 	return {
 		number: normalized.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
-		client: looksLikeGarbageDevisField(client) ? '' : client,
-		chantier: looksLikeGarbageDevisField(chantier) ? '' : chantier,
+		client,
+		chantier,
 		total: parseAmount(rawAmount)
 	};
 };
@@ -1299,7 +1320,7 @@ const extractDevisLineItemsWithGemini = async (file) => {
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
 	let text = '';
-	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
+	try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
 	const extracted = extractDevisFields(text);
 	let source = request.file.originalname;
 	if (!extracted.number || !extracted.client || !extracted.chantier || !extracted.total) {
@@ -1336,8 +1357,8 @@ const parseFrenchDate = (raw) => {
 	const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
 	return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : '';
 };
-const extractFactureFields = (text) => {
-	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+const extractFactureFields = (rawText) => {
+	const normalized = String(rawText || '').replace(/\s+/g, ' ').trim();
 	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
 	const rawAmount = amountMatches.at(-1)?.[1] || '';
 	const dateMatches = [...normalized.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g)].map((item) => item[0]);
@@ -1345,7 +1366,7 @@ const extractFactureFields = (text) => {
 	const dueLabelDate = normalized.match(/(?:date d'échéance|échéance|à régler avant le|payable avant le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
 	return {
 		invoiceNumber: normalized.match(/(?:facture|facture n(?:°|o)?|invoice|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
-		clientName: normalized.match(/(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i)?.[1]?.trim() || '',
+		clientName: extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i),
 		clientEmail: normalized.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i)?.[0] || '',
 		amount: parseAmount(rawAmount),
 		issuedDate: parseFrenchDate(issuedLabelDate || dateMatches[0]),
@@ -1391,7 +1412,7 @@ const inspectFactureWithGemini = async (file) => {
 app.post('/api/factures/inspect', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Facture PDF is required' });
 	let text = '';
-	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); }
+	try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); }
 	const extracted = extractFactureFields(text);
 	let source = request.file.originalname;
 	if (!extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate) {
