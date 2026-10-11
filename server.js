@@ -17,7 +17,7 @@ import { createDailyBackup } from './lib/daily-backup.js';
 import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
-import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset } from './lib/storage.js';
+import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -1563,6 +1563,8 @@ app.get('/api/tasks/:itemId/attachment', auth, async (request, response) => {
 	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	if (!item.attachmentFile) return response.status(404).json({ error: 'No attachment stored for this task' });
 	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.attachmentFile, 300, item.attachmentName || 'attachment').catch(() => null);
+		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.attachmentFile);
 		response.setHeader('Content-Type', item.attachmentMimeType || 'application/octet-stream');
 		response.setHeader('Content-Disposition', `attachment; filename="${(item.attachmentName || 'attachment').replace(/["\r\n]/g, '_')}"`);
@@ -1619,6 +1621,8 @@ app.get('/api/tasks/:itemId/completion-photo', auth, async (request, response) =
 	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	if (!item.completionPhotoFile) return response.status(404).json({ error: 'No completion photo stored for this task' });
 	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.completionPhotoFile, 300, item.completionPhotoName || 'photo').catch(() => null);
+		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.completionPhotoFile);
 		response.setHeader('Content-Type', 'image/jpeg');
 		response.setHeader('Content-Disposition', `attachment; filename="${(item.completionPhotoName || 'photo').replace(/["\r\n]/g, '_')}"`);
@@ -1692,6 +1696,8 @@ app.get('/api/factures/:factureId/document', auth, manager, async (request, resp
 	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
 	if (!facture.sourceFile) return response.status(404).json({ error: 'No document stored for this facture' });
 	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, facture.sourceFile, 300, facture.sourceName || facture.sourceFile).catch(() => null);
+		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, facture.sourceFile);
 		response.setHeader('Content-Type', 'application/pdf');
 		response.setHeader('Content-Disposition', `attachment; filename="${(facture.sourceName || facture.sourceFile).replace(/["\r\n]/g, '_')}"`);
@@ -2226,6 +2232,8 @@ app.get('/api/documents/:id/download', auth, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
 		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
@@ -2291,6 +2299,8 @@ app.get('/api/personal-documents/:id/download', auth, async (request, response) 
 	const callerOwner = companyOwnerForUser(data, caller) || caller;
 	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
 	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
 		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
