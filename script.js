@@ -2048,6 +2048,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureState = { documentId, projectId: docItem.projectId, image, scale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawPoints: [], calibratePoints: [], objectUrl };
 			planMeasureRenderList();
 			planMeasureSetMode(null);
+			const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
+			if (!planMeasureState.calibration && suggestionBox) {
+				try {
+					const suggestion = await request(`/documents/${documentId}/plan-scale-suggestion`);
+					if (suggestion.scaleDenominator) {
+						suggestionBox.hidden = false;
+						document.querySelector('#plan-measure-scale-suggestion-text').textContent = `Échelle 1:${suggestion.scaleDenominator} lue dans le texte du PDF (pas une estimation visuelle).`;
+						suggestionBox.dataset.scaleDenominator = String(suggestion.scaleDenominator);
+					} else { suggestionBox.hidden = true; }
+				} catch { suggestionBox.hidden = true; }
+			} else if (suggestionBox) { suggestionBox.hidden = true; }
 		} catch {
 			document.querySelector('#plan-measure-status').textContent = 'Impossible de charger le plan.';
 		}
@@ -2119,6 +2130,24 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { toast('Lecture du plan impossible.'); }
 		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 	});
+	document.querySelector('#plan-measure-scale-accept')?.addEventListener('click', async (event) => {
+		if (!planMeasureState) return;
+		const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
+		const scaleDenominator = Number(suggestionBox?.dataset.scaleDenominator);
+		if (!Number.isFinite(scaleDenominator)) return;
+		const button = event.currentTarget;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scaleDenominator }) });
+			planMeasureState.calibration = result.calibration;
+			suggestionBox.hidden = true;
+			planMeasureUpdateStatus();
+			planMeasureRedraw();
+			toast(`Échelle 1:${scaleDenominator} appliquée depuis le PDF.`);
+		} catch { toast('Calibration échouée.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
+	document.querySelector('#plan-measure-scale-dismiss')?.addEventListener('click', () => { const box = document.querySelector('#plan-measure-scale-suggestion'); if (box) box.hidden = true; });
 	async function loadBudget() {
 		await loadProjectOptions();
 		const target = document.querySelector('#budget-summary');

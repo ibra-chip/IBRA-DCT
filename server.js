@@ -2497,6 +2497,19 @@ app.get('/api/documents/:id/download', auth, async (request, response) => {
 // Plan measurement tool (calibrated on-screen takeoff, no AI): the user clicks two points of a known
 // real-world distance to compute pixelsPerMeter, then traces lines (ml) or polygons (m2) on the plan -
 // the server recomputes the value from the raw points + calibration rather than trusting a client number.
+// PDF plans get a second, fully automatic calibration path: a real CAD-exported PDF (not a scan) prints
+// its plot scale ("Échelle 1:50") in the title block as actual text, and the PDF page itself is "paper
+// space" at 1:1 - so pixelsPerMeter = PLAN_RASTER_DPI / (0.0254 * scaleDenominator), independent of page
+// size, exact math once the scale text is found. No AI involved: it's a regex over the PDF's real text
+// layer, same category as the devis/facture field regexes elsewhere in this file.
+const PLAN_RASTER_DPI = 150;
+const extractPlanScaleDenominator = (rawText) => {
+	const text = String(rawText || '');
+	const labeled = text.match(/(?:échelle|echelle|scale)\s*[:=]?\s*1\s*[/:]\s*(\d{1,4})/i);
+	if (labeled) { const value = Number(labeled[1]); if (value > 1 && value <= 2000) return value; }
+	const common = text.match(/\b1\s*[/:]\s*(20|25|50|75|100|125|150|200|250|500|1000)\b/);
+	return common ? Number(common[1]) : null;
+};
 app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
@@ -2513,13 +2526,28 @@ app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
 		try { png = await downloadFile(UPLOADS_BUCKET, rasterKey); }
 		catch {
 			const pdfBuffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
-			png = await rasterizePdfFirstPage(pdfBuffer);
+			png = await rasterizePdfFirstPage(pdfBuffer, PLAN_RASTER_DPI);
 			await uploadFile(UPLOADS_BUCKET, rasterKey, png, 'image/png').catch(() => {});
 		}
 		response.setHeader('Content-Type', 'image/png');
 		response.send(png);
 	} catch (error) {
 		response.status(502).json({ error: 'Plan image unavailable: ' + error.message });
+	}
+});
+app.get('/api/documents/:id/plan-scale-suggestion', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ scaleDenominator: null });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json({ scaleDenominator: extractPlanScaleDenominator(parsed.text) });
+	} catch {
+		response.json({ scaleDenominator: null });
 	}
 });
 // Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,
@@ -2572,12 +2600,20 @@ app.patch('/api/documents/:id/calibration', auth, manager, async (request, respo
 	const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const scaleDenominator = Number(request.body?.scaleDenominator);
+	if (Number.isFinite(scaleDenominator) && scaleDenominator > 0) {
+		const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+		if (!isPdf) return response.status(400).json({ error: 'Scale-based calibration only applies to a PDF plan (it needs the page to be true paper-space, not a photo)' });
+		item.calibration = { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
+		await writeData(data);
+		return response.json({ calibration: item.calibration });
+	}
 	const { pointA, pointB } = request.body || {};
 	const realDistanceM = Number(request.body?.realDistanceM);
-	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m) are required' });
+	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m), or a PDF scaleDenominator, are required' });
 	const pixelDistance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
 	if (pixelDistance < 2) return response.status(400).json({ error: 'The two reference points are too close together to calibrate accurately' });
-	item.calibration = { pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
+	item.calibration = { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
 	await writeData(data);
 	response.json({ calibration: item.calibration });
 });

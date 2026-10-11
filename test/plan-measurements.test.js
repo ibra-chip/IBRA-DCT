@@ -245,3 +245,49 @@ test('owner B cannot read or trigger plan-info on owner A\'s plan', async () => 
 	const response = await call('POST', `/api/documents/${documentId}/plan-info`, tokenFor('owner-b', 'gerant'));
 	assert.equal(response.status, 403);
 });
+
+// A real CAD-exported PDF prints its plot scale as actual text ("Échelle 1:50") - this is read with a
+// regex over the PDF's real text layer, not AI, and turned into an exact pixelsPerMeter using the fixed
+// rasterization DPI: no two-point clicking needed for this common case, and still zero guessing.
+test('a PDF plan with a printed "Échelle 1:50" is detected via text, not AI, as a scale suggestion', async () => {
+	const { PDFDocument: PDFDoc, StandardFonts } = await import('pdf-lib');
+	const pdfDoc = await PDFDoc.create();
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	const page = pdfDoc.addPage([400, 300]);
+	page.drawText('CARNET DE DETAIL - FACADE NORD', { x: 20, y: 270, size: 10, font });
+	page.drawText('Échelle 1:50', { x: 20, y: 20, size: 10, font });
+	const pdfBytes = Buffer.from(await pdfDoc.save());
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'carnet-detail.pdf', contentType: 'application/pdf', buffer: pdfBytes });
+	assert.equal(upload.status, 201);
+	const scalePlanId = upload.body.id;
+	const suggestion = await get(`/api/documents/${scalePlanId}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
+	assert.equal(suggestion.status, 200);
+	assert.equal(suggestion.body.scaleDenominator, 50);
+});
+
+test('plan-scale-suggestion returns null for an image plan (no PDF text layer to read)', async () => {
+	const suggestion = await get(`/api/documents/${documentId}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
+	assert.equal(suggestion.status, 200);
+	assert.equal(suggestion.body.scaleDenominator, null);
+});
+
+test('accepting a 1:50 PDF scale calibrates to the exact expected pixelsPerMeter, no manual clicking', async () => {
+	const { PDFDocument: PDFDoc, StandardFonts } = await import('pdf-lib');
+	const pdfDoc = await PDFDoc.create();
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	pdfDoc.addPage([400, 300]).drawText('Échelle 1:50', { x: 20, y: 20, size: 10, font });
+	const pdfBytes = Buffer.from(await pdfDoc.save());
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'carnet-detail-2.pdf', contentType: 'application/pdf', buffer: pdfBytes });
+	const planId = upload.body.id;
+	const response = await call('PATCH', `/api/documents/${planId}/calibration`, tokenFor('owner-a', 'gerant'), { scaleDenominator: 50 });
+	assert.equal(response.status, 200);
+	// PLAN_RASTER_DPI (150) / (0.0254m/inch * 50) = exactly ~117.19 px/m - deterministic from the DPI
+	// and the scale alone, independent of page size.
+	assert.ok(Math.abs(response.body.calibration.pixelsPerMeter - (150 / (0.0254 * 50))) < 1e-9);
+	assert.equal(response.body.calibration.method, 'pdf-scale');
+});
+
+test('scale-based calibration is rejected for an image plan (no real paper-space page to trust)', async () => {
+	const response = await call('PATCH', `/api/documents/${documentId}/calibration`, tokenFor('owner-a', 'gerant'), { scaleDenominator: 50 });
+	assert.equal(response.status, 400);
+});
