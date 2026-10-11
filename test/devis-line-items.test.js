@@ -161,3 +161,47 @@ test('price-catalog/suggest returns found:false for no match, a zero-price line,
 	const empty = await get('/api/price-catalog/suggest?description=', tokenFor('owner-a', 'gerant'));
 	assert.equal(empty.body.found, false);
 });
+
+test('a line item can be edited later - quantity and price can be filled in or corrected after creation', async () => {
+	const created = await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'A corriger plus tard', quantity: 10, unit: 'm²', unitPrice: 0, lineTotal: 0, category: 'Devis' }] });
+	const itemId = created.body[0].id;
+	assert.equal(created.body[0].unitPrice, 0);
+
+	const patched = await call('PATCH', `/api/budget/line-items/${itemId}`, tokenFor('owner-a', 'gerant'), { unitPrice: 42 });
+	assert.equal(patched.status, 200);
+	assert.equal(patched.body.unitPrice, 42);
+	assert.equal(patched.body.quantity, 10, 'quantity must be untouched when only unitPrice is sent');
+	assert.equal(patched.body.lineTotal, 420, 'lineTotal must always be re-derived from quantity*unitPrice');
+});
+
+test('lineTotal can never drift from quantity*unitPrice - editing quantity alone recomputes it too', async () => {
+	const created = await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Recalcul total', quantity: 5, unit: 'm²', unitPrice: 20, lineTotal: 100, category: 'Devis' }] });
+	const itemId = created.body[0].id;
+	const patched = await call('PATCH', `/api/budget/line-items/${itemId}`, tokenFor('owner-a', 'gerant'), { quantity: 8 });
+	assert.equal(patched.body.quantity, 8);
+	assert.equal(patched.body.unitPrice, 20, 'unitPrice must be untouched when only quantity is sent');
+	assert.equal(patched.body.lineTotal, 160, '8 x 20, never the old 100');
+});
+
+test('an invalid (negative/non-numeric) quantity or price is rejected rather than silently applied', async () => {
+	const created = await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Protection valeurs', quantity: 5, unit: 'm²', unitPrice: 20, lineTotal: 100, category: 'Devis' }] });
+	const itemId = created.body[0].id;
+	const negativeQty = await call('PATCH', `/api/budget/line-items/${itemId}`, tokenFor('owner-a', 'gerant'), { quantity: -3 });
+	assert.equal(negativeQty.body.quantity, 5, 'a negative quantity must be rejected, not applied');
+	const nanPrice = await call('PATCH', `/api/budget/line-items/${itemId}`, tokenFor('owner-a', 'gerant'), { unitPrice: 'not-a-number' });
+	assert.equal(nanPrice.body.unitPrice, 20, 'a non-numeric price must be rejected, not applied');
+});
+
+test('owner B (a different company) cannot edit owner A\'s line item, even by guessing its id', async () => {
+	const created = await call('POST', '/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [{ description: 'Protegee', quantity: 1, unit: 'm²', unitPrice: 10, lineTotal: 10, category: 'Devis' }] });
+	const itemId = created.body[0].id;
+	const intrusion = await call('PATCH', `/api/budget/line-items/${itemId}`, tokenFor('owner-b', 'gerant'), { unitPrice: 9999 });
+	assert.equal(intrusion.status, 403);
+	const stillOriginal = await get('/api/projects/proj-a1/budget/line-items', tokenFor('owner-a', 'gerant'));
+	assert.ok(stillOriginal.body.find((item) => item.id === itemId)?.unitPrice === 10, 'the price must be unchanged after a blocked cross-company attempt');
+});
+
+test('PATCH to a line item that does not exist 404s', async () => {
+	const response = await call('PATCH', '/api/budget/line-items/does-not-exist', tokenFor('owner-a', 'gerant'), { unitPrice: 5 });
+	assert.equal(response.status, 404);
+});

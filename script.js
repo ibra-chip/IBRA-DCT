@@ -2856,7 +2856,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				const assignedName = eligibleWorkers.find((contact) => contact.id === rows[0].assignedTo)?.name || rows[0].assignedToName || '';
 				const total = rows.reduce((sum, row) => sum + Number(row.lineTotal || 0), 0);
 				const spent = rows.reduce((sum, row) => sum + Number(row.spent || 0), 0);
-				const rowsHtml = rows.map((row) => `<li>${escapeHtml(row.description)} — ${row.quantity} ${escapeHtml(row.unit || '')} · ${formatEUR(row.lineTotal)}</li>`).join('');
+				const rowsHtml = rows.map((row) => `<li>${escapeHtml(row.description)} — ${row.quantity} ${escapeHtml(row.unit || '')} · ${formatEUR(row.lineTotal)}${Number(row.unitPrice) <= 0 ? ' <span class="production-method-tag plan-type-existant-tag">Sans prix</span>' : ''} <button type="button" class="secondary edit-line-item" data-item="${row.id}" data-quantity="${row.quantity}" data-unit="${escapeHtml(row.unit || '')}" data-price="${row.unitPrice}">Modifier</button></li>`).join('');
 				return `<div class="list-item" data-category="${encodeURIComponent(category)}"><strong>${escapeHtml(category)}</strong><ul class="category-rows">${rowsHtml}</ul><span>Total : ${formatEUR(total)} · Dépensé : ${formatEUR(spent)} · Profit : ${formatEUR(total - spent)}</span><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}${assignedName ? ` · ${escapeHtml(assignedName)}` : ''}</span>${allDone ? '' : `<form class="line-item-assign-form form-row" data-category-assign="${encodeURIComponent(category)}"><select name="workerId" required><option value="">Choisir un ouvrier</option>${workerOptions}</select><input type="file" name="file" accept="application/pdf,.pdf,image/jpeg,image/png" /><button type="submit" class="secondary">Dodijeli / Assigner la catégorie</button></form>`}<button type="button" class="danger" data-category-delete="${encodeURIComponent(category)}">Supprimer cette catégorie</button></div>`;
 			}).join('');
 			container.querySelectorAll('[data-category-assign]').forEach((form) => form.addEventListener('submit', async (event) => {
@@ -2883,6 +2883,24 @@ document.addEventListener('DOMContentLoaded', () => {
 					toast('Catégorie supprimée.');
 					await loadLineItems();
 				} catch { toast('Suppression impossible.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+			container.querySelectorAll('.edit-line-item').forEach((button) => button.addEventListener('click', async () => {
+				const quantityInput = window.prompt('Quantité :', button.dataset.quantity);
+				if (quantityInput === null) return;
+				const quantity = Number(quantityInput);
+				if (!Number.isFinite(quantity) || quantity < 0) { toast('Quantité invalide.'); return; }
+				const unitInput = window.prompt('Unité (m², ml, unité...) :', button.dataset.unit);
+				if (unitInput === null) return;
+				const priceInput = window.prompt('Prix unitaire (€) - laissez 0 si pas encore connu :', button.dataset.price);
+				if (priceInput === null) return;
+				const unitPrice = Number(priceInput);
+				if (!Number.isFinite(unitPrice) || unitPrice < 0) { toast('Prix invalide.'); return; }
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try {
+					await request(`/budget/line-items/${button.dataset.item}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ quantity, unit: unitInput.trim(), unitPrice }) });
+					toast('Stavka izmijenjena.');
+					await loadLineItems();
+				} catch { toast('Modification impossible.'); button.disabled = false; button.removeAttribute('aria-busy'); }
 			}));
 		} catch { container.innerHTML = '<small>Impossible de charger les lignes de devis.</small>'; }
 	}

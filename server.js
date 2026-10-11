@@ -1808,6 +1808,27 @@ app.get('/api/price-catalog/suggest', auth, manager, async (request, response) =
 	const project = projectById(data, latest.projectId);
 	response.json({ found: true, unitPrice: latest.unitPrice, unit: latest.unit, description: latest.description, projectName: project?.name || latest.projectId, source: latest.source || 'manual', date: latest.createdAt });
 });
+// A plan-measure line can land with unitPrice: 0 (no past price to suggest, or the gérant declined the
+// suggestion at the time) - this is the only way to come back later and fill it in, or correct a
+// quantity/price typo, without deleting and re-adding the whole line. lineTotal is always re-derived
+// from quantity*unitPrice here, never accepted as its own independent field, so the two can never
+// silently drift apart from one another.
+app.patch('/api/budget/line-items/:itemId', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Line item not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (request.body.description !== undefined) item.description = String(request.body.description).trim() || item.description;
+	if (request.body.unit !== undefined) item.unit = String(request.body.unit).trim();
+	if (request.body.category !== undefined) item.category = String(request.body.category).trim() || item.description;
+	if (request.body.quantity !== undefined) { const quantity = Number(request.body.quantity); if (Number.isFinite(quantity) && quantity >= 0) item.quantity = quantity; }
+	if (request.body.unitPrice !== undefined) { const unitPrice = Number(request.body.unitPrice); if (Number.isFinite(unitPrice) && unitPrice >= 0) item.unitPrice = unitPrice; }
+	item.lineTotal = Number((item.quantity * item.unitPrice).toFixed(2));
+	item.editedBy = request.user.sub;
+	item.editedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(item);
+});
 app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const data = await readData();
 	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
