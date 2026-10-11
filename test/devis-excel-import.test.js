@@ -42,16 +42,16 @@ test('computes lineTotal from quantity x unitPrice when the Total column is blan
 	assert.equal(result.items[0].lineTotal, 2550);
 });
 
-test('recognizes English headers too, not only French', async () => {
+test('recognizes abbreviated French headers (Qté, P.U.) too, not only the full words', async () => {
 	const workbook = new ExcelJS.Workbook();
 	const sheet = workbook.addWorksheet('Sheet1');
-	sheet.addRow(['Description', 'Qty', 'Unit', 'Unit Price', 'Total']);
-	sheet.addRow(['Window flashing', 12, 'ml', 18, 216]);
+	sheet.addRow(['Description', 'Qté', 'Unité', 'P.U.', 'Total']);
+	sheet.addRow(['Bavette de fenêtre', 12, 'ml', 18, 216]);
 	const buffer = await workbook.xlsx.writeBuffer();
 
 	const result = await parseDevisExcel(Buffer.from(buffer));
 	assert.equal(result.error, null);
-	assert.equal(result.items[0].description, 'Window flashing');
+	assert.equal(result.items[0].description, 'Bavette de fenêtre');
 	assert.equal(result.items[0].lineTotal, 216);
 });
 
