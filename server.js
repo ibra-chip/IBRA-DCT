@@ -437,14 +437,25 @@ ${String(text || '').slice(0, 18000)}`;
 // for a plain-language walkthrough for workers who don't. Grounded the same way (only this document,
 // "à confirmer" instead of inventing) so it carries the same accuracy guarantee as the rest of the
 // analysis pipeline, just aimed at a different reader.
-async function explainDocumentForLaypeople({ buffer, mimeType, fileName, language }) {
+async function explainDocumentForLaypeople({ buffer, mimeType, fileName, language, extractedText }) {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const french = language === 'fr';
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = french
+	// extractedText comes from pdf-parse, the same deterministic text-layer reader the app already
+	// trusts for devis/facture numbers - unlike the vision model, it cannot misread a digit, so when
+	// it's available it is handed to the model as the authoritative source for every number, with the
+	// image used only to understand layout/symbols. A scanned/photographed PDF has no text layer, so
+	// this block is simply omitted and the model falls back to reading the image alone.
+	const groundingBlock = extractedText && extractedText.trim().length > 20
+		? (french
+			? `\n\nTEXTE EXACT EXTRAIT DU DOCUMENT (lecture mécanique fiable, pas une interprétation) :\n"""\n${extractedText.slice(0, 15000)}\n"""\nPour tout chiffre, cote ou mesure : s'il apparaît dans ce texte, recopie-le EXACTEMENT comme il est écrit ici, jamais une valeur lue "à l'œil" sur l'image. Utilise l'image seulement pour comprendre les schémas/symboles.`
+			: `\n\nTAČAN TEKST IZVUČEN IZ DOKUMENTA (pouzdano mehaničko čitanje, ne tumačenje) :\n"""\n${extractedText.slice(0, 15000)}\n"""\nZa svaki broj, kotu ili mjeru: ako se pojavljuje u ovom tekstu, prenesi je TAČNO onako kako ovdje piše, nikad vrijednost "pročitanu okom" sa slike. Sliku koristi samo da razumiješ šeme/simbole.`)
+		: '';
+	const prompt = (french
 		? `Tu expliques ce document chantier (${fileName}) à un ouvrier qui ne sait pas lire un plan ou une fiche technique. Lis le document ENTIER, TOUTES les pages, y compris les tableaux, légendes, glossaires et pages de détail à la fin - ne t'arrête pas après la première page. Décris d'abord ce que c'est (plan de quoi, vue en plan/coupe/élévation, ou fiche produit) en une phrase simple. Puis explique dans l'ordre : les éléments principaux visibles, ce que signifient les symboles, lignes, cotes ou pictogrammes importants pour CE document précis, et ce à quoi il doit faire attention avant/pendant les travaux. Règle la plus importante : chaque cote, mesure, distance, épaisseur ou tolérance chiffrée qui est écrite QUELQUE PART dans le document (texte, tableau ou schéma coté) doit être recopiée telle quelle dans ton explication, avec son unité - ne remplace JAMAIS un chiffre qui est présent dans le document par "à vérifier sur le document". Réserve "à vérifier sur le document" uniquement aux détails qui ne sont vraiment écrits nulle part dans le fichier. Phrases courtes, vocabulaire simple, pas de jargon non expliqué. Réponds uniquement en texte brut, pas de JSON, 200-500 mots.`
-		: `Objasni ovaj dokument sa gradilišta (${fileName}) radniku koji ne zna da čita planove ili tehničke listove. Pročitaj CIJEL dokument, SVE stranice, uključujući tabele, legende, glosare i stranice sa detaljima na kraju - ne staj nakon prve stranice. Prvo u jednoj jednostavnoj rečenici reci šta je dokument (plan čega, kakav prikaz - tlocrt/presjek/pogled, ili tehnički list proizvoda). Zatim objasni redom: glavne elemente koji se vide, šta znače važni simboli, linije, kote ili oznake za BAŠ ovaj dokument, i na šta treba paziti prije/tokom rada. Najvažnije pravilo: svaka kota, mjera, razmak, debljina ili tolerancija koja je NEGDJE napisana u dokumentu (u tekstu, tabeli ili kotiranoj skici) mora biti prenesena tačno onako kako piše, sa jedinicom mjere - NIKADA ne zamijeni broj koji postoji u dokumentu frazom "treba provjeriti na dokumentu". Tu frazu koristi samo za detalje koji zaista nigdje nisu napisani u fajlu. Kratke rečenice, jednostavne riječi, bez neobjašnjenog stručnog žargona. Odgovori samo običnim tekstom, bez JSON-a, 200-500 riječi.`;
+		: `Objasni ovaj dokument sa gradilišta (${fileName}) radniku koji ne zna da čita planove ili tehničke listove. Pročitaj CIJEL dokument, SVE stranice, uključujući tabele, legende, glosare i stranice sa detaljima na kraju - ne staj nakon prve stranice. Prvo u jednoj jednostavnoj rečenici reci šta je dokument (plan čega, kakav prikaz - tlocrt/presjek/pogled, ili tehnički list proizvoda). Zatim objasni redom: glavne elemente koji se vide, šta znače važni simboli, linije, kote ili oznake za BAŠ ovaj dokument, i na šta treba paziti prije/tokom rada. Najvažnije pravilo: svaka kota, mjera, razmak, debljina ili tolerancija koja je NEGDJE napisana u dokumentu (u tekstu, tabeli ili kotiranoj skici) mora biti prenesena tačno onako kako piše, sa jedinicom mjere - NIKADA ne zamijeni broj koji postoji u dokumentu frazom "treba provjeriti na dokumentu". Tu frazu koristi samo za detalje koji zaista nigdje nisu napisani u fajlu. Kratke rečenice, jednostavne riječi, bez neobjašnjenog stručnog žargona. Odgovori samo običnim tekstom, bez JSON-a, 200-500 riječi.`
+	) + groundingBlock;
 	try {
 		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
 			method: 'POST',
@@ -2493,7 +2504,9 @@ app.post('/api/documents/:id/explain', auth, async (request, response) => {
 	let buffer;
 	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
 	const language = request.body?.responseLanguage || 'sr';
-	const explanation = await explainDocumentForLaypeople({ buffer, mimeType: item.mimeType, fileName: item.originalName, language });
+	let extractedText = '';
+	if (item.mimeType === 'application/pdf') { try { extractedText = (await parsePdf(buffer)).text || ''; } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
+	const explanation = await explainDocumentForLaypeople({ buffer, mimeType: item.mimeType, fileName: item.originalName, language, extractedText });
 	if (!explanation) return response.json({ status: 'not_configured', explanation: null });
 	item.plainExplanation = explanation;
 	item.plainExplanationAt = new Date().toISOString();
