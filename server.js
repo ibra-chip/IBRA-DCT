@@ -1688,6 +1688,7 @@ app.get('/api/tasks/:itemId/attachment', auth, async (request, response) => {
 	if (!item.attachmentFile) return response.status(404).json({ error: 'No attachment stored for this task' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, item.attachmentFile, 300, item.attachmentName || 'attachment').catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
 		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.attachmentFile);
 		response.setHeader('Content-Type', item.attachmentMimeType || 'application/octet-stream');
@@ -1823,6 +1824,7 @@ app.get('/api/factures/:factureId/document', auth, manager, async (request, resp
 	if (!facture.sourceFile) return response.status(404).json({ error: 'No document stored for this facture' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, facture.sourceFile, 300, facture.sourceName || facture.sourceFile).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
 		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, facture.sourceFile);
 		response.setHeader('Content-Type', 'application/pdf');
@@ -2409,15 +2411,6 @@ app.post('/api/documents/:id/explain', auth, async (request, response) => {
 	await writeData(data);
 	response.json({ status: 'generated', explanation });
 });
-app.get('/api/documents/:id/thumbnail-url', auth, async (request, response) => {
-	const data = await readData();
-	const item = data.documents.find((document) => document.id === request.params.id);
-	if (!item) return response.status(404).json({ error: 'Document not found' });
-	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
-	const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
-	if (!url) return response.status(404).json({ error: 'Preview unavailable' });
-	response.json({ url });
-});
 app.get('/api/documents/:id/download', auth, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
@@ -2425,6 +2418,7 @@ app.get('/api/documents/:id/download', auth, async (request, response) => {
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
 		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
@@ -2496,6 +2490,7 @@ app.get('/api/personal-documents/:id/download', auth, async (request, response) 
 	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
 		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');

@@ -896,9 +896,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { toast('PDF nije preuzet.'); }
 		finally { if (trigger) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); } }
 	}
+	async function resolveDownloadUrl(downloadPath) {
+		try { const result = await request(`${downloadPath}?resolve=url`); return result?.url || null; } catch { return null; }
+	}
 	async function viewDocument(downloadPath, trigger) {
 		if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
 		try {
+			const resolvedUrl = await resolveDownloadUrl(downloadPath);
+			if (resolvedUrl) { window.open(resolvedUrl, '_blank'); return; }
 			const response = await fetch(`${api}${downloadPath}`, { headers: { Authorization: `Bearer ${token()}` } });
 			if (!response.ok) throw new Error();
 			const blob = await response.blob();
@@ -911,17 +916,22 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function sendDocumentByEmail(downloadPath, filename, trigger) {
 		if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
 		try {
-			const response = await fetch(`${api}${downloadPath}`, { headers: { Authorization: `Bearer ${token()}` } });
-			if (!response.ok) throw new Error();
-			const blob = await response.blob();
-			const url = URL.createObjectURL(blob);
-			const link = document.createElement('a');
-			link.href = url;
-			link.download = filename || 'document';
-			document.body.append(link);
-			link.click();
-			link.remove();
-			setTimeout(() => URL.revokeObjectURL(url), 10000);
+			const resolvedUrl = await resolveDownloadUrl(downloadPath);
+			if (resolvedUrl) {
+				window.open(resolvedUrl, '_blank');
+			} else {
+				const response = await fetch(`${api}${downloadPath}`, { headers: { Authorization: `Bearer ${token()}` } });
+				if (!response.ok) throw new Error();
+				const blob = await response.blob();
+				const blobUrl = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = blobUrl;
+				link.download = filename || 'document';
+				document.body.append(link);
+				link.click();
+				link.remove();
+				setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+			}
 			const to = companyProfileState?.accountantEmail || '';
 			const subject = encodeURIComponent(`Document IBRA-BA : ${filename || ''}`);
 			const body = encodeURIComponent(`Bonjour,\n\nVeuillez trouver ci-joint le document « ${filename || ''} » (téléchargé automatiquement — joignez-le manuellement à cet e-mail).\n\nCordialement.`);
@@ -1859,8 +1869,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); document.querySelectorAll('.view-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/documents/${button.dataset.document}/download`, button)));
 			document.querySelectorAll('.document-thumb').forEach((img) => {
 				const documentId = img.dataset.thumbDoc;
-				img.addEventListener('click', () => viewDocument(`/documents/${documentId}/download`, null));
-				request(`/documents/${documentId}/thumbnail-url`).then((result) => { img.src = result.url; }).catch(() => { img.remove(); });
+				const downloadPath = `/documents/${documentId}/download`;
+				img.addEventListener('click', () => viewDocument(downloadPath, null));
+				resolveDownloadUrl(downloadPath).then((url) => {
+					if (url) { img.src = url; return; }
+					return fetch(`${api}${downloadPath}`, { headers: { Authorization: `Bearer ${token()}` } })
+						.then((response) => (response.ok ? response.blob() : Promise.reject()))
+						.then((blob) => { img.src = URL.createObjectURL(blob); });
+				}).catch(() => { img.remove(); });
 			});
 			document.querySelectorAll('.explain-document').forEach((button) => button.addEventListener('click', async () => {
 				const panel = document.querySelector(`[data-document-explanation="${button.dataset.document}"]`);
