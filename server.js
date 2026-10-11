@@ -391,6 +391,41 @@ ${String(text || '').slice(0, 18000)}`;
 		return null;
 	}
 }
+// A separate, dedicated call from analyzeDocumentWithGemini above - that one produces a technical
+// summary (systems/materials/controls) for someone who already reads plans; this one is specifically
+// for a plain-language walkthrough for workers who don't. Grounded the same way (only this document,
+// "à confirmer" instead of inventing) so it carries the same accuracy guarantee as the rest of the
+// analysis pipeline, just aimed at a different reader.
+async function explainDocumentForLaypeople({ buffer, mimeType, fileName, language }) {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const french = language === 'fr';
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = french
+		? `Tu expliques ce document chantier (${fileName}) à un ouvrier qui ne sait pas lire un plan ou une fiche technique. Décris d'abord ce que c'est (plan de quoi, vue en plan/coupe/élévation, ou fiche produit) en une phrase simple. Puis explique dans l'ordre : les éléments principaux visibles, ce que signifient les symboles, lignes, cotes ou pictogrammes importants pour CE document précis, et ce à quoi il doit faire attention avant/pendant les travaux. Phrases courtes, vocabulaire simple, pas de jargon non expliqué. Si un détail n'est pas clairement lisible, dis "à vérifier sur le document" au lieu d'inventer. Réponds uniquement en texte brut, pas de JSON, 150-300 mots.`
+		: `Objasni ovaj dokument sa gradilišta (${fileName}) radniku koji ne zna da čita planove ili tehničke listove. Prvo u jednoj jednostavnoj rečenici reci šta je dokument (plan čega, kakav prikaz - tlocrt/presjek/pogled, ili tehnički list proizvoda). Zatim objasni redom: glavne elemente koji se vide, šta znače važni simboli, linije, kote ili oznake za BAŠ ovaj dokument, i na šta treba paziti prije/tokom rada. Kratke rečenice, jednostavne riječi, bez neobjašnjenog stručnog žargona. Ako nešto nije jasno vidljivo, napiši "treba provjeriti na dokumentu" umjesto da izmišljaš. Odgovori samo običnim tekstom, bez JSON-a, 150-300 riječi.`;
+	try {
+		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				generationConfig: { temperature: 0.1 },
+				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
+			}),
+			signal: AbortSignal.timeout(25000)
+		});
+		if (!geminiResponse.ok) {
+			console.error('Gemini plain-explanation rejected', geminiResponse.status, (await geminiResponse.text()).slice(0, 500));
+			return null;
+		}
+		const result = await geminiResponse.json();
+		const text = String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+		return text || null;
+	} catch (error) {
+		console.error('Gemini plain-explanation threw', error.message);
+		return null;
+	}
+}
 async function answerQuestionWithGemini({ question, sources, language }) {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
@@ -2264,6 +2299,24 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 app.get('/api/documents', auth, async (request, response) => {
 	const data = await readData();
 	response.json(data.documents.filter((document) => canAccessProject(data, request.user, document.projectId)));
+});
+app.post('/api/documents/:id/explain', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!['plan', 'fiche-technique'].includes(item.evidenceType)) return response.status(400).json({ error: 'Explanation is only available for plans and fiches techniques' });
+	if (item.plainExplanation) return response.json({ status: 'cached', explanation: item.plainExplanation });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', explanation: null });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const language = request.body?.responseLanguage || 'sr';
+	const explanation = await explainDocumentForLaypeople({ buffer, mimeType: item.mimeType, fileName: item.originalName, language });
+	if (!explanation) return response.json({ status: 'not_configured', explanation: null });
+	item.plainExplanation = explanation;
+	item.plainExplanationAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ status: 'generated', explanation });
 });
 app.get('/api/documents/:id/download', auth, async (request, response) => {
 	const data = await readData();
