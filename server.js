@@ -1762,11 +1762,36 @@ const factureColorStatus = (facture, now = new Date()) => {
 	const overdueThreshold = new Date(new Date(facture.dueDate).getTime() + 30 * 24 * 60 * 60 * 1000);
 	return now > overdueThreshold ? 'red' : 'orange';
 };
+// Fires once per facture, the first time it's found red (30+ days past due): there's no background
+// scheduler in this app (Cloud Run can scale to zero, so a setInterval isn't reliable anyway), so this
+// piggybacks on the one read path that already loads a chantier's factures. notifiedOverdueAt makes it
+// idempotent, so reopening the tab never re-sends the push. Runs after the response, errors swallowed,
+// so a notification hiccup never breaks the facture list itself.
+const notifyOverdueFactures = async (projectId) => {
+	try {
+		const data = await readData();
+		const factures = (data.factures || []).filter((item) => item.projectId === projectId);
+		const newlyOverdue = factures.filter((item) => factureColorStatus(item) === 'red' && !item.notifiedOverdueAt);
+		if (!newlyOverdue.length) return;
+		const project = projectById(data, projectId);
+		newlyOverdue.forEach((item) => { item.notifiedOverdueAt = new Date().toISOString(); });
+		await writeData(data);
+		if (project?.ownerId) {
+			await Promise.all(newlyOverdue.map((item) => sendPushToUser(data, project.ownerId, {
+				title: 'Facture impayée depuis 30 jours',
+				body: `${item.clientName || 'Client'} — facture ${item.invoiceNumber || item.id} (${item.amount}€) toujours impayée.`,
+				tag: 'ibra-facture-overdue',
+				url: '/',
+			}).catch(() => {})));
+		}
+	} catch (error) { console.error('Overdue facture notification failed:', error.message); }
+};
 app.get('/api/projects/:id/factures', auth, manager, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const factures = (data.factures || []).filter((item) => item.projectId === request.params.id);
 	response.json(factures.map((item) => ({ ...item, colorStatus: factureColorStatus(item) })));
+	notifyOverdueFactures(request.params.id).catch(() => {});
 });
 app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const data = await readData();
@@ -1781,7 +1806,7 @@ app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fix
 		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
 	}
-	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber: String(request.body.invoiceNumber || ''), clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber: String(request.body.invoiceNumber || ''), clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, notifiedOverdueAt: null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.factures = [...(data.factures || []), facture];
 	await writeData(data);
 	response.status(201).json({ ...facture, colorStatus: factureColorStatus(facture) });
