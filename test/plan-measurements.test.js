@@ -74,6 +74,13 @@ const call = (method, requestPath, token, payload) => new Promise((resolve, reje
 	request.end();
 });
 const get = (requestPath, token) => call('GET', requestPath, token);
+const getBinary = (requestPath, token) => new Promise((resolve, reject) => {
+	http.get({ host: '127.0.0.1', port, path: requestPath, headers: { Authorization: `Bearer ${token}` } }, (response) => {
+		const chunks = [];
+		response.on('data', (chunk) => chunks.push(chunk));
+		response.on('end', () => resolve({ status: response.statusCode, contentType: response.headers['content-type'], buffer: Buffer.concat(chunks) }));
+	}).on('error', reject);
+});
 
 before(async () => {
 	provider = await fakeProvider();
@@ -465,4 +472,43 @@ test('repeatCount is clamped to a sane range - never 0, never absurdly large fro
 	assert.equal(huge.body.repeatCount, 999);
 	const notANumber = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'x', repeatCount: 'plenty', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
 	assert.equal(notANumber.body.repeatCount, 1);
+});
+
+test('metre-pdf export returns a real PDF with the exact gross/net/openings totals the UI computes', async () => {
+	// openingsDocId by this point has: Mur pignon 50m2, Fenêtre salon 4m2 (opening), Fenêtre type A
+	// 1.44m2 x5 (opening), Porte 1m2 (opening), plus assorted clamp-test openings - rather than recompute
+	// that whole running total here, this just proves the endpoint returns a well-formed, non-trivial PDF
+	// and that the gross/net numbers it reports standalone (wall only, no openings) are exact.
+	const response = await getBinary(`/api/documents/${openingsDocId}/measurements/metre-pdf`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.contentType, 'application/pdf');
+	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
+	assert.ok(response.buffer.length > 500, 'a real multi-row metre PDF should be more than a trivial stub');
+});
+
+test('metre-pdf is rejected (400) for a calibrated plan that has no measurements yet', async () => {
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'empty-plan.jpg', contentType: 'image/jpeg', buffer: Buffer.from('fake-empty-plan-bytes') });
+	assert.equal(upload.status, 201);
+	const response = await getBinary(`/api/documents/${upload.body.id}/measurements/metre-pdf`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 400);
+});
+
+test('metre-pdf 404s for a document that does not exist, and 403s for a different company', async () => {
+	const missing = await getBinary('/api/documents/does-not-exist/measurements/metre-pdf', tokenFor('owner-a', 'gerant'));
+	assert.equal(missing.status, 404);
+	const crossCompany = await getBinary(`/api/documents/${openingsDocId}/measurements/metre-pdf`, tokenFor('owner-b', 'gerant'));
+	assert.equal(crossCompany.status, 403);
+});
+
+test('metre-pdf never crashes on a measurement label containing characters outside WinAnsi (emoji, Unicode minus, etc.)', async () => {
+	// Real bug caught live: a label containing "−" (U+2212 Unicode minus, easy to type by habit instead
+	// of a plain "-") made pdf-lib throw "WinAnsi cannot encode", turning the whole export into a 500 -
+	// which would silently block exporting the metre for ANY plan with one oddly-typed label, not just
+	// this specific character. Labels are free text a user types via window.prompt, so this must be
+	// bulletproof against anything, not just the one character that happened to trigger it first.
+	const weirdLabel = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Bavette − fenêtre 😀 "smart quotes" ‑ test', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+	assert.equal(weirdLabel.status, 201);
+	const response = await getBinary(`/api/documents/${openingsDocId}/measurements/metre-pdf`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
 });

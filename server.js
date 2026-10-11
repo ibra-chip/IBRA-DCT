@@ -760,6 +760,122 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} €`, { x: marginX, y, size: 13, font: fontBold });
 	return Buffer.from(await doc.save());
 }
+// A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
+// or line), with its unit value, repeat count and effective total, followed by the same brut/net/openings
+// totals the plan-measure UI shows - so what's on the PDF handed to a client, architect, or prime
+// contractor is provably the same arithmetic as what the gerant saw on screen, not a re-derivation that
+// could drift from it.
+async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectName, documentName, calibrationLabel, measurements, generatedAt }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	// StandardFonts.Helvetica only supports WinAnsiEncoding - a character outside it (a smart quote, an
+	// emoji, a stray Unicode minus sign "−" instead of a plain "-", etc.) throws and aborts the whole PDF.
+	// Free text in this document (a measurement's label, the chantier name, the plan's filename) is
+	// user-typed and not validated anywhere upstream for this, so every dynamic string is sanitized here -
+	// one unencodable character must never turn into a 500 that silently blocks the whole export.
+	const encodableCache = new Map();
+	const isEncodable = (char) => {
+		if (encodableCache.has(char)) return encodableCache.get(char);
+		let ok = true;
+		try { font.widthOfTextAtSize(char, 10); } catch { ok = false; }
+		encodableCache.set(char, ok);
+		return ok;
+	};
+	const safeText = (value) => {
+		const text = String(value || '');
+		try { font.widthOfTextAtSize(text, 10); return text; } catch { return [...text].map((char) => (isEncodable(char) ? char : '?')).join(''); }
+	};
+	const headerTop = y;
+	let brandY = headerTop;
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 100; const maxHeight = 50;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(safeText(companyName), 11, fontBold);
+	drawRight(safeText(truncate(companyAddress, 50)), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText('Métré - Relevé de mesures', { x: marginX, y: leftY, size: 18, font: fontBold });
+	leftY -= 24;
+	page.drawText(`Chantier : ${safeText(truncate(projectName, 48))}`, { x: marginX, y: leftY, size: 11, font: fontBold });
+	leftY -= 16;
+	page.drawText(`Plan : ${safeText(truncate(documentName, 55))}`, { x: marginX, y: leftY, size: 10, font });
+	leftY -= 14;
+	page.drawText(safeText(calibrationLabel), { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	leftY -= 14;
+	page.drawText(`Généré le ${safeText(generatedAt)}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	y = Math.min(leftY, brandY) - 16;
+	const columns = [
+		{ label: 'Désignation', x: marginX },
+		{ label: 'Type', x: marginX + 195 },
+		{ label: 'Unitaire', x: marginX + 300 },
+		{ label: 'Répét.', x: marginX + 355 },
+		{ label: 'Total', x: marginX + 395 },
+		{ label: 'Unité', x: rightEdge - 35 },
+	];
+	const drawHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	drawHeader();
+	let grossM2 = 0; let openingsM2 = 0; let openingsCount = 0; let openingsPerimeterMl = 0; let totalMl = 0;
+	for (const entry of measurements) {
+		const repeatCount = entry.repeatCount || 1;
+		const effective = entry.value * repeatCount;
+		if (entry.unit === 'm2' && entry.role === 'opening') { openingsM2 += effective; openingsCount += repeatCount; openingsPerimeterMl += (entry.perimeterM || 0) * repeatCount; }
+		else if (entry.unit === 'm2') { grossM2 += effective; }
+		else { totalMl += effective; }
+		if (y < 90) { page = doc.addPage(pageSize); y = 800; drawHeader(); }
+		const typeLabel = entry.role === 'opening' ? 'Ouverture (déduite)' : entry.type === 'polygon' ? 'Surface' : 'Ligne';
+		const rowColor = entry.role === 'opening' ? rgb(0.75, 0.25, 0.25) : rgb(0, 0, 0);
+		page.drawText(safeText(truncate(entry.label, 34)), { x: columns[0].x, y, size: 9, font, color: rowColor });
+		page.drawText(typeLabel, { x: columns[1].x, y, size: 8, font, color: rowColor });
+		page.drawText(entry.value.toFixed(2), { x: columns[2].x, y, size: 9, font, color: rowColor });
+		page.drawText(`×${repeatCount}`, { x: columns[3].x, y, size: 9, font, color: rowColor });
+		page.drawText(effective.toFixed(2), { x: columns[4].x, y, size: 9, font: fontBold, color: rowColor });
+		page.drawText(entry.unit === 'm2' ? 'm²' : 'ml', { x: columns[5].x, y, size: 9, font, color: rowColor });
+		y -= 16;
+	}
+	const netM2 = Math.max(0, grossM2 - openingsM2);
+	if (y < 140) { page = doc.addPage(pageSize); y = 800; }
+	y -= 10;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 22;
+	const totalsLines = [
+		`Total brut (surfaces) : ${grossM2.toFixed(2)} m²`,
+		openingsCount > 0 ? `Ouvertures à déduire : -${openingsM2.toFixed(2)} m² (${openingsCount} unité, pourtour ${openingsPerimeterMl.toFixed(2)} ml)` : null,
+		`TOTAL NET : ${netM2.toFixed(2)} m²`,
+		totalMl > 0 ? `Total lignes : ${totalMl.toFixed(2)} ml` : null,
+	].filter(Boolean);
+	for (const line of totalsLines) {
+		page.drawText(line, { x: marginX, y, size: 12, font: fontBold });
+		y -= 18;
+	}
+	y -= 8;
+	page.drawText('Mesures calibrées directement sur le plan (géométrie exacte, pixel par pixel) - aucune reconnaissance IA.', { x: marginX, y, size: 8, font, color: rgb(0.45, 0.45, 0.45) });
+	return Buffer.from(await doc.save());
+}
 const previousMonthKey = (date = new Date()) => {
 	const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
 	return previous.toISOString().slice(0, 7);
@@ -2671,6 +2787,31 @@ app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
 	response.json({ calibration: item.calibration || null, measurements });
+});
+app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
+	if (!measurements.length) return response.status(400).json({ error: 'Aucune mesure enregistrée pour ce plan' });
+	const project = projectById(data, item.projectId);
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	const branding = await companyBrandingForPdf(data, worker);
+	const calibrationLabel = item.calibration
+		? (item.calibration.method === 'pdf-scale' ? `Échelle du plan : 1:${item.calibration.scaleDenominator} (lue dans le texte du PDF)` : `Calibration manuelle : ${item.calibration.pixelsPerMeter.toFixed(2)} px/m`)
+		: 'Plan non calibré';
+	const pdf = await buildMetrePdf({
+		...branding,
+		projectName: project?.name || item.projectId,
+		documentName: item.originalName,
+		calibrationLabel,
+		measurements,
+		generatedAt: new Date().toLocaleDateString('fr-FR'),
+	});
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="metre-${String(project?.name || item.projectId).replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
+	response.send(pdf);
 });
 const polygonAreaPx = (points) => {
 	let sum = 0;

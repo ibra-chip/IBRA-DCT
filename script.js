@@ -2302,6 +2302,26 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { toast('Lecture du plan impossible.'); }
 		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 	});
+	document.querySelector('#plan-measure-metre-pdf')?.addEventListener('click', async (event) => {
+		if (!planMeasureState) return;
+		if (!planMeasureState.measurements.length) { toast('Aucune mesure à exporter.'); return; }
+		const button = event.currentTarget;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			const response = await fetch(`${api}/documents/${planMeasureState.documentId}/measurements/metre-pdf`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = 'metre.pdf';
+			document.body.append(link);
+			link.click();
+			link.remove();
+			URL.revokeObjectURL(url);
+		} catch { toast('Export du métré impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
 	document.querySelector('#plan-measure-scale-accept')?.addEventListener('click', async (event) => {
 		if (!planMeasureState) return;
 		const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
