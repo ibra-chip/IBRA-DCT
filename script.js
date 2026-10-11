@@ -218,7 +218,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (form.elements.projectIds) values.projectIds = [...form.elements.projectIds.selectedOptions].map((option) => option.value).filter(Boolean);
 		return values;
 	};
-	const request = async (path, options = {}) => { const response = await fetch(`${api}${path}`, { cache: 'no-store', ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } }); if (!response.ok) throw new Error(await response.text()); return response.json(); };
+	// A 409 means someone else saved different data in between this request's read and write -- the
+	// handler re-reads fresh data on every call, so retrying the exact same request once is safe and
+	// usually invisible to the user. A second 409 is real, ongoing contention, so it's surfaced as an error.
+	const request = async (path, options = {}) => {
+		const attempt = () => fetch(`${api}${path}`, { cache: 'no-store', ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token()}` } });
+		let response = await attempt();
+		if (response.status === 409) { await new Promise((resolve) => setTimeout(resolve, 400)); response = await attempt(); }
+		if (!response.ok) throw new Error(await response.text());
+		return response.json();
+	};
 
 	const wireSiretLookup = (input, preview, companyInput) => {
 		if (!input || !preview) return;

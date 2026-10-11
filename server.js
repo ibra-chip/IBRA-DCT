@@ -195,10 +195,11 @@ const readData = async () => {
 // Every call site does readData() -> mutate its own copy -> writeData(copy). With one shared JSON
 // blob and no per-record transactions, two overlapping writes on this same instance could otherwise
 // race on the local .tmp file (both write it before either renames, corrupting whichever renames
-// second) or land out of request order against Supabase. Queuing writes on this instance removes
-// that local-file hazard and makes write order deterministic; it does not make two users' concurrent
-// edits merge -- the second writer's snapshot still wins. A real fix needs row-level transactions,
-// which is exactly what the in-progress apps/api (Prisma/Postgres) move is for.
+// second). Queuing writes on this instance removes that local-file hazard and makes write order
+// deterministic. It does not by itself stop two *different* instances (or two requests that both read
+// before either wrote) from losing one writer's change -- that's what the __rev compare-and-swap below
+// is for: the Supabase write only commits if the row's revision still matches what this write's data
+// was read at; otherwise it's rejected with 409 instead of silently overwriting the other change.
 let writeQueue = Promise.resolve();
 const writeData = (data) => {
 	const next = writeQueue.then(() => writeDataNow(data));
@@ -215,8 +216,25 @@ const writeDataNow = async (data) => {
 	if (supabaseConfigured) {
 		if (process.env.DAILY_BACKUP !== 'off') await dailyBackup.beforeWrite();
 		dataCache.invalidate();
-		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
+		const expectedRev = data.__rev;
+		// A blob written before this revision system existed has no __rev key at all, which Postgres
+		// reports as NULL (not 0) through the ->> operator, so that first post-deploy write must match
+		// on "is null", not "eq.0" - otherwise it would spuriously conflict with itself.
+		const revCondition = typeof expectedRev === 'number' ? `data->>__rev=eq.${expectedRev}` : 'data->>__rev=is.null';
+		const nextData = { ...data, __rev: (typeof expectedRev === 'number' ? expectedRev : 0) + 1 };
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&${revCondition}`, {
+			method: 'PATCH',
+			headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+			body: JSON.stringify({ data: nextData }),
+		});
 		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
+		const updatedRows = await result.json();
+		if (updatedRows.length === 0) {
+			const conflict = new Error('The data was changed by someone else in the meantime. Please refresh and try again.');
+			conflict.status = 409;
+			throw conflict;
+		}
+		data.__rev = nextData.__rev;
 		dataCache.set(data);
 	}
 };
@@ -2514,6 +2532,14 @@ app.get('/api/projects/:id/evidence-summary', auth, async (request, response) =>
 	const required = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 	const present = required.filter((type) => documents.some((item) => item.evidenceType === type));
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
+});
+// Catches anything an async route handler threw without its own try/catch (e.g. a writeData() 409
+// conflict) so the client always gets clean JSON - Express's own default error page is HTML, which
+// would otherwise land in a toast built to display a JSON error message.
+app.use((error, _request, response, _next) => {
+	if (response.headersSent) return;
+	console.error('Unhandled route error:', error.message);
+	response.status(error.status || 500).json({ error: error.message || 'Internal server error' });
 });
 await fs.mkdir(persistentRoot, { recursive: true });
 await ensureBuckets();
