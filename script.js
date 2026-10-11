@@ -415,7 +415,28 @@ document.addEventListener('DOMContentLoaded', () => {
 		finally { submit.disabled = false; submit.removeAttribute('aria-busy'); }
 	});
 	document.addEventListener('keydown', (event) => { if (event.key === 'Escape' && companyIdentityModal && !companyIdentityModal.hidden) closeCompanyIdentityEditor(); });
-	const showView = (id) => { document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id)); document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item.dataset.view === id)); document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA'; if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); } };
+	const navGroupStorageKey = (groupId) => `ibra-nav-group-${groupId}`;
+	const setNavGroupExpanded = (toggle, expanded) => {
+		if (!toggle) return;
+		const groupId = toggle.dataset.groupToggle;
+		const submenu = document.querySelector(`[data-group-items="${groupId}"]`);
+		toggle.setAttribute('aria-expanded', String(expanded));
+		if (submenu) submenu.hidden = !expanded;
+		try { localStorage.setItem(navGroupStorageKey(groupId), expanded ? '1' : '0'); } catch { /* storage unavailable */ }
+	};
+	const showView = (id) => {
+		document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id));
+		document.querySelectorAll('.nav:not(.nav-group-toggle), .nav-sub').forEach((item) => item.classList.toggle('active', item.dataset.view === id));
+		document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA';
+		if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); }
+		// Keep the category open once a page inside it is current, so coming back to it isn't a second click.
+		document.querySelectorAll('.nav-item-group').forEach((group) => {
+			const toggle = group.querySelector('.nav-group-toggle');
+			const hasActive = !!group.querySelector('.nav-sub.active');
+			toggle?.classList.toggle('has-active', hasActive);
+			if (hasActive) setNavGroupExpanded(toggle, true);
+		});
+	};
 	const applyRole = (role) => {
 		const access = {
 			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
@@ -425,7 +446,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			user: ['tasks-view','evidence-summary-view','account-settings-view']
 		};
 		const allowed = access[role] || ['dashboard-view','tasks-view'];
-		document.querySelectorAll('.nav').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
+		document.querySelectorAll('.nav:not(.nav-group-toggle), .nav-sub').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
+		document.querySelectorAll('.nav-item-group').forEach((group) => { group.hidden = ![...group.querySelectorAll('.nav-sub')].some((item) => !item.hidden); });
 		const canSeeFinancials = isOwner(role);
 		document.querySelector('#budget-card')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#payroll-card')?.toggleAttribute('hidden', !canSeeFinancials);
@@ -443,13 +465,20 @@ document.addEventListener('DOMContentLoaded', () => {
 		view?.querySelectorAll(':scope > .panel[id]:not(#devis-line-items-pending-panel), :scope > .grid-two > .panel[id]').forEach((panel) => panel.toggleAttribute('data-tab-hidden', panel.id !== tabTarget));
 		view?.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.classList.toggle('active', tabButton.dataset.tabTarget === tabTarget));
 	};
-	document.querySelectorAll('.nav').forEach((button) => button.addEventListener('click', async () => {
+	document.querySelectorAll('.nav-group-toggle').forEach((toggle) => {
+		const groupId = toggle.dataset.groupToggle;
+		let saved = null;
+		try { saved = localStorage.getItem(navGroupStorageKey(groupId)); } catch { /* storage unavailable */ }
+		setNavGroupExpanded(toggle, saved === null ? true : saved === '1');
+		toggle.addEventListener('click', () => setNavGroupExpanded(toggle, toggle.getAttribute('aria-expanded') !== 'true'));
+	});
+	document.querySelectorAll('.nav:not(.nav-group-toggle)').forEach((button) => button.addEventListener('click', async () => {
 		if (button.dataset.navParent) document.getElementById(button.dataset.navParent)?.removeAttribute('hidden');
 		setMobileNav(false);
 		showView(button.dataset.view);
 		selectSubTab(button.dataset.view, button.dataset.subTab);
 		if (button.dataset.subTab) {
-			document.querySelectorAll('.nav').forEach((item) => item.classList.toggle('active', item === button));
+			document.querySelectorAll('.nav:not(.nav-group-toggle), .nav-sub').forEach((item) => item.classList.toggle('active', item === button));
 			document.querySelector('#page-title').textContent = button.dataset.title || 'IBRA-BA';
 		}
 		if (!currentUser) return; if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
@@ -459,7 +488,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		showView(button.dataset.view);
 		selectSubTab(button.dataset.view, button.dataset.subTab);
 		if (!currentUser) return;
-		await refreshActiveView();
+		if (button.dataset.view === 'rge-help-view') await loadRgeQualibat(); else await refreshActiveView();
 	}));
 	document.querySelectorAll('.mobile-tab').forEach((tabButton) => tabButton.addEventListener('click', () => {
 		const tabs = tabButton.closest('.mobile-tabs');
