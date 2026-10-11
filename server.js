@@ -253,6 +253,16 @@ const companyOwnerForUser = (data, user) => {
 	const employerSiret = cleanSiret(user.employerSiret);
 	return (data.users || []).find((item) => isOwnerRole(item.role) && employerSiret && cleanSiret(item.siret) === employerSiret) || (data.users || []).find((item) => isOwnerRole(item.role) && user.employerCompany && item.company === user.employerCompany) || null;
 };
+const sameCompany = (data, userA, userB) => companyKeyForUser(companyOwnerForUser(data, userA) || userA) === companyKeyForUser(companyOwnerForUser(data, userB) || userB);
+// For records tied to a worker rather than a project (rendezvous, time entries): an owner may act on
+// them only if that worker is in their own company - never by role alone, same reasoning as projects.
+const ownerCanAccessWorkerRecord = (data, requestUser, workerId) => {
+	if (requestUser.role === 'admin') return true;
+	if (!isOwnerRole(requestUser.role)) return false;
+	const worker = (data.users || []).find((user) => user.id === workerId);
+	const requester = (data.users || []).find((user) => user.id === requestUser.sub) || requestUser;
+	return Boolean(worker) && sameCompany(data, worker, requester);
+};
 const companyProfileForUser = (data, user) => {
 	const owner = companyOwnerForUser(data, user) || user;
 	const key = companyKeyForUser(owner);
@@ -263,17 +273,29 @@ const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || ''
 const publicUser = (user, companyProfile = null) => ({ id: user.id, name: user.name, email: user.email, phone: user.phone || '', role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' });
 const issueAuthToken = (user, companyProfile = null) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' }, secret, { expiresIn: '8h' });
 const projectById = (data, projectId) => (data.projects || []).find((project) => project.id === String(projectId || '')) || null;
+const projectsForCompany = (data, ownerId) => (data.projects || []).filter((project) => project.ownerId === ownerId);
 const projectBudgetFor = (data, projectId) => (data.projectBudgets || []).find((budget) => budget.projectId === projectId) || null;
 const projectContextFor = (data, projectId) => { const project = projectById(data, projectId); const budget = projectBudgetFor(data, projectId); return { project, budget, projectName: project?.name || '', budgetId: budget?.id || '', devisNumber: budget?.devisNumber || '' }; };
+// A project belongs to exactly one company (project.ownerId = that company's owner-role user id).
+// For an owner-role requester this is the ONLY thing that should grant access - never role alone,
+// or every company's gérant could reach every other company's chantiers. ownerIdFor resolves "which
+// company does this request belong to" the same way companyOwnerForUser already does for users.
+const ownerIdFor = (data, requestUser) => {
+	const record = (data.users || []).find((user) => user.id === requestUser.sub);
+	return (companyOwnerForUser(data, record) || record || requestUser)?.id;
+};
 const canAccessProject = (data, requestUser, projectId) => {
 	const project = projectById(data, projectId);
-	return Boolean(project && project.status !== 'archived' && (isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id)));
+	if (!project || project.status === 'archived') return false;
+	if (requestUser.role === 'admin') return true;
+	if (isOwnerRole(requestUser.role)) return project.ownerId === ownerIdFor(data, requestUser);
+	return (requestUser.projectIds || []).includes(project.id);
 };
 const assertProjectAccess = (data, requestUser, projectId, worker = null) => {
 	const project = projectById(data, projectId);
 	if (!project) { const error = new Error('Chantier not found'); error.status = 404; throw error; }
 	if (project.status === 'archived') { const error = new Error('This chantier is archived'); error.status = 400; throw error; }
-	const actorCanAccess = isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id);
+	const actorCanAccess = requestUser.role === 'admin' || (isOwnerRole(requestUser.role) ? project.ownerId === ownerIdFor(data, requestUser) : (requestUser.projectIds || []).includes(project.id));
 	const workerCanAccess = !worker || isOwnerRole(worker.role) || (worker.projectIds || []).includes(project.id);
 	if (!actorCanAccess || !workerCanAccess) { const error = new Error(`Le chantier sélectionné n’est pas accessible à cet ouvrier: ${project.name}`); error.status = 403; throw error; }
 	return project;
@@ -864,7 +886,11 @@ app.patch('/api/me', auth, async (request, response) => {
 	const profile = companyProfileForUser(data, user);
 	response.json({ user: publicUser(user, profile) });
 });
-app.get('/api/users', auth, manager, async (request, response) => { const data = await readData(); response.json(data.users.map((user) => publicUser(user, companyProfileForUser(data, user)))); });
+app.get('/api/users', auth, manager, async (request, response) => {
+	const data = await readData();
+	const visible = request.user.role === 'admin' ? data.users : data.users.filter((user) => sameCompany(data, user, request.userRecord));
+	response.json(visible.map((user) => publicUser(user, companyProfileForUser(data, user))));
+});
 app.get('/api/contacts', auth, async (request, response) => {
 	const data = await readData(); const financialView = isOwnerRole(request.user.role);
 	const myOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
@@ -947,7 +973,8 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const siret = String(request.body.siret || '').trim(); const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const company = String(request.body.company || '').trim();
-	const selectedProjectIds = role === 'user' ? normalizeProjectIds(request.body.projectIds, data.projects) : (data.projects || []).map((project) => project.id);
+	const companyProjects = projectsForCompany(data, owner?.id);
+	const selectedProjectIds = role === 'user' ? normalizeProjectIds(request.body.projectIds, companyProjects) : companyProjects.map((project) => project.id);
 	if (!name || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany || !selectedProjectIds.length))) return response.status(400).json({ error: 'Name, email, company/SIRET details, and at least one chantier are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	if (role === 'gerant' && data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
@@ -978,7 +1005,7 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const dailyRate = Number(request.body.dailyRate || 0);
 	const hourlyRate = Number(request.body.hourlyRate || 0);
-	const selectedProjectIds = normalizeProjectIds(request.body.projectIds, data.projects);
+	const selectedProjectIds = normalizeProjectIds(request.body.projectIds, projectsForCompany(data, owner?.id));
 	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || !selectedProjectIds.length || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, at least one chantier, daily rate, and hourly rate are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
 	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: selectedProjectIds, dailyRate, hourlyRate, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
@@ -996,6 +1023,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
 	if (user.id === request.user.sub) return response.status(400).json({ error: 'Edit your own account through the account flow' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	const name = String(request.body.name ?? user.name).trim();
 	const contact = String(request.body.contact || '').trim();
 	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(request.body.email ?? user.email ?? '').trim().toLowerCase();
@@ -1005,7 +1033,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	const isWorker = isWorkerRole(user.role);
 	const hasProjectAssignment = request.body.projectIds !== undefined;
-	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, data.projects) : (user.projectIds || []);
+	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, projectsForCompany(data, (companyOwnerForUser(data, request.userRecord) || request.userRecord).id)) : (user.projectIds || []);
 	if (isWorker && hasProjectAssignment && !projectIds.length) return response.status(400).json({ error: 'At least one chantier is required for a worker' });
 	const dailyRate = request.body.dailyRate === undefined ? user.dailyRate : Number(request.body.dailyRate);
 	const hourlyRate = request.body.hourlyRate === undefined ? user.hourlyRate : Number(request.body.hourlyRate);
@@ -1026,6 +1054,7 @@ app.post('/api/users/:id/password-reset', auth, manager, async (request, respons
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
 	if (user.id === request.user.sub) return response.status(400).json({ error: 'Use the account password flow for your own account' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	if (!user.email) return response.status(400).json({ error: 'This user has no email address for password reset' });
 	const setupUrl = createPasswordSetupUrl(data, user.id);
 	try {
@@ -1045,7 +1074,7 @@ app.get('/api/worker-assignments', auth, manager, async (request, response) => {
 		const owner = companyOwnerForUser(data, worker);
 		return owner?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
 	};
-	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const projects = (request.user.role === 'admin' ? (data.projects || []) : projectsForCompany(data, (companyOwnerForUser(data, managerUser) || managerUser).id)).filter((project) => project.status !== 'archived');
 	const workers = (data.users || []).filter((user) => isWorkerRole(user.role) && managerOwnsWorker(user));
 	response.json({ workers: workers.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 })), projects, assignments: workers.map((user) => ({ userId: user.id, projectIds: user.projectIds || [] })) });
 });
@@ -1056,7 +1085,7 @@ app.put('/api/worker-assignments', auth, manager, async (request, response) => {
 	const managerUser = data.users.find((user) => user.id === request.user.sub) || request.userRecord;
 	const ownerUsers = (data.users || []).filter((user) => isOwnerRole(user.role));
 	const managerOwnsWorker = (worker) => request.user.role === 'admin' || companyOwnerForUser(data, worker)?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
-	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const projects = (request.user.role === 'admin' ? (data.projects || []) : projectsForCompany(data, (companyOwnerForUser(data, managerUser) || managerUser).id)).filter((project) => project.status !== 'archived');
 	const availableIds = new Set(projects.map((project) => project.id));
 	const updateMap = new Map();
 	for (const assignment of assignments) {
@@ -1078,8 +1107,9 @@ app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	if (isOwnerRole(user.role)) {
-		const remainingManagers = data.users.filter((item) => item.id !== user.id && isOwnerRole(item.role));
+		const remainingManagers = data.users.filter((item) => item.id !== user.id && isOwnerRole(item.role) && sameCompany(data, item, user));
 		if (!remainingManagers.length) return response.status(400).json({ error: 'At least one manager/admin account must remain' });
 	}
 	data.users = data.users.filter((item) => item.id !== user.id);
@@ -1098,8 +1128,11 @@ const defaultControlsForProject = (projectId) => [
 	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Gérant' }
 ];
 app.get('/api/projects', auth, async (request, response) => {
-	const projects = (await readData()).projects || [];
-	const visible = isOwnerRole(request.user.role) ? projects : projects.filter((project) => (request.user.projectIds || []).includes(project.id));
+	const data = await readData();
+	const projects = data.projects || [];
+	const visible = request.user.role === 'admin' ? projects
+		: isOwnerRole(request.user.role) ? projects.filter((project) => project.ownerId === ownerIdFor(data, request.user))
+		: projects.filter((project) => (request.user.projectIds || []).includes(project.id));
 	response.json(visible);
 });
 app.post('/api/projects', auth, manager, async (request, response) => {
@@ -1108,10 +1141,11 @@ app.post('/api/projects', auth, manager, async (request, response) => {
 	const data = await readData();
 	let id = slugifyProjectId(name);
 	if ((data.projects || []).some((project) => project.id === id)) id = `${id}-${Date.now()}`;
-	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, createdAt: new Date().toISOString() };
+	const ownerId = companyOwnerForUser(data, request.userRecord)?.id || request.userRecord.id;
+	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, ownerId, createdAt: new Date().toISOString() };
 	data.projects = [...(data.projects || []), project];
 	data.chantierControls = [...(data.chantierControls || []), ...defaultControlsForProject(id)];
-	data.users = (data.users || []).map((user) => isOwnerRole(user.role) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
+	data.users = (data.users || []).map((user) => (isOwnerRole(user.role) && (companyOwnerForUser(data, user)?.id || user.id) === ownerId) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
 	await writeData(data);
 	response.status(201).json(project);
 });
@@ -1121,6 +1155,7 @@ app.patch('/api/projects/:id/progress', auth, manager, async (request, response)
 	const data = await readData();
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
 	project.progress = Math.round(progress);
 	project.progressUpdatedAt = new Date().toISOString();
 	project.progressUpdatedBy = request.user.sub;
@@ -1155,6 +1190,7 @@ app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
 	data.projects = (data.projects || []).filter((item) => item.id !== request.params.id);
 	data.projectBudgets = (data.projectBudgets || []).filter((item) => item.projectId !== request.params.id);
 	data.projectSchedules = (data.projectSchedules || []).filter((item) => item.projectId !== request.params.id);
@@ -1648,7 +1684,7 @@ app.get('/api/tasks/:itemId/attachment', auth, async (request, response) => {
 	const data = await readData();
 	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
 	if (!item) return response.status(404).json({ error: 'Task not found' });
-	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	if (item.assignedTo !== request.user.sub && !canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	if (!item.attachmentFile) return response.status(404).json({ error: 'No attachment stored for this task' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, item.attachmentFile, 300, item.attachmentName || 'attachment').catch(() => null);
@@ -1707,7 +1743,7 @@ app.get('/api/tasks/:itemId/completion-photo', auth, async (request, response) =
 	const data = await readData();
 	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
 	if (!item) return response.status(404).json({ error: 'Task not found' });
-	if (item.assignedTo !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	if (item.assignedTo !== request.user.sub && !canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	if (!item.completionPhotoFile) return response.status(404).json({ error: 'No completion photo stored for this task' });
 	try {
 		const url = await getDownloadUrl(UPLOADS_BUCKET, item.completionPhotoFile, 300, item.completionPhotoName || 'photo').catch(() => null);
@@ -1796,6 +1832,16 @@ app.get('/api/factures/:factureId/document', auth, manager, async (request, resp
 		response.status(502).json({ error: 'Document download failed: ' + error.message });
 	}
 });
+app.delete('/api/factures/:factureId', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (facture.sourceFile) await deleteFile(UPLOADS_BUCKET, facture.sourceFile).catch(() => {});
+	data.factures = data.factures.filter((item) => item.id !== facture.id);
+	await writeData(data);
+	response.json({ deleted: true, id: facture.id });
+});
 app.get('/api/purchases', auth, async (request, response) => {
 	const data = await readData();
 	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
@@ -1814,14 +1860,25 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFil
 	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, lineItemId: request.body.lineItemId || null, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
-app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Access denied' });
-	response.json((await readData()).chantierControls.filter((item) => item.projectId === request.params.id));
+app.delete('/api/purchases/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const purchase = (data.purchases || []).find((item) => item.id === request.params.id);
+	if (!purchase) return response.status(404).json({ error: 'Purchase not found' });
+	if (!canAccessProject(data, request.user, purchase.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (purchase.invoiceFile) await deleteFile(UPLOADS_BUCKET, purchase.invoiceFile).catch(() => {});
+	data.purchases = data.purchases.filter((item) => item.id !== purchase.id);
+	await writeData(data);
+	response.json({ deleted: true, id: purchase.id });
 });
-app.patch('/api/chantier-controls/:id', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can update controls' });
+app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	response.json(data.chantierControls.filter((item) => item.projectId === request.params.id));
+});
+app.patch('/api/chantier-controls/:id', auth, manager, async (request, response) => {
 	const data = await readData(); const control = data.chantierControls.find((item) => item.id === request.params.id);
 	if (!control) return response.status(404).json({ error: 'Control not found' });
+	if (!canAccessProject(data, request.user, control.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const status = String(request.body.status || '');
 	if (!['complete', 'review', 'incomplete'].includes(status)) return response.status(400).json({ error: 'Invalid control status' });
 	if (status === 'complete') {
@@ -1867,7 +1924,8 @@ app.delete('/api/messages/:id', auth, async (request, response) => {
 	const data = await readData();
 	const message = (data.messages || []).find((item) => item.id === request.params.id);
 	if (!message) return response.status(404).json({ error: 'Message not found' });
-	if (message.senderId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	const canOwnerDelete = isOwnerRole(request.user.role) && [message.senderId, message.recipientId].some((userId) => { const party = data.users.find((item) => item.id === userId); return party && (request.user.role === 'admin' || sameCompany(data, party, request.userRecord)); });
+	if (message.senderId !== request.user.sub && !canOwnerDelete) return response.status(403).json({ error: 'Access denied' });
 	data.messages = (data.messages || []).filter((item) => item.id !== message.id);
 	await writeData(data);
 	response.json({ deleted: true, id: message.id });
@@ -1916,8 +1974,12 @@ const resolveRendezvousOwner = (data, worker) => {
 	return employerSiret ? data.users.find((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === employerSiret) || null : null;
 };
 app.get('/api/rendezvous', auth, async (request, response) => {
-	const data = await readData(); const canSeeAll = isOwnerRole(request.user.role);
-	response.json((data.rendezvous || []).filter((item) => (canSeeAll || item.workerId === request.user.sub) && (!item.projectId || canAccessProject(data, request.user, item.projectId))));
+	const data = await readData();
+	response.json((data.rendezvous || []).filter((item) => {
+		if (item.workerId === request.user.sub) return true;
+		if (item.projectId) return canAccessProject(data, request.user, item.projectId);
+		return ownerCanAccessWorkerRecord(data, request.user, item.workerId);
+	}));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
 	const isOwnerActor = isOwnerRole(request.user.role);
@@ -1956,7 +2018,7 @@ app.patch('/api/rendezvous/:id', auth, async (request, response) => {
 	const data = await readData();
 	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
-	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (item.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const absenceDate = String(request.body.absenceDate || request.body.date || item.absenceDate).trim();
 	const time = String(request.body.time || item.time).trim();
 	const reason = request.body.reason !== undefined ? String(request.body.reason).trim() : item.reason;
@@ -1969,14 +2031,18 @@ app.delete('/api/rendezvous/:id', auth, async (request, response) => {
 	const data = await readData();
 	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
-	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (item.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.workerId)) return response.status(403).json({ error: 'Access denied' });
 	data.rendezvous = (data.rendezvous || []).filter((entry) => entry.id !== item.id);
 	await writeData(data);
 	response.json({ deleted: true, id: item.id });
 });
 app.get('/api/time-entries', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && (!item.projectId || canAccessProject(data, request.user, item.projectId))));
+	response.json((data.timeEntries || []).filter((item) => {
+		if (item.workerId === request.user.sub) return true;
+		if (item.projectId) return canAccessProject(data, request.user, item.projectId);
+		return ownerCanAccessWorkerRecord(data, request.user, item.workerId);
+	}));
 });
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
@@ -2002,7 +2068,7 @@ app.delete('/api/time-entries/:id', auth, async (request, response) => {
 	const data = await readData();
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
-	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (entry.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	data.timeEntries = data.timeEntries.filter((item) => item.id !== entry.id);
 	await writeData(data);
 	response.json({ deleted: true, id: entry.id });
@@ -2011,7 +2077,7 @@ app.patch('/api/time-entries/:id', auth, async (request, response) => {
 	const data = await readData();
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
-	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (entry.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const date = request.body.date || entry.date;
 	const breakMinutes = request.body.breakMinutes !== undefined ? Number(request.body.breakMinutes || 0) : entry.breakMinutes;
 	const rateType = ['daily', 'hourly'].includes(request.body.rateType) ? request.body.rateType : entry.rateType;
@@ -2044,7 +2110,10 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	if (!entries.length) return response.status(400).json({ error: 'No approved work entries found for this month' });
 	const ownerSiret = worker?.employerSiret || '';
 	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email && (user.id === worker?.invitedBy || (ownerSiret && cleanSiret(user.siret) === cleanSiret(ownerSiret))));
-	const recipients = managers.length ? managers : data.users.filter((user) => isOwnerRole(user.role) && user.email);
+	// Never fall back to "every owner in the database" - that would mail a worker's private hours and pay
+	// to other companies. The only safe fallback is this worker's own resolved company owner, if any.
+	const fallbackOwner = managers.length ? [] : [companyOwnerForUser(data, worker)].filter((user) => user?.email);
+	const recipients = managers.length ? managers : fallbackOwner;
 	if (!recipients.length) return response.status(503).json({ error: 'No owner email is configured' });
 	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker), projectLabel: projectLabelFor(data, entry.projectId) }));
 	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
@@ -2065,8 +2134,8 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
 	const month = String(request.query.month || previousMonthKey());
 	const requestedWorkerId = String(request.query.workerId || request.user.sub);
-	if (requestedWorkerId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	const data = await readData();
+	if (requestedWorkerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, requestedWorkerId)) return response.status(403).json({ error: 'Access denied' });
 	const worker = data.users.find((user) => user.id === requestedWorkerId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	const entries = data.timeEntries.filter((entry) => entry.workerId === requestedWorkerId && entry.date.startsWith(month) && entry.status === 'approved');
@@ -2078,10 +2147,10 @@ app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-lista-plate-${month}-${worker.name.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
 	response.send(pdf);
 });
-app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can approve time' });
+app.patch('/api/time-entries/:id/status', auth, manager, async (request, response) => {
 	const data = await readData(); const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid time status' });
 	entry.status = status; entry.reviewedBy = request.user.sub; entry.reviewedAt = new Date().toISOString(); await writeData(data); response.json(entry);
 });
@@ -2090,7 +2159,8 @@ app.get('/api/payroll/summary', auth, manager, async (request, response) => {
 	const data = await readData();
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7));
 	const entries = data.timeEntries.filter((entry) => entry.date.startsWith(month) && entry.status === 'approved');
-	const summary = data.users.map((user) => {
+	const scopedUsers = request.user.role === 'admin' ? data.users : data.users.filter((user) => sameCompany(data, user, request.userRecord));
+	const summary = scopedUsers.map((user) => {
 		const workerEntries = entries.filter((entry) => entry.workerId === user.id);
 		const hours = workerEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 		const days = new Set(workerEntries.map((entry) => entry.date)).size;
@@ -2110,7 +2180,8 @@ app.get('/api/my-payroll-summary', auth, async (request, response) => {
 	response.json({ month, days, hours, dailyRate: user?.dailyRate || 0, hourlyRate: user?.hourlyRate || 0, estimatedTotal, entries: entries.map((entry) => ({ date: entry.date, projectId: entry.projectId, rateType: entry.rateType || 'daily', rate: entry.rate || 0, workAmount: entry.workAmount || 0 })) });
 });
 app.get('/api/payout-requests', auth, async (request, response) => {
-	const data = await readData(); const managerView = isOwnerRole(request.user.role); response.json((data.payoutRequests || []).filter((item) => managerView || item.userId === request.user.sub));
+	const data = await readData();
+	response.json((data.payoutRequests || []).filter((item) => item.userId === request.user.sub || ownerCanAccessWorkerRecord(data, request.user, item.userId)));
 });
 app.post('/api/payout-requests', auth, async (request, response) => {
 	const month = String(request.body.month || ''); const days = Number(request.body.days || 0); if (!/^\d{4}-\d{2}$/.test(month) || !Number.isInteger(days) || days < 0) return response.status(400).json({ error: 'Month and a non-negative integer number of days are required' });
@@ -2123,6 +2194,7 @@ app.post('/api/payout-requests/mark-paid', auth, manager, async (request, respon
 	const data = await readData();
 	const worker = data.users.find((item) => item.id === userId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, userId)) return response.status(403).json({ error: 'Access denied for this worker' });
 	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
 	const days = new Set(entries.map((entry) => entry.date)).size;
 	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
@@ -2145,6 +2217,7 @@ app.post('/api/payout-requests/set-status', auth, manager, async (request, respo
 	const data = await readData();
 	const worker = data.users.find((item) => item.id === userId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, userId)) return response.status(403).json({ error: 'Access denied for this worker' });
 	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
 	const days = new Set(entries.map((entry) => entry.date)).size;
 	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
@@ -2161,11 +2234,11 @@ app.post('/api/payout-requests/set-status', auth, manager, async (request, respo
 });
 app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
 	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
-	if (!item || (!isOwnerRole(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
+	if (!item || (item.userId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.userId))) return response.status(404).json({ error: 'Payout request not found' });
 	response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Disposition', `attachment; filename="ibra-payout-${item.month}-${item.userId}.pdf"`); response.send(buildPayoutPdf(item));
 });
 app.patch('/api/payout-requests/:id/status', auth, manager, async (request, response) => {
-	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
+	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); if (!ownerCanAccessWorkerRecord(data, request.user, item.userId)) return response.status(403).json({ error: 'Access denied' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
 });
 app.get('/api/work-reports', auth, async (request, response) => {
 	const data = await readData(); const managerView = isOwnerRole(request.user.role);
@@ -2251,7 +2324,7 @@ app.post('/api/work-reports', auth, upload.single('photo'), fixUploadFilenameEnc
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid work report status' });
-	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
+	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); if (!canAccessProject(data, request.user, report.projectId)) return response.status(403).json({ error: 'Access denied' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
 });
 app.get('/api/projects/:id/situation-summary', auth, async (request, response) => {
 	const data = await readData();
@@ -2357,12 +2430,14 @@ app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
 	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	item.originalName = name; item.renamedAt = new Date().toISOString(); item.renamedBy = request.user.sub;
 	await writeData(data); response.json(item);
 });
 app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
 	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id);
 	if (!source) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, source.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const storedName = `${Date.now()}-${source.storedName}`; const sourceBuffer = await downloadFile(UPLOADS_BUCKET, source.storedName); await uploadFile(UPLOADS_BUCKET, storedName, sourceBuffer, source.mimeType);
 	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
 	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
@@ -2370,6 +2445,7 @@ app.post('/api/documents/:id/copy', auth, manager, async (request, response) => 
 app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	await deleteFile(UPLOADS_BUCKET, item.storedName);
 	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
 });
@@ -2546,5 +2622,28 @@ await ensureBuckets();
 if (persistentRoot !== root) {
 	const seedDataPath = path.join(root, 'data.json');
 	try { await fs.access(dataPath); } catch { await fs.copyFile(seedDataPath, dataPath); }
+}
+// One-time, idempotent: projects created before project.ownerId existed have no company tag at all,
+// which canAccessProject now requires - without this they'd become unreachable by anyone (not a leak,
+// but a lockout). Best-effort match back to the creating owner by project.manager (the name stored at
+// creation time); any that still can't be matched fall back to the single oldest owner account, which
+// is correct as long as this deployment only ever had one real company, same as the exposure this
+// whole change closes was only ever a problem once a second company existed.
+try {
+	const migrationData = await readData();
+	const legacyProjects = (migrationData.projects || []).filter((project) => !project.ownerId);
+	if (legacyProjects.length) {
+		const owners = (migrationData.users || []).filter((user) => isOwnerRole(user.role)).sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+		if (owners.length) {
+			for (const project of legacyProjects) {
+				const byName = owners.find((owner) => owner.name === project.manager);
+				project.ownerId = (byName || owners[0]).id;
+			}
+			await writeData(migrationData);
+			console.log(`Migrated ownerId for ${legacyProjects.length} pre-existing chantier(s).`);
+		}
+	}
+} catch (error) {
+	console.error('Project ownerId migration failed (will retry on next deploy):', error.message);
 }
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`IBRA-BA web app listening on port ${process.env.PORT || 3000} at ${root}`));

@@ -81,8 +81,8 @@ before(async () => {
 	const userId = 'user-1';
 	const seed = {
 		users: [{ id: userId, name: 'Test User', email: 'test@example.com', role: 'gerant', passwordHash: 'unused', projectIds: [], dailyRate: 0, hourlyRate: 0 }],
-		projects: [],
-		documents: [{ id: 'doc-1', originalName: 'original.pdf', storedName: 'stored.pdf', mimeType: 'application/pdf', size: 3, evidenceType: 'other', projectId: '', uploadedBy: userId, uploadedAt: new Date().toISOString() }],
+		projects: [{ id: 'proj-1', name: 'Test Project', location: '', progress: 0, status: 'active', manager: 'Test User', ownerId: userId }],
+		documents: [{ id: 'doc-1', originalName: 'original.pdf', storedName: 'stored.pdf', mimeType: 'application/pdf', size: 3, evidenceType: 'other', projectId: 'proj-1', uploadedBy: userId, uploadedAt: new Date().toISOString() }],
 	};
 	await fs.writeFile(path.join(dataDir, 'data.json'), JSON.stringify(seed, null, 2));
 

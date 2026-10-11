@@ -1902,9 +1902,15 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	async function loadPurchases() {
 		const purchases = await request('/purchases'); const groups = { material: [], tools: [], machines: [], subcontracting: [] }; purchases.forEach((item) => { if (groups[item.category]) groups[item.category].push(item); });
-		const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small></div>`).join('') : '<small>Aucune dépense.</small>'; };
+		const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small><div class="form-row"><button type="button" class="secondary danger delete-purchase" data-purchase-delete="${item.id}">Supprimer</button></div></div>`).join('') : '<small>Aucune dépense.</small>'; };
 		render([...groups.material, ...groups.tools, ...groups.machines], 'purchase-material-tools', 'purchase-total-material-tools');
 		render(groups.subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting');
+		document.querySelectorAll('.delete-purchase').forEach((button) => button.addEventListener('click', async () => {
+			if (!window.confirm('Supprimer définitivement cette dépense ?')) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try { await request(`/purchases/${button.dataset.purchaseDelete}`, { method: 'DELETE' }); toast('Dépense supprimée.'); await loadPurchases(); }
+			catch { toast('Dépense non supprimée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
 	}
 	function ensureHoursPdfButton() {
 		if (document.querySelector('#download-hours-pdf')) return;
@@ -2410,7 +2416,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (!factures.length) { container.innerHTML = '<small>Aucune facture.</small>'; return; }
 			container.innerHTML = factures.map((facture) => {
 				const meta = factureStatusMeta[facture.colorStatus] || factureStatusMeta.orange;
-				return `<div class="list-item" data-facture="${facture.id}"><strong>${escapeHtml(facture.invoiceNumber || 'Facture')} · ${escapeHtml(facture.clientName || '')}</strong><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><span>${formatEUR(facture.amount)} · échéance ${escapeHtml(facture.dueDate || '')}</span><div class="form-row">${facture.sourceFile ? `<button type="button" class="secondary view-facture-document" data-facture-document="${facture.id}">Voir le PDF</button>` : ''}${facture.status !== 'paid' ? `<button type="button" class="secondary mark-facture-paid" data-facture-mark-paid="${facture.id}">Marquer payée</button>` : ''}${facture.colorStatus === 'red' ? `<button type="button" class="secondary send-facture-relance" data-facture-relance="${facture.id}">Envoyer un rappel</button>` : ''}</div></div>`;
+				return `<div class="list-item" data-facture="${facture.id}"><strong>${escapeHtml(facture.invoiceNumber || 'Facture')} · ${escapeHtml(facture.clientName || '')}</strong><span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><span>${formatEUR(facture.amount)} · échéance ${escapeHtml(facture.dueDate || '')}</span><div class="form-row">${facture.sourceFile ? `<button type="button" class="secondary view-facture-document" data-facture-document="${facture.id}">Voir le PDF</button>` : ''}${facture.status !== 'paid' ? `<button type="button" class="secondary mark-facture-paid" data-facture-mark-paid="${facture.id}">Marquer payée</button>` : ''}${facture.colorStatus === 'red' ? `<button type="button" class="secondary send-facture-relance" data-facture-relance="${facture.id}">Envoyer un rappel</button>` : ''}<button type="button" class="secondary danger delete-facture" data-facture-delete="${facture.id}">Supprimer</button></div></div>`;
 			}).join('');
 			container.querySelectorAll('.view-facture-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/factures/${button.dataset.factureDocument}/document`, button)));
 			container.querySelectorAll('.mark-facture-paid').forEach((button) => button.addEventListener('click', async () => {
@@ -2418,6 +2424,12 @@ document.addEventListener('DOMContentLoaded', () => {
 				try { await request(`/factures/${button.dataset.factureMarkPaid}/mark-paid`, { method: 'PATCH' }); toast('Facture marquée payée.'); await loadFactures(); }
 				catch { toast('Impossible de marquer la facture payée.'); }
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+			}));
+			container.querySelectorAll('.delete-facture').forEach((button) => button.addEventListener('click', async () => {
+				if (!window.confirm('Supprimer définitivement cette facture ?')) return;
+				button.disabled = true; button.setAttribute('aria-busy', 'true');
+				try { await request(`/factures/${button.dataset.factureDelete}`, { method: 'DELETE' }); toast('Facture supprimée.'); await loadFactures(); }
+				catch { toast('Facture non supprimée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
 			}));
 			container.querySelectorAll('.send-facture-relance').forEach((button) => button.addEventListener('click', async () => {
 				if (!window.confirm('Envoyer un e-mail de rappel au client pour cette facture ?')) return;
