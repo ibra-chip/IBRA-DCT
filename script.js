@@ -540,7 +540,14 @@ document.addEventListener('DOMContentLoaded', () => {
 			return;
 		}
 		loadWeather(projectId);
-		const controls = await request(`/projects/${projectId}/chantier-controls`);
+		// Fire all four requests together instead of one after another - they don't depend on each
+		// other, so waiting for them sequentially was adding up to three extra network round trips
+		// to every dashboard open for no reason.
+		const controlsPromise = request(`/projects/${projectId}/chantier-controls`);
+		const schedulePromise = request(`/projects/${projectId}/schedule`);
+		const financialPromise = request(`/projects/${projectId}/financial-summary`);
+		const evidenceSummaryPromise = request(`/projects/${projectId}/evidence-summary`);
+		const controls = await controlsPromise;
 		const completedControls = controls.filter((item) => item.status === 'complete').length;
 		const progress = controls.length ? Math.round((completedControls / controls.length) * 100) : 0;
 		const siteProgress = Number(project?.progress || 0);
@@ -553,9 +560,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#open-controls').textContent = controls.filter((item) => item.status !== 'complete').length;
 		document.querySelector('#dashboard-view .hero small').textContent = `${project?.name || 'CHANTIER'} · ${siteProgress}% d’avancement`;
 		const heroProgressBar = document.querySelector('#hero-progress-bar'); if (heroProgressBar) heroProgressBar.style.width = `${Math.max(0, Math.min(100, siteProgress))}%`;
-		const schedule = await request(`/projects/${projectId}/schedule`);
-		const financial = await request(`/projects/${projectId}/financial-summary`);
-		const missingEvidence = (await request(`/projects/${projectId}/evidence-summary`)).missing.length;
+		const schedule = await schedulePromise;
+		const financial = await financialPromise;
+		const missingEvidence = (await evidenceSummaryPromise).missing.length;
 		const openControls = controls.filter((item) => item.status !== 'complete').length;
 		const red = openControls >= 3 || missingEvidence >= 4 || (financial.budgetStatus === 'available' && financial.remaining < 0);
 		const orange = !red && (openControls > 0 || missingEvidence > 0 || schedule.delayDays > 0);
