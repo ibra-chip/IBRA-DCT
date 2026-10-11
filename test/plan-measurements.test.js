@@ -309,3 +309,37 @@ test('scale-based calibration is rejected for an image plan (no real paper-space
 	const response = await call('PATCH', `/api/documents/${documentId}/calibration`, tokenFor('owner-a', 'gerant'), { scaleDenominator: 50 });
 	assert.equal(response.status, 400);
 });
+
+// "Plan existant" (démolition) vs "Plan nouveau" (construction) - no AI diffing between the two
+// drawings, just a label on each so a devis line item built from a measurement on either one lands
+// under the right category automatically.
+test('an uploaded plan tagged "existant" or "nouveau" keeps that tag, both documents independently measurable', async () => {
+	const existing = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan', planType: 'existant' }, { field: 'file', filename: 'avant.jpg', contentType: 'image/jpeg', buffer: Buffer.from('plan-avant-bytes') });
+	assert.equal(existing.status, 201);
+	assert.equal(existing.body.planType, 'existant');
+
+	const nouveau = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan', planType: 'nouveau' }, { field: 'file', filename: 'apres.jpg', contentType: 'image/jpeg', buffer: Buffer.from('plan-apres-bytes') });
+	assert.equal(nouveau.status, 201);
+	assert.equal(nouveau.body.planType, 'nouveau');
+
+	// Each plan calibrates and measures completely independently of the other.
+	await call('PATCH', `/api/documents/${existing.body.id}/calibration`, tokenFor('owner-a', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 100, y: 0 }, realDistanceM: 2 });
+	const demolition = await call('POST', `/api/documents/${existing.body.id}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Mur à démolir', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }] });
+	assert.equal(demolition.status, 201);
+	assert.equal(demolition.body.value, 2);
+
+	await call('PATCH', `/api/documents/${nouveau.body.id}/calibration`, tokenFor('owner-a', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 50, y: 0 }, realDistanceM: 2 });
+	const construction = await call('POST', `/api/documents/${nouveau.body.id}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Nouvelle cloison', points: [{ x: 0, y: 0 }, { x: 50, y: 0 }] });
+	assert.equal(construction.status, 201);
+	assert.equal(construction.body.value, 2);
+});
+
+test('planType is ignored (stays null) for a non-plan evidenceType, and for a bogus value', async () => {
+	const photo = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'photo-during', planType: 'existant' }, { field: 'file', filename: 'site.jpg', contentType: 'image/jpeg', buffer: Buffer.from('site-photo-bytes') });
+	assert.equal(photo.status, 201);
+	assert.equal(photo.body.planType, null);
+
+	const bogus = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan', planType: 'not-a-real-value' }, { field: 'file', filename: 'plan.jpg', contentType: 'image/jpeg', buffer: Buffer.from('bogus-plantype-bytes') });
+	assert.equal(bogus.status, 201);
+	assert.equal(bogus.body.planType, null);
+});

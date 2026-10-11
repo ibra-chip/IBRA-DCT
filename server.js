@@ -2461,7 +2461,12 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	attachReferenceLinks(autoAnalysis);
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	// Only meaningful for evidenceType=plan: lets the owner upload an "existant" and a "nouveau" plan for
+	// the same chantier and trace démolition vs construction on each separately with the measurement
+	// tool - no AI comparison between the two drawings, just a label so a devis line item built from a
+	// measurement on either one lands in the right category automatically.
+	const planType = evidenceType === 'plan' && ['existant', 'nouveau'].includes(request.body.planType) ? request.body.planType : null;
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => {
