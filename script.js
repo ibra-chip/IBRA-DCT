@@ -551,6 +551,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			select.value = projects.some((project) => project.id === current) ? current : (isBudgetSelect ? '__new' : (currentProjectId() || ''));
 			select.disabled = !isBudgetSelect && !projects.length;
 		});
+		const uploadDeleteButton = document.querySelector('#upload-form-delete-chantier');
+		if (uploadDeleteButton) {
+			const selectedProjectId = document.querySelector('#upload-form select[name="projectId"]')?.value || '';
+			uploadDeleteButton.hidden = !selectedProjectId;
+			uploadDeleteButton.dataset.project = selectedProjectId;
+		}
 		const assignmentOptions = projectsCache.slice().sort((first, second) => String(first.name || '').localeCompare(String(second.name || ''), 'fr', { sensitivity: 'base' })).map((project) => `<option value="${project.id}">${escapeHtml(project.name)}</option>`).join('');
 		document.querySelectorAll('select[data-project-assignment]').forEach((select) => {
 			const selected = new Set([...select.selectedOptions].map((option) => option.value));
@@ -2514,6 +2520,26 @@ document.addEventListener('DOMContentLoaded', () => {
 		const form = event.currentTarget;
 		const message = document.querySelector('#evidence-upload-message');
 		await submitDocumentUpload({ form, fileInput: document.querySelector('#evidence-file-input'), message, projectId: currentProjectId(), stay: true });
+	});
+	document.querySelector('#upload-form select[name="projectId"]')?.addEventListener('change', (event) => {
+		const button = document.querySelector('#upload-form-delete-chantier');
+		if (!button) return;
+		button.hidden = !event.currentTarget.value;
+		button.dataset.project = event.currentTarget.value;
+	});
+	document.querySelector('#upload-form-delete-chantier')?.addEventListener('click', async (event) => {
+		const button = event.currentTarget;
+		const projectId = button.dataset.project;
+		if (!projectId) return;
+		const projectName = projectsCache.find((project) => project.id === projectId)?.name || projectId;
+		if (!window.confirm(`Supprimer le chantier ${projectName} et les données associées ?`)) return;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			await request(`/projects/${projectId}`, { method: 'DELETE' });
+			toast('Chantier je obrisan.');
+			await refreshActiveView();
+		} catch { toast('Suppression impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 	});
 	document.querySelector('#goto-documents-button')?.addEventListener('click', () => showView('documents-view'));
 	document.querySelector('#ai-form')?.addEventListener('submit', async (event) => {
