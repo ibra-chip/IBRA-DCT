@@ -545,7 +545,10 @@ function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
 	const isImage = file.mimetype.startsWith('image/');
-	return (['plan', 'fiche-technique'].includes(type) && isPdf) || (allowedWorkEvidenceTypes.includes(type) && !['plan', 'fiche-technique'].includes(type) && isImage);
+	// A plan/fiche-technique is very often a photographed page (a "carnet de détail" shot on a phone,
+	// not scanned to PDF) - it needs the same PDF-or-photo tolerance as devis/facture uploads.
+	if (['plan', 'fiche-technique'].includes(type)) return isPdf || isImage;
+	return allowedWorkEvidenceTypes.includes(type) && isImage;
 }
 function isAllowedPersonalDocument(file) {
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
@@ -1407,9 +1410,13 @@ const extractDevisLineItemsWithGemini = async (file) => {
 	} catch (parseError) { return { items: [], error: `Réponse Gemini illisible : ${parseError.message}` }; }
 };
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
-	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
+	// Accepts a phone photo of a paper devis, not only a real PDF: a scanned/photographed page has no
+	// text layer for parsePdf anyway, so it already depended entirely on the Gemini vision fallback
+	// below - rejecting it outright at the door just forced a manual-entry PDF conversion step first.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
 	let text = '';
-	try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); } }
 	const extracted = extractDevisFields(text);
 	let source = request.file.originalname;
 	if (!extracted.number || !extracted.client || !extracted.chantier || !extracted.total) {
@@ -1466,42 +1473,57 @@ const inspectFactureWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = "Read this French client invoice/facture PDF very carefully. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Copy the client name EXACTLY and COMPLETELY as printed — full legal name, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. Convert any date you find to YYYY-MM-DD precisely as printed, do not guess a date that is not in the document. If a field is genuinely not visible anywhere in the PDF, use an empty string or 0.";
-	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			generationConfig: {
-				temperature: 0,
-				responseMimeType: 'application/json',
-				responseSchema: {
-					type: 'OBJECT',
-					properties: {
-						invoiceNumber: { type: 'STRING' },
-						clientName: { type: 'STRING' },
-						clientEmail: { type: 'STRING' },
-						amount: { type: 'NUMBER' },
-						issuedDate: { type: 'STRING', description: 'YYYY-MM-DD' },
-						dueDate: { type: 'STRING', description: 'YYYY-MM-DD' }
-					},
-					required: ['invoiceNumber', 'clientName', 'amount']
-				}
-			},
-			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
-		})
+	const prompt = "Read this French client invoice/facture (PDF or photo) very carefully. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Copy the client name EXACTLY and COMPLETELY as printed — full legal name, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. Convert any date you find to YYYY-MM-DD precisely as printed, do not guess a date that is not in the document. If a field is genuinely not visible anywhere in the document, use an empty string or 0.";
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			responseSchema: {
+				type: 'OBJECT',
+				properties: {
+					invoiceNumber: { type: 'STRING' },
+					clientName: { type: 'STRING' },
+					clientEmail: { type: 'STRING' },
+					amount: { type: 'NUMBER' },
+					issuedDate: { type: 'STRING', description: 'YYYY-MM-DD' },
+					dueDate: { type: 'STRING', description: 'YYYY-MM-DD' }
+				},
+				required: ['invoiceNumber', 'clientName', 'amount']
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 	});
-	if (!geminiResponse.ok) {
+	// Gemini's shared free/low-tier quota returns 503 "overloaded" fairly often; the devis inspect path
+	// already retried through that, this one gave up on the first transient hiccup instead.
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini facture inspect network error', networkError.message);
+			return null;
+		}
+		if (geminiResponse.ok) break;
 		const details = await geminiResponse.text();
-		console.error('Gemini facture inspect rejected', geminiResponse.status, details.slice(0, 500));
-		return null;
+		console.error('Gemini facture inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
 	}
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
 };
 app.post('/api/factures/inspect', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
-	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Facture PDF is required' });
+	// Accepts a phone photo of a paper facture too - see the matching comment on /api/budget/inspect.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Facture PDF or photo is required' });
 	let text = '';
-	try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); }
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); } }
 	const extracted = extractFactureFields(text);
 	let source = request.file.originalname;
 	if (!extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate) {
@@ -1550,8 +1572,9 @@ app.post('/api/projects/:id/labor-costs', auth, manager, async (request, respons
 	response.status(existing ? 200 : 201).json(laborCost);
 });
 app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
-	const uploadedPdf = request.file?.buffer || null;
-	if (!request.file || !(request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf') || uploadedPdf?.subarray(0, 5).toString() === '%PDF-')) return response.status(400).json({ error: 'A Devis PDF is required' });
+	// Matches /api/budget/inspect: saving a devis that was only ever photographed, not scanned to PDF,
+	// must not be blocked just because the preview step was allowed to read it.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
 	const total = Number(request.body.total || 0);
 	if (!Number.isFinite(total) || total <= 0) return response.status(400).json({ error: 'Devis total is required' });
 	const data = await readData();
@@ -2385,10 +2408,14 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 	let autoAnalysis = null;
 	const language = request.body.responseLanguage || 'sr';
 	try {
-		if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
+		// A plan/fiche-technique is analyzed through the technical-document path (Gemini reads a photo
+		// page directly, same as a PDF page) even when it's a photographed "carnet de détail" page, not
+		// a real PDF - only the PDF-only steps (text layer parsing, embedded-image extraction) are skipped.
+		if (['plan', 'fiche-technique'].includes(evidenceType)) {
 			const buffer = request.file.buffer;
+			const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
 			let parsed = { text: '' };
-			try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
+			if (isPdfFile) { try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
 			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
 			if (!autoAnalysis) {
 				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
@@ -2400,11 +2427,13 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 				const rules = extractPdfRules(parsed.text, { max: 10 });
 				if (rules.length) autoAnalysis.extractedRules = rules;
 			}
-			try {
-				const images = await extractPdfImagesWithTimeout(buffer, { maxImages: 6, maxPages: 12 });
-				if (images.length) autoAnalysis.referenceImages = images;
-			} catch (error) {
-				console.error('PDF image extraction failed:', error.message);
+			if (isPdfFile) {
+				try {
+					const images = await extractPdfImagesWithTimeout(buffer, { maxImages: 6, maxPages: 12 });
+					if (images.length) autoAnalysis.referenceImages = images;
+				} catch (error) {
+					console.error('PDF image extraction failed:', error.message);
+				}
 			}
 		} else if (request.file.mimetype.startsWith('image/')) {
 			const buffer = request.file.buffer;
