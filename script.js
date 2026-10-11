@@ -2020,6 +2020,35 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureUpdateStatus();
 		planMeasureRedraw();
 	}
+	// Catches a devis (often a competitor's, uploaded via the Excel/PDF devis import) quoting a lower
+	// quantity for the same item than the app's own exact, calibrated plan measurement - the real-world
+	// case this check exists for is a larger firm under-quoting m²/ml/unité to look cheaper than a small
+	// firm, then cutting corners or billing extras later. Matched by description because there's no
+	// reliable automatic link between a free-text devis line and a traced shape; the user names their
+	// measurement to match the line they're verifying. Never blocks silently - on any failure to check
+	// (e.g. no devis exists yet), it fails OPEN (lets the add through) rather than silently failing closed,
+	// since this is a secondary safety net, not the only way to add a measurement to the devis.
+	async function planMeasureConfirmAgainstExistingLineItem(description, quantity, unit) {
+		const normalize = (value) => String(value || '').trim().toLowerCase().replace(/\s*\(×\d+\)\s*$/, '');
+		try {
+			const items = await request(`/projects/${planMeasureState.projectId}/budget/line-items`);
+			const target = normalize(description);
+			const match = items.find((item) => normalize(item.description) === target);
+			if (!match) return true;
+			const existingQty = Number(match.quantity) || 0;
+			const diff = quantity - existingQty;
+			if (Math.abs(diff) < 0.01) return true;
+			// Spelled out explicitly (never "X de moins/de plus" attached to "votre mesure", which reads
+			// ambiguously about which number is bigger) - the case this exists for is a subcontracted
+			// devis under-quoting the real quantity, so when THAT is what's happening it says so plainly.
+			const warning = diff > 0
+				? `⚠ La ligne du devis (${existingQty.toFixed(2)} ${match.unit}) est INFÉRIEURE de ${diff.toFixed(2)} ${unit} à la mesure réelle du plan (${quantity.toFixed(2)} ${unit}).`
+				: `La ligne du devis (${existingQty.toFixed(2)} ${match.unit}) est supérieure de ${Math.abs(diff).toFixed(2)} ${unit} à la mesure réelle du plan (${quantity.toFixed(2)} ${unit}).`;
+			return window.confirm(`Une ligne « ${match.description} » existe déjà dans ce devis.\n${warning}\nAjouter quand même une nouvelle ligne avec la mesure du plan ?`);
+		} catch {
+			return true;
+		}
+	}
 	function planMeasureRenderList() {
 		const totals = document.querySelector('#plan-measure-totals');
 		const list = document.querySelector('#plan-measure-list');
@@ -2059,40 +2088,52 @@ document.addEventListener('DOMContentLoaded', () => {
 		list.querySelectorAll('.add-measurement-to-devis').forEach((button) => button.addEventListener('click', async () => {
 			const item = planMeasureState.measurements.find((entry) => entry.id === button.dataset.measurement);
 			if (!item) return;
+			const description = item.repeatCount > 1 ? `${item.label} (×${item.repeatCount})` : item.label;
+			const unit = item.unit === 'm2' ? 'm²' : 'ml';
+			const quantity = Number(effective(item).toFixed(2));
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, unit))) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: item.repeatCount > 1 ? `${item.label} (×${item.repeatCount})` : item.label, quantity: Number(effective(item).toFixed(2)), unit: item.unit === 'm2' ? 'm²' : 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Stavka dodana u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
 		totals.querySelector('.add-net-total-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
+			const description = 'Surface nette (ouvertures déduites)';
+			const quantity = Number(totalNetM2.toFixed(2));
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'm²'))) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Surface nette (ouvertures déduites)', quantity: Number(totalNetM2.toFixed(2)), unit: 'm²', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Total net dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
 		totals.querySelector('.add-openings-unit-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
+			const description = 'Ouvertures (fenêtres/portes) - fourniture et pose';
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, openingsCount, 'unité'))) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Ouvertures (fenêtres/portes) - fourniture et pose', quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Ouvertures (unité) dodate u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
 		totals.querySelector('.add-openings-ml-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
+			const description = 'Pourtour ouvertures (étanchéité/finition)';
+			const quantity = Number(openingsPerimeterMl.toFixed(2));
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'ml'))) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Pourtour ouvertures (étanchéité/finition)', quantity: Number(openingsPerimeterMl.toFixed(2)), unit: 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
 				toast('Pourtour ouvertures (ml) dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
