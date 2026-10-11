@@ -1929,10 +1929,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		for (const project of projects) {
 			const budget = await request(`/projects/${project.id}/budget`);
 			const financial = await request(`/projects/${project.id}/financial-summary`);
-			rows.push({ project, budget, financial });
+			const lineItems = await request(`/projects/${project.id}/budget/line-items`).catch(() => []);
+			rows.push({ project, budget, financial, lineItems });
 		}
 		const selected = rows.find((row) => row.project.id === selectedProjectId);
-		if (form && selected?.budget?.status !== 'missing') {
+		if (form && selected && selected.budget.status !== 'missing') {
 			form.querySelector('[name="devisNumber"]').value = selected.budget.devisNumber || '';
 			form.querySelector('[name="client"]').value = selected.budget.client || '';
 			form.querySelector('[name="chantierName"]').value = selected.budget.chantierName || selected.project.name || '';
@@ -1943,7 +1944,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.querySelector('[name="chantierName"]').value = selected?.project?.name || '';
 			form.querySelector('[name="total"]').value = '';
 		}
-		target.innerHTML = rows.length ? rows.map(({ project, budget, financial }) => `<div class="list-item"><strong>${escapeHtml(project.name)}</strong><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${project.id !== 'lot-a' && isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div>`).join('') : '<small>Nema registrovanih chantiers.</small>';
+		// The devis total alone doesn't say where the number comes from - show the detected/created line
+		// items (quantité, prix unitaire, total) grouped by category right under each chantier's summary,
+		// so uploading a devis visibly produces its full breakdown here, not just in Lignes & assignation.
+		const renderLineItemsDetail = (lineItems) => {
+			if (!lineItems.length) return '';
+			const categories = new Map();
+			lineItems.forEach((item) => { const key = item.category || item.description; if (!categories.has(key)) categories.set(key, []); categories.get(key).push(item); });
+			const rowsHtml = [...categories.entries()].map(([category, items]) => `<div class="budget-line-items-category"><strong>${escapeHtml(category)}</strong>${items.map((item) => `<div class="budget-line-item-row"><span>${escapeHtml(item.description)}</span><span>${Number(item.quantity || 0)} ${escapeHtml(item.unit || '')}</span><span>${formatEUR(item.unitPrice)}</span><span>${formatEUR(item.lineTotal)}</span></div>`).join('')}</div>`).join('');
+			return `<details class="budget-line-items-detail"><summary>Voir le détail du devis (${lineItems.length} stavke)</summary>${rowsHtml}</details>`;
+		};
+		target.innerHTML = rows.length ? rows.map(({ project, budget, financial, lineItems }) => `<div class="list-item"><strong>${escapeHtml(project.name)}</strong><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${renderLineItemsDetail(lineItems)}${project.id !== 'lot-a' && isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div>`).join('') : '<small>Nema registrovanih chantiers.</small>';
 		document.querySelectorAll('.remove-project').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm(`Supprimer le chantier ${button.dataset.name} et les données associées ?`)) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');

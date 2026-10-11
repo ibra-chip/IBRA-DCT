@@ -379,6 +379,13 @@ button[disabled],button[aria-busy="true"]{cursor:not-allowed;opacity:.6}
 .production-report-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px;font-size:.78rem;color:var(--text)}
 .production-method-tag{padding:2px 7px;border:1px solid #9bd5ff35;border-radius:999px;color:var(--blue);font-size:.68rem;font-weight:800}
 .duplicate-tag{border-color:#f4c86f66;color:var(--yellow);margin-left:8px}
+.budget-line-items-detail{margin-top:10px;padding:10px 12px;border:1px solid var(--roster-line,#ffffff14);border-radius:12px;background:#ffffff04}
+.budget-line-items-detail summary{cursor:pointer;font-weight:800;font-size:.84rem}
+.budget-line-items-category{margin-top:10px}
+.budget-line-items-category>strong{display:block;font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px}
+.budget-line-item-row{display:grid;grid-template-columns:1fr auto auto auto;gap:10px;padding:5px 0;font-size:.82rem;border-top:1px solid var(--roster-line,#ffffff0f)}
+.budget-line-item-row:first-child{border-top:0}
+.budget-line-item-row>span:not(:first-child){text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
 .production-method-ar{border-color:#31d3a466;color:var(--green)}
 .production-method-photo{border-color:#f4c86f66;color:var(--yellow)}
 .production-method-ai{border-color:#f77d7d66;color:var(--red)}
