@@ -372,3 +372,60 @@ test('planType is ignored (stays null) for a non-plan evidenceType, and for a bo
 	assert.equal(bogus.status, 201);
 	assert.equal(bogus.body.planType, null);
 });
+
+// Window/door openings: traced the same way as any other polygon, just tagged role: 'opening' so the
+// client can subtract them from a wall's gross area (net = gross surfaces - openings) instead of the
+// user doing that arithmetic by hand for every window. Own document + calibration, independent of the
+// shared `documentId` used by the earlier count-sensitive tests above.
+let openingsDocId;
+
+test('setup: a fresh calibrated plan for the opening/deduction tests', async () => {
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'plan-openings.jpg', contentType: 'image/jpeg', buffer: Buffer.from('fake-plan-openings-bytes') });
+	assert.equal(upload.status, 201);
+	openingsDocId = upload.body.id;
+	// 100px represents 10m -> exactly 10 pixels per meter, for round numbers below.
+	const calibration = await call('PATCH', `/api/documents/${openingsDocId}/calibration`, tokenFor('owner-a', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 100, y: 0 }, realDistanceM: 10 });
+	assert.equal(calibration.status, 200);
+	assert.equal(calibration.body.calibration.pixelsPerMeter, 10);
+});
+
+test('a polygon marked role: opening is stored as an opening', async () => {
+	const response = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'Fenêtre salon', points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.role, 'opening');
+	// 20x20px at 10px/m -> 2x2m -> exactly 4.00 m2, same shoelace math as any other polygon.
+	assert.equal(response.body.value, 4);
+});
+
+test('a polygon with no role, or an unrecognized role, defaults to surface (never silently becomes a deduction)', async () => {
+	const noRole = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', label: 'Mur', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(noRole.body.role, 'surface');
+	const junkRole = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'not-a-real-role', label: 'Mur', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
+	assert.equal(junkRole.body.role, 'surface');
+});
+
+test('role is ignored for a line - a length has nothing to deduct from, so it always stays surface', async () => {
+	const response = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', role: 'opening', label: 'Bavette', points: [{ x: 0, y: 0 }, { x: 20, y: 0 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.role, 'surface');
+});
+
+test('net area (gross wall minus two windows) matches hand-computed expectation', async () => {
+	// Wall: 100x50px at 10px/m -> 10x5m -> 50 m2 gross. Two 20x20px (2x2m) windows -> 4 m2 each -> 8 m2 total.
+	// Net = 50 - 8 = 42 m2. This is the exact arithmetic the client's "Total net" / "Ajouter le total net
+	// au devis" button performs over whatever the server has stored - proven here against the real
+	// persisted measurements rather than assumed.
+	const wall = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', label: 'Mur pignon', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }] });
+	assert.equal(wall.body.value, 50);
+	const window2 = await call('POST', `/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', role: 'opening', label: 'Fenêtre cuisine', points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }] });
+	assert.equal(window2.body.value, 4);
+
+	const all = await get(`/api/documents/${openingsDocId}/measurements`, tokenFor('owner-a', 'gerant'));
+	const surfaces = all.body.measurements.filter((item) => item.unit === 'm2' && item.role !== 'opening' && item.label === 'Mur pignon');
+	const openings = all.body.measurements.filter((item) => item.unit === 'm2' && item.role === 'opening');
+	const gross = surfaces.reduce((sum, item) => sum + item.value, 0);
+	const deducted = openings.reduce((sum, item) => sum + item.value, 0);
+	assert.equal(gross, 50);
+	assert.equal(deducted, 8);
+	assert.equal(gross - deducted, 42);
+});

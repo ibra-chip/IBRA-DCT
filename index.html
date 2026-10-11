@@ -241,11 +241,12 @@
 		</div>
 		<div id="plan-measure-modal" class="modal worker-detail-modal" hidden role="dialog" aria-modal="true" aria-labelledby="plan-measure-title">
 			<aside class="worker-detail-card plan-measure-card" tabindex="-1">
-				<div class="worker-detail-header"><div><small>MESURE DU PLAN</small><h2 id="plan-measure-title">Mesurer le plan</h2><p>Calibrez l’échelle une fois, puis tracez des lignes (ml) ou des surfaces (m²) — géométrie exacte, aucune IA.</p></div><button id="plan-measure-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
+				<div class="worker-detail-header"><div><small>MESURE DU PLAN</small><h2 id="plan-measure-title">Mesurer le plan</h2><p>Calibrez l’échelle une fois, puis tracez des lignes (ml), des surfaces (m²) et les ouvertures à déduire (fenêtres, portes) — le total net se calcule tout seul. Géométrie exacte, aucune IA.</p></div><button id="plan-measure-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
 				<div class="plan-measure-toolbar">
 					<button type="button" class="secondary" id="plan-measure-calibrate">Calibrer l’échelle</button>
 					<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
 					<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
+					<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
 					<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>
 					<button type="button" class="secondary" id="plan-measure-cancel-draw" hidden>Annuler le tracé</button>
 					<button type="button" class="secondary" id="plan-measure-info">Lire les infos du plan (IA)</button>

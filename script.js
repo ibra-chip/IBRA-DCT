@@ -1964,8 +1964,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			strokePath([planMeasureState.calibration.pointA, planMeasureState.calibration.pointB], false); ctx.stroke();
 		}
 		planMeasureState.measurements.forEach((item) => {
-			ctx.strokeStyle = item.type === 'polygon' ? '#f4c86f' : '#72b9ff';
-			ctx.fillStyle = item.type === 'polygon' ? '#f4c86f2e' : 'transparent';
+			const isOpening = item.type === 'polygon' && item.role === 'opening';
+			ctx.strokeStyle = isOpening ? '#f77d7d' : item.type === 'polygon' ? '#f4c86f' : '#72b9ff';
+			ctx.fillStyle = isOpening ? '#f77d7d33' : item.type === 'polygon' ? '#f4c86f2e' : 'transparent';
 			ctx.lineWidth = 2;
 			strokePath(item.points, item.type === 'polygon');
 			if (item.type === 'polygon') ctx.fill();
@@ -1990,22 +1991,31 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!status || !planMeasureState) return;
 		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
-		if (planMeasureState.mode === 'polygon') { status.textContent = `Surface en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
+		if (planMeasureState.mode === 'polygon') { const kind = planMeasureState.drawRole === 'opening' ? 'Ouverture à déduire' : 'Surface'; status.textContent = `${kind} en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
 		status.textContent = planMeasureState.calibration ? `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m` : 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.';
 	}
 	function planMeasureSyncToolbar() {
 		const disabled = !planMeasureState?.calibration;
 		document.querySelector('#plan-measure-line')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
 	}
 	function planMeasureRenderList() {
 		const totals = document.querySelector('#plan-measure-totals');
 		const list = document.querySelector('#plan-measure-list');
 		if (!totals || !list) return;
 		const totalMl = planMeasureState.measurements.filter((item) => item.unit === 'ml').reduce((sum, item) => sum + item.value, 0);
-		const totalM2 = planMeasureState.measurements.filter((item) => item.unit === 'm2').reduce((sum, item) => sum + item.value, 0);
-		totals.innerHTML = `<span>Total : ${totalMl.toFixed(2)} ml</span><span>Total : ${totalM2.toFixed(2)} m²</span>`;
-		list.innerHTML = planMeasureState.measurements.length ? planMeasureState.measurements.map((item) => `<div class="list-item"><strong>${escapeHtml(item.label)}</strong><small>${item.value.toFixed(2)} ${item.unit === 'm2' ? 'm²' : 'ml'}</small><div><button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button><button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`).join('') : '<small>Aucune mesure pour ce plan.</small>';
+		const surfaces = planMeasureState.measurements.filter((item) => item.unit === 'm2' && item.role !== 'opening');
+		const openings = planMeasureState.measurements.filter((item) => item.unit === 'm2' && item.role === 'opening');
+		const totalGrossM2 = surfaces.reduce((sum, item) => sum + item.value, 0);
+		const totalOpeningsM2 = openings.reduce((sum, item) => sum + item.value, 0);
+		const totalNetM2 = Math.max(0, totalGrossM2 - totalOpeningsM2);
+		totals.innerHTML = `<span>Total : ${totalMl.toFixed(2)} ml</span><span>Total brut : ${totalGrossM2.toFixed(2)} m²</span>${openings.length ? `<span>Ouvertures à déduire : −${totalOpeningsM2.toFixed(2)} m²</span><span><strong>Total net : ${totalNetM2.toFixed(2)} m²</strong></span><button type="button" class="secondary add-net-total-to-devis">Ajouter le total net au devis</button>` : ''}`;
+		list.innerHTML = planMeasureState.measurements.length ? planMeasureState.measurements.map((item) => {
+			const isOpening = item.role === 'opening';
+			const sign = isOpening ? '− ' : '';
+			return `<div class="list-item"><strong>${escapeHtml(item.label)}${isOpening ? ' <span class="production-method-tag plan-type-existant-tag">Ouverture (déduite)</span>' : ''}</strong><small>${sign}${item.value.toFixed(2)} ${item.unit === 'm2' ? 'm²' : 'ml'}</small><div>${isOpening ? '' : `<button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button>`}<button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`;
+		}).join('') : '<small>Aucune mesure pour ce plan.</small>';
 		list.querySelectorAll('.delete-measurement').forEach((button) => button.addEventListener('click', async () => {
 			button.disabled = true;
 			try { await request(`/measurements/${button.dataset.measurement}`, { method: 'DELETE' }); planMeasureState.measurements = planMeasureState.measurements.filter((item) => item.id !== button.dataset.measurement); planMeasureRenderList(); planMeasureRedraw(); }
@@ -2022,8 +2032,18 @@ document.addEventListener('DOMContentLoaded', () => {
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
+		totals.querySelector('.add-net-total-to-devis')?.addEventListener('click', async (event) => {
+			const button = event.currentTarget;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			try {
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: 'Surface nette (ouvertures déduites)', quantity: Number(totalNetM2.toFixed(2)), unit: 'm²', unitPrice: 0, lineTotal: 0, category }] }) });
+				toast('Total net dodat u devis.');
+			} catch { toast('Stavka nije dodana.'); }
+			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+		});
 	}
-	function planMeasureSetMode(mode) {
+	function planMeasureSetMode(mode, role = 'surface') {
 		// Drawing without a calibration would only ever produce 0.00 (planMeasureLengthM/AreaM2 refuse to
 		// guess a px/m ratio that doesn't exist yet) - block entering that mode at all instead of letting
 		// someone trace a whole shape only to find out silently at the end that nothing was measured.
@@ -2032,12 +2052,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			return;
 		}
 		planMeasureState.mode = mode;
+		planMeasureState.drawRole = role;
 		planMeasureState.drawPoints = [];
 		planMeasureState.calibratePoints = [];
 		document.querySelectorAll('.plan-measure-toolbar button[id^="plan-measure-"]').forEach((button) => button.classList.remove('active'));
 		if (mode === 'calibrate') document.querySelector('#plan-measure-calibrate')?.classList.add('active');
 		if (mode === 'line') document.querySelector('#plan-measure-line')?.classList.add('active');
-		if (mode === 'polygon') document.querySelector('#plan-measure-polygon')?.classList.add('active');
+		if (mode === 'polygon') document.querySelector(role === 'opening' ? '#plan-measure-opening' : '#plan-measure-polygon')?.classList.add('active');
 		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon';
 		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
 		planMeasureUpdateStatus();
@@ -2066,7 +2087,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			canvas.width = Math.round(image.naturalWidth * scale);
 			canvas.height = Math.round(image.naturalHeight * scale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawPoints: [], calibratePoints: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
 			planMeasureRenderList();
 			planMeasureSetMode(null);
 			const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
@@ -2094,18 +2115,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-modal')?.addEventListener('click', (event) => { if (event.target.id === 'plan-measure-modal') closePlanMeasure(); });
 	document.querySelector('#plan-measure-calibrate')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'calibrate' ? null : 'calibrate'));
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
-	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' ? null : 'polygon'));
+	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
+	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
 	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
-		const { mode, drawPoints } = planMeasureState;
+		const { mode, drawPoints, drawRole } = planMeasureState;
 		const minPoints = mode === 'polygon' ? 3 : 2;
 		if (drawPoints.length < minPoints) { toast(`Il faut au moins ${minPoints} points.`); return; }
-		const defaultLabel = mode === 'polygon' ? 'Surface' : 'Ligne';
-		const label = window.prompt('Nom de cette mesure (ex. Façade Nord, Bavette fenêtre 1) :', defaultLabel);
+		const defaultLabel = mode === 'polygon' ? (drawRole === 'opening' ? 'Fenêtre' : 'Surface') : 'Ligne';
+		const label = window.prompt('Nom de cette mesure (ex. Façade Nord, Fenêtre salon) :', defaultLabel);
 		if (!label?.trim()) return;
 		try {
-			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, label: label.trim(), points: drawPoints }) });
+			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, role: drawRole, label: label.trim(), points: drawPoints }) });
 			planMeasureState.measurements.push(measurement);
 			planMeasureRenderList();
 			planMeasureSetMode(null);

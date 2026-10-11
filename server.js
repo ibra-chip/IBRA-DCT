@@ -2691,9 +2691,12 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	const minPoints = type === 'polygon' ? 3 : 2;
 	if (points.length < minPoints) return response.status(400).json({ error: `At least ${minPoints} points are required` });
 	const label = String(request.body.label || '').trim() || (type === 'polygon' ? 'Surface' : 'Ligne');
+	// "opening" only applies to polygons (a window/door traced inside a wall surface, to subtract from
+	// it) - a line has no area to deduct from, so it always stays "surface" regardless of what's sent.
+	const role = type === 'polygon' && request.body.role === 'opening' ? 'opening' : 'surface';
 	const { pixelsPerMeter } = item.calibration;
 	const value = type === 'polygon' ? polygonAreaPx(points) / (pixelsPerMeter ** 2) : polylineLengthPx(points) / pixelsPerMeter;
-	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, label, points, value, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.planMeasurements = [...(data.planMeasurements || []), measurement];
 	await writeData(data);
 	response.status(201).json(measurement);
