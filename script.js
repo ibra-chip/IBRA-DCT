@@ -1246,7 +1246,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const url = URL.createObjectURL(file);
 		const overlay = document.createElement('div');
 		overlay.className = 'photo-meter-overlay';
-		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>Mjerenje iz uploadovane slike</strong><small>1) Upisite poznatu mjeru u metrima. 2) Cliquez les deux points de cette mesure (jaune). 3) Cliquez les points de la ligne/les coins de la surface à mesurer (vert). 4) Choisissez ci-dessous m² ou ml.</small><label>Poznata mjera (m)</label><input id="photo-meter-reference" type="number" min="0.01" step="0.01" placeholder="Saisissez votre mesure en mètres" /><span id="photo-meter-status">Referenca: 0/2 tacke</span><button class="secondary" id="photo-meter-reset" type="button">Ponovi tacke</button><div class="photo-meter-finish-row"><button class="primary" id="photo-meter-finish-m2" type="button">Calculer m²</button><button class="primary" id="photo-meter-finish-ml" type="button">Calculer ml</button></div><button class="secondary" id="photo-meter-cancel" type="button">Zatvori</button></div>`;
+		overlay.innerHTML = `<canvas></canvas><div class="ar-meter-panel"><strong>Mjerenje iz uploadovane slike</strong><small>1) Upisite poznatu mjeru u metrima. 2) Cliquez les deux points de cette mesure (jaune). 3) Cliquez les points de la ligne/les coins de la surface à mesurer (vert). 4) Choisissez ci-dessous m² ou ml.</small><small class="photo-meter-accuracy-warning">⚠ Za tačnost: slika mora biti snimljena pravo sprijeda/odozgo (ne ukoso), a poznata mjera (referenca) mora biti na istoj površini i istoj udaljenosti od kamere kao ono što mjerite. Ukošena slika ili referenca na drugoj ravni daje pogrešan rezultat — za nagnute/udaljene površine koristite AR metar kamerom umjesto ove opcije.</small><label>Poznata mjera (m)</label><input id="photo-meter-reference" type="number" min="0.01" step="0.01" placeholder="Saisissez votre mesure en mètres" /><span id="photo-meter-status">Referenca: 0/2 tacke</span><button class="secondary" id="photo-meter-reset" type="button">Ponovi tacke</button><div class="photo-meter-finish-row"><button class="primary" id="photo-meter-finish-m2" type="button">Calculer m²</button><button class="primary" id="photo-meter-finish-ml" type="button">Calculer ml</button></div><button class="secondary" id="photo-meter-cancel" type="button">Zatvori</button></div>`;
 		document.body.append(overlay);
 		const canvas = overlay.querySelector('canvas');
 		const context = canvas.getContext('2d');
@@ -1325,7 +1325,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 			form.elements.m2Source.value = `photo-calibrated-${unit}`;
 			form.elements.quantity.dispatchEvent(new Event('input'));
-			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Sacuvajte izvjestaj ako je tacno.`;
+			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Provjerite da je slika bila prava (ne ukosa) prije nego sačuvate izvještaj.`;
 			close();
 		};
 		overlay.querySelector('#photo-meter-finish-m2').addEventListener('click', () => finish('m2'));
