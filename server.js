@@ -19,6 +19,7 @@ import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } f
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfFirstPage } from './lib/compress-upload.js';
+import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -1410,10 +1411,18 @@ const extractDevisLineItemsWithGemini = async (file) => {
 	} catch (parseError) { return { items: [], error: `Réponse Gemini illisible : ${parseError.message}` }; }
 };
 app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'A Devis PDF, photo, or Excel file is required' });
+	// An Excel bill-of-quantities is read directly cell by cell - no AI, no text pattern guessing, the
+	// most precise source available - so it's branched off entirely before the PDF/photo path below.
+	if (isExcelFile(request.file)) {
+		const excelResult = await parseDevisExcel(request.file.buffer);
+		const total = excelResult.items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+		return response.json({ extracted: { number: '', client: '', chantier: '', total }, lineItems: excelResult.items, lineItemsError: excelResult.error, textFound: true, needsConfirmation: true, source: request.file.originalname, aiFallbackUsed: false });
+	}
 	// Accepts a phone photo of a paper devis, not only a real PDF: a scanned/photographed page has no
 	// text layer for parsePdf anyway, so it already depended entirely on the Gemini vision fallback
 	// below - rejecting it outright at the door just forced a manual-entry PDF conversion step first.
-	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
+	if (!isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
 	let text = '';
 	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
 	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); } }
@@ -1573,8 +1582,8 @@ app.post('/api/projects/:id/labor-costs', auth, manager, async (request, respons
 });
 app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	// Matches /api/budget/inspect: saving a devis that was only ever photographed, not scanned to PDF,
-	// must not be blocked just because the preview step was allowed to read it.
-	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
+	// or that was a spreadsheet of quantities, must not be blocked just because the preview step read it.
+	if (!request.file || !(isAllowedPersonalDocument(request.file) || isExcelFile(request.file))) return response.status(400).json({ error: 'A Devis PDF, photo, or Excel file is required' });
 	const total = Number(request.body.total || 0);
 	if (!Number.isFinite(total) || total <= 0) return response.status(400).json({ error: 'Devis total is required' });
 	const data = await readData();
