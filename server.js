@@ -1190,7 +1190,6 @@ app.get('/api/projects/:id/weather', auth, async (request, response) => {
 	}
 });
 app.delete('/api/projects/:id', auth, manager, async (request, response) => {
-	if (request.params.id === 'lot-a') return response.status(400).json({ error: 'Default chantier cannot be removed' });
 	const data = await readData();
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
