@@ -18,6 +18,7 @@ import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
+import { compressUpload } from './lib/compress-upload.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -100,6 +101,7 @@ const identityUploadMiddleware = (field) => (request, response, next) => identit
 	if (request.file) {
 		request.file.originalname = Buffer.from(request.file.originalname, 'latin1').toString('utf8');
 		request.file.filename = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(IDENTITY_BUCKET, request.file.filename, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
 	}
 	next();
@@ -1439,6 +1441,7 @@ app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUp
 	const existing = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	if (existing && existing.devisNumber && String(request.body.devisNumber || '') !== existing.devisNumber && request.body.replaceExisting !== 'true') return response.status(409).json({ error: 'An active Devis already exists. Confirm replacement explicitly.' });
 	const sourceFile = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Devis upload failed: ' + uploadError.message }); }
 	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, projectName: context.projectName, chantierName: String(request.body.chantierName || context.projectName), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectBudgets = [...(data.projectBudgets || []).filter((item) => item.projectId !== request.params.id), budget];
@@ -1501,6 +1504,7 @@ app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single(
 	if (!isOwnerRole(worker.role) && !(worker.projectIds || []).includes(item.projectId)) return response.status(403).json({ error: 'Le chantier sélectionné n’est pas accessible à cet ouvrier' });
 	if (request.file) {
 		const attachmentFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
 		item.attachmentFile = attachmentFile;
 		item.attachmentName = request.file.originalname;
@@ -1525,6 +1529,7 @@ app.patch('/api/projects/:id/budget/categories/:category/assign', auth, manager,
 	let attachmentFile = null;
 	if (request.file) {
 		attachmentFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
 	}
 	const now = new Date().toISOString();
@@ -1593,6 +1598,7 @@ app.patch('/api/projects/:id/tasks/category/:category/complete', auth, memoryUpl
 	let completionPhotoFile = null;
 	if (request.file) {
 		completionPhotoFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, completionPhotoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
 	}
 	const now = new Date().toISOString();
@@ -1652,6 +1658,7 @@ app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fix
 	let sourceFile = null;
 	if (request.file) {
 		sourceFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
 	}
 	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber: String(request.body.invoiceNumber || ''), clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
@@ -1719,6 +1726,7 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFil
 	let context;
 	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const invoiceFile = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, invoiceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
 	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, lineItemId: request.body.lineItemId || null, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
@@ -2177,6 +2185,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const storedName = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
 	let autoAnalysis = null;
 	const language = request.body.responseLanguage || 'sr';
@@ -2219,7 +2228,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	attachReferenceLinks(autoAnalysis);
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => {
@@ -2278,8 +2287,9 @@ app.post('/api/personal-documents/upload', auth, upload.single('file'), fixUploa
 	if (callerOwner.id !== owner.id) return response.status(403).json({ error: 'Access denied for this worker' });
 	const expiresAt = request.body.expiresAt ? new Date(request.body.expiresAt).toISOString() : null;
 	const storedName = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
-	const item = { id: `personal-document-${Date.now()}`, workerId: worker.id, ownerId: owner.id, docType, direction: request.user.sub === owner.id ? 'gerant-to-worker' : 'worker-to-gerant', originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, expiresAt, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
+	const item = { id: `personal-document-${Date.now()}`, workerId: worker.id, ownerId: owner.id, docType, direction: request.user.sub === owner.id ? 'gerant-to-worker' : 'worker-to-gerant', originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, expiresAt, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
 	data.personalDocuments = [...(data.personalDocuments || []), item];
 	await writeData(data);
 	response.status(201).json(item);

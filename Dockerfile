@@ -1,5 +1,8 @@
 FROM node:24-alpine
 
+# Ghostscript shrinks uploaded PDFs (downsamples embedded images) before they go to storage.
+RUN apk add --no-cache ghostscript
+
 WORKDIR /app
 
 COPY package.json package-lock.json ./
