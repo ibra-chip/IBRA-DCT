@@ -2044,7 +2044,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			const warning = diff > 0
 				? `⚠ La ligne du devis (${existingQty.toFixed(2)} ${match.unit}) est INFÉRIEURE de ${diff.toFixed(2)} ${unit} à la mesure réelle du plan (${quantity.toFixed(2)} ${unit}).`
 				: `La ligne du devis (${existingQty.toFixed(2)} ${match.unit}) est supérieure de ${Math.abs(diff).toFixed(2)} ${unit} à la mesure réelle du plan (${quantity.toFixed(2)} ${unit}).`;
-			return window.confirm(`Une ligne « ${match.description} » existe déjà dans ce devis.\n${warning}\nAjouter quand même une nouvelle ligne avec la mesure du plan ?`);
+			// If that devis line's own number came from AI reading a PDF/photo (not a deterministic Excel
+			// cell), say so here too - a wrong AI digit could otherwise look like a real discrepancy (or
+			// hide a real one), and this is exactly the moment that number is being relied on to accuse
+			// someone of under-quoting, so it must never be presented as equally certain as a plan measurement.
+			const sourceNote = match.source === 'ai' ? '\n⚠ Cette ligne du devis a été lue par IA depuis un PDF/photo - vérifiez le chiffre sur le document original avant de conclure.' : '';
+			return window.confirm(`Une ligne « ${match.description} » existe déjà dans ce devis.\n${warning}${sourceNote}\nAjouter quand même une nouvelle ligne avec la mesure du plan ?`);
 		} catch {
 			return true;
 		}
@@ -2095,7 +2100,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
 				toast('Stavka dodana u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2108,7 +2113,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
 				toast('Total net dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2120,7 +2125,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
 				toast('Ouvertures (unité) dodate u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2133,7 +2138,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
-				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice: 0, lineTotal: 0, category }] }) });
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice: 0, lineTotal: 0, category }], source: 'plan-measure' }) });
 				toast('Pourtour ouvertures (ml) dodat u devis.');
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
@@ -2170,6 +2175,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		const docItem = documents.find((item) => item.id === documentId);
 		if (!docItem) { toast('Document introuvable.'); return; }
 		modal.hidden = false; modal.setAttribute('aria-hidden', 'false');
+		// Shown prominently so the chantier being measured is never ambiguous - this plan's measurements
+		// are only ever compared against THIS chantier's devis lines (server-scoped by projectId), but a
+		// wrong visual read here (measuring the right plan while assuming a different chantier) would
+		// still send someone looking at the wrong devis entirely.
+		const projectName = projectsCache.find((project) => project.id === docItem.projectId)?.name || docItem.projectId;
+		const titleEl = document.querySelector('#plan-measure-title');
+		if (titleEl) titleEl.textContent = `Mesurer le plan — ${projectName} — ${docItem.originalName}`;
 		document.querySelector('#plan-measure-info-box').hidden = true;
 		document.querySelector('#plan-measure-status').textContent = 'Chargement du plan...';
 		try {
@@ -2213,6 +2225,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (modal) { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); }
 		if (planMeasureState?.objectUrl) URL.revokeObjectURL(planMeasureState.objectUrl);
 		planMeasureState = null;
+		const titleEl = document.querySelector('#plan-measure-title');
+		if (titleEl) titleEl.textContent = 'Mesurer le plan';
 	}
 	document.querySelector('#plan-measure-close')?.addEventListener('click', closePlanMeasure);
 	document.querySelector('#plan-measure-modal')?.addEventListener('click', (event) => { if (event.target.id === 'plan-measure-modal') closePlanMeasure(); });
@@ -2710,13 +2724,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 	});
 	let pendingDevisLineItems = [];
+	let pendingDevisLineItemsSource = 'manual';
 	function renderPendingLineItems() {
 		const panel = document.querySelector('#devis-line-items-pending-panel');
 		const container = document.querySelector('#devis-line-items-pending-table');
 		if (!panel || !container) return;
 		if (!pendingDevisLineItems.length) { panel.hidden = true; container.innerHTML = ''; return; }
 		panel.hidden = false;
-		container.innerHTML = pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Catégorie<input type="text" data-field="category" value="${escapeHtml(item.category || '')}" /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
+		const aiWarning = pendingDevisLineItemsSource === 'ai'
+			? '<p class="ai-badge">⚠ Lignes lues par IA depuis un PDF/photo — comparez les quantités avec le document original avant de confirmer, surtout si vous vérifiez un devis reçu d’un autre intervenant.</p>'
+			: '';
+		container.innerHTML = aiWarning + pendingDevisLineItems.map((item, index) => `<div class="list-item" data-pending-index="${index}"><label>Inclure<input type="checkbox" data-field="include" checked /></label><label>Catégorie<input type="text" data-field="category" value="${escapeHtml(item.category || '')}" /></label><label>Description<input type="text" data-field="description" value="${escapeHtml(item.description || '')}" /></label><label>Quantité<input type="number" step="0.01" data-field="quantity" value="${item.quantity ?? ''}" /></label><label>Unité<input type="text" data-field="unit" value="${escapeHtml(item.unit || '')}" /></label><label>Prix unitaire EUR<input type="number" step="0.01" data-field="unitPrice" value="${item.unitPrice ?? ''}" /></label><label>Total EUR<input type="number" step="0.01" data-field="lineTotal" value="${item.lineTotal ?? ''}" /></label></div>`).join('');
 	}
 	let pendingBudgetProjectCreation = null;
 	async function ensureBudgetProjectId() {
@@ -2752,8 +2770,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!items.length) { toast('Sélectionnez au moins une ligne.'); return; }
 		button.disabled = true; button.setAttribute('aria-busy', 'true');
 		try {
-			await request(`/projects/${projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items }) });
+			await request(`/projects/${projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items, source: pendingDevisLineItemsSource }) });
 			pendingDevisLineItems = [];
+			pendingDevisLineItemsSource = 'manual';
 			renderPendingLineItems();
 			toast('Tâches créées à partir du devis.');
 			if (document.querySelector('.view.active')?.id === 'line-items-view') await loadLineItems();
@@ -2952,7 +2971,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	document.querySelector('#purchase-form [name="projectId"]')?.addEventListener('change', populatePurchaseLineItemSelect);
 	document.querySelector('#budget-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#budget-file').files[0]; const form = event.currentTarget; const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } const sendBudget = async (replaceExisting = false) => { const projectId = await ensureBudgetProjectId(); const body = new FormData(form); body.set('projectId', projectId); if (file) body.set('file', file, file.name); if (replaceExisting) body.set('replaceExisting', 'true'); return fetch(`${api}/projects/${projectId}/budget`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); }; try { let response = await sendBudget(false); if (response.status === 409 && window.confirm('Un Devis existe deja pour ce chantier. Remplacer par le nouveau PDF ?')) response = await sendBudget(true); if (!response.ok) { const details = await response.text(); throw new Error(`${response.status}: ${details}`); } form.reset(); await refreshActiveView(); toast('Devis et chantier enregistres.'); } catch (error) { toast(`Devis non enregistre : ${error.message || 'erreur inconnue'}`); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
-	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Lecture du fichier...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'Le PDF a été lu partiellement. Vérifiez les champs signalés avant d’enregistrer.' : `Lu automatiquement depuis : ${result.source}`; pendingDevisLineItems = Array.isArray(result.lineItems) ? result.lineItems : []; status.textContent += result.lineItemsError ? ` · Lignes : ${result.lineItemsError}` : ` · Lignes détectées : ${pendingDevisLineItems.length}`; renderPendingLineItems(); } catch (error) { status.textContent = `Impossible de lire le fichier automatiquement (${error?.message || 'erreur inconnue'}). Saisissez les valeurs manuellement.`; } });
+	document.querySelector('#budget-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#devis-extraction-status'); status.textContent = 'Lecture du fichier...'; try { const response = await fetch(`${api}/budget/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#budget-form'); form.querySelector('[name="devisNumber"]').value = result.extracted.number; form.querySelector('[name="client"]').value = result.extracted.client; form.querySelector('[name="chantierName"]').value = result.extracted.chantier; form.querySelector('[name="total"]').value = result.extracted.total || ''; const projectSelect = form.querySelector('[name="projectId"]'); const chantierText = result.extracted.chantier.toLowerCase(); const matchingOption = [...projectSelect.options].find((option) => option.value !== '__new' && chantierText && option.textContent.toLowerCase().includes(chantierText)); projectSelect.value = matchingOption ? matchingOption.value : '__new'; status.textContent = result.needsConfirmation ? 'Le PDF a été lu partiellement. Vérifiez les champs signalés avant d’enregistrer.' : `Lu automatiquement depuis : ${result.source}`; pendingDevisLineItems = Array.isArray(result.lineItems) ? result.lineItems : []; pendingDevisLineItemsSource = result.lineItemsSource === 'ai' ? 'ai' : result.lineItemsSource === 'excel' ? 'excel' : 'manual'; status.textContent += result.lineItemsError ? ` · Lignes : ${result.lineItemsError}` : ` · Lignes détectées : ${pendingDevisLineItems.length}`; renderPendingLineItems(); } catch (error) { status.textContent = `Impossible de lire le fichier automatiquement (${error?.message || 'erreur inconnue'}). Saisissez les valeurs manuellement.`; } });
 	document.querySelector('#budget-form [name="projectId"]')?.addEventListener('change', loadBudget);
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture PDF ou un justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et la facture PDF ont été enregistrées ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
 	document.querySelector('#invoice-file')?.addEventListener('change', async (event) => { const file = event.currentTarget.files[0]; if (!file) return; const body = new FormData(); body.append('file', file); const status = document.querySelector('#purchase-extraction-status'); status.textContent = 'Lecture de la facture PDF...'; try { const response = await fetch(`${api}/pdf/inspect`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); const result = await response.json(); const form = document.querySelector('#purchase-form'); form.querySelector('[name="supplier"]').value = result.extracted.supplier; form.querySelector('[name="amount"]').value = result.extracted.amount || ''; form.querySelector('[name="purchaseDate"]').value = result.extracted.date || ''; status.textContent = result.needsOcr ? 'Le PDF est scanné. Une vérification manuelle/OCR est nécessaire.' : `Lu automatiquement depuis : ${result.source}`; } catch { status.textContent = 'Impossible de lire le PDF automatiquement. Saisissez les valeurs manuellement.'; } });

@@ -380,6 +380,7 @@ button[disabled],button[aria-busy="true"]{cursor:not-allowed;opacity:.6}
 .production-method-tag{padding:2px 7px;border:1px solid #9bd5ff35;border-radius:999px;color:var(--blue);font-size:.68rem;font-weight:800}
 .duplicate-tag{border-color:#f4c86f66;color:var(--yellow);margin-left:8px}
 .plan-type-existant-tag{border-color:#f77d7d66;color:var(--red);margin-left:8px}
+.ai-badge{padding:8px 12px;border:1px solid #f77d7d66;border-radius:10px;background:#f77d7d14;color:var(--red);font-size:.82rem;font-weight:600;margin-bottom:10px}
 .plan-type-nouveau-tag{border-color:#31d3a466;color:var(--green);margin-left:8px}
 .budget-line-items-detail{margin-top:10px;padding:10px 12px;border:1px solid var(--roster-line,#ffffff14);border-radius:12px;background:#ffffff04}
 .budget-line-items-detail summary{cursor:pointer;font-weight:800;font-size:.84rem}

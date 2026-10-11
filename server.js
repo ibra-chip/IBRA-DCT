@@ -1439,7 +1439,7 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 	if (isExcelFile(request.file)) {
 		const excelResult = await parseDevisExcel(request.file.buffer);
 		const total = excelResult.items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
-		return response.json({ extracted: { number: '', client: '', chantier: '', total }, lineItems: excelResult.items, lineItemsError: excelResult.error, textFound: true, needsConfirmation: true, source: request.file.originalname, aiFallbackUsed: false });
+		return response.json({ extracted: { number: '', client: '', chantier: '', total }, lineItems: excelResult.items, lineItemsSource: 'excel', lineItemsError: excelResult.error, textFound: true, needsConfirmation: true, source: request.file.originalname, aiFallbackUsed: false });
 	}
 	// Accepts a phone photo of a paper devis, not only a real PDF: a scanned/photographed page has no
 	// text layer for parsePdf anyway, so it already depended entirely on the Gemini vision fallback
@@ -1463,7 +1463,7 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 		}
 	}
 	const lineItemsResult = await extractDevisLineItemsWithGemini(request.file);
-	response.json({ extracted, lineItems: lineItemsResult.items, lineItemsError: lineItemsResult.error, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItemsResult.items.length > 0 });
+	response.json({ extracted, lineItems: lineItemsResult.items, lineItemsSource: 'ai', lineItemsError: lineItemsResult.error, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItemsResult.items.length > 0 });
 });
 app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
@@ -1626,6 +1626,10 @@ app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, r
 	const items = Array.isArray(request.body.items) ? request.body.items : [];
 	if (!items.length) return response.status(400).json({ error: 'At least one line item is required' });
 	const existingCount = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).length;
+	// Tracks whether a line's quantity is a deterministic read (Excel cell, or the plan tool's calibrated
+	// geometry) or an AI guess (a PDF/photo devis's pricing table) - surfaced later wherever a line item
+	// is shown or compared against, so an AI-read number is never silently treated as equally certain.
+	const source = ['excel', 'ai', 'plan-measure'].includes(request.body.source) ? request.body.source : 'manual';
 	const created = items.map((item, index) => ({
 		id: `line-item-${Date.now()}-${index}`,
 		projectId: request.params.id,
@@ -1635,6 +1639,7 @@ app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, r
 		unitPrice: Number(item.unitPrice) || 0,
 		lineTotal: Number(item.lineTotal) || 0,
 		category: String(item.category || '').trim() || String(item.description || '').trim(),
+		source,
 		status: 'unassigned',
 		assignedTo: null,
 		assignedToName: '',
