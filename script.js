@@ -1,5 +1,12 @@
 document.addEventListener('DOMContentLoaded', () => {
-	const api = window.location.protocol === 'file:' ? 'http://localhost:3000/api' : `${window.location.origin}/api`;
+	// Always the real backend, regardless of what origin served this HTML (ibra-ba.net today, a
+	// Cloudflare Pages test domain tomorrow) -- except on localhost, where it stays same-origin so
+	// local dev (npm run dev) keeps talking to the local server, not production.
+	const api = (() => {
+		if (window.location.protocol === 'file:') return 'http://localhost:3000/api';
+		if (['localhost', '127.0.0.1'].includes(window.location.hostname)) return `${window.location.origin}/api`;
+		return 'https://ibra-ba.net/api';
+	})();
 	const updateOfflineBadge = () => document.querySelector('#offline-badge')?.toggleAttribute('hidden', navigator.onLine);
 	window.addEventListener('online', updateOfflineBadge);
 	window.addEventListener('offline', updateOfflineBadge);
