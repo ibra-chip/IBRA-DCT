@@ -283,6 +283,35 @@ for (const denominator of [20, 25, 100, 200, 500, 1000]) {
 	});
 }
 
+// "éch." is the standard French abbreviation for "échelle" and is at least as common on real title
+// blocks as the full word - a real plan reading "PIGNON NORD éch. 1/250" was missed entirely before this
+// fix, silently falling back to asking for manual calibration even though the scale was right there.
+test('the abbreviated "éch." label is recognized, not only the full word "échelle"', async () => {
+	const { PDFDocument: PDFDoc, StandardFonts } = await import('pdf-lib');
+	const pdfDoc = await PDFDoc.create();
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	pdfDoc.addPage([400, 300]).drawText('PIGNON NORD éch. 1/250', { x: 20, y: 20, size: 10, font });
+	const pdfBytes = Buffer.from(await pdfDoc.save());
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'plan-ech-abbrev.pdf', contentType: 'application/pdf', buffer: pdfBytes });
+	assert.equal(upload.status, 201);
+	const suggestion = await get(`/api/documents/${upload.body.id}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
+	assert.equal(suggestion.status, 200);
+	assert.equal(suggestion.body.scaleDenominator, 250);
+});
+
+test('the "ech" substring inside an unrelated word never triggers a false scale match', async () => {
+	const { PDFDocument: PDFDoc, StandardFonts } = await import('pdf-lib');
+	const pdfDoc = await PDFDoc.create();
+	const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+	pdfDoc.addPage([400, 300]).drawText('Fiche technique - recherche 1/2 page', { x: 20, y: 20, size: 10, font });
+	const pdfBytes = Buffer.from(await pdfDoc.save());
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'plan-no-echelle.pdf', contentType: 'application/pdf', buffer: pdfBytes });
+	assert.equal(upload.status, 201);
+	const suggestion = await get(`/api/documents/${upload.body.id}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
+	assert.equal(suggestion.status, 200);
+	assert.equal(suggestion.body.scaleDenominator, null);
+});
+
 test('plan-scale-suggestion returns null for an image plan (no PDF text layer to read)', async () => {
 	const suggestion = await get(`/api/documents/${documentId}/plan-scale-suggestion`, tokenFor('owner-a', 'gerant'));
 	assert.equal(suggestion.status, 200);

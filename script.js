@@ -1993,6 +1993,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (planMeasureState.mode === 'polygon') { status.textContent = `Surface en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
 		status.textContent = planMeasureState.calibration ? `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m` : 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.';
 	}
+	function planMeasureSyncToolbar() {
+		const disabled = !planMeasureState?.calibration;
+		document.querySelector('#plan-measure-line')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
+	}
 	function planMeasureRenderList() {
 		const totals = document.querySelector('#plan-measure-totals');
 		const list = document.querySelector('#plan-measure-list');
@@ -2019,6 +2024,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		}));
 	}
 	function planMeasureSetMode(mode) {
+		// Drawing without a calibration would only ever produce 0.00 (planMeasureLengthM/AreaM2 refuse to
+		// guess a px/m ratio that doesn't exist yet) - block entering that mode at all instead of letting
+		// someone trace a whole shape only to find out silently at the end that nothing was measured.
+		if ((mode === 'line' || mode === 'polygon') && !planMeasureState.calibration) {
+			toast('Calibrez d’abord l’échelle (bouton « Calibrer l’échelle ») avant de tracer une mesure.');
+			return;
+		}
 		planMeasureState.mode = mode;
 		planMeasureState.drawPoints = [];
 		planMeasureState.calibratePoints = [];
@@ -2029,6 +2041,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon';
 		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
 		planMeasureUpdateStatus();
+		planMeasureSyncToolbar();
 		planMeasureRedraw();
 	}
 	async function openPlanMeasure(documentId) {
@@ -2150,6 +2163,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureState.calibration = result.calibration;
 			suggestionBox.hidden = true;
 			planMeasureUpdateStatus();
+			planMeasureSyncToolbar();
 			planMeasureRedraw();
 			toast(`Échelle 1:${scaleDenominator} appliquée depuis le PDF.`);
 		} catch { toast('Calibration échouée.'); }

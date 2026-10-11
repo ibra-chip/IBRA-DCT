@@ -10,19 +10,22 @@ async function makePhotoBuffer(width, height) {
 	return sharp(raw, { raw: { width, height, channels: 3 } }).jpeg({ quality: 95 }).toBuffer();
 }
 
-async function makePdfBuffer(photoBuffer, pages) {
+async function makePdfBuffer(photoBuffer, pages, scale = 4) {
 	const pdfDoc = await PDFDocument.create();
 	const image = await pdfDoc.embedJpg(photoBuffer);
 	for (let i = 0; i < pages; i++) {
-		const page = pdfDoc.addPage([image.width / 4, image.height / 4]);
-		page.drawImage(image, { x: 0, y: 0, width: image.width / 4, height: image.height / 4 });
+		const page = pdfDoc.addPage([image.width / scale, image.height / scale]);
+		page.drawImage(image, { x: 0, y: 0, width: image.width / scale, height: image.height / scale });
 	}
 	return Buffer.from(await pdfDoc.save());
 }
 
 test('compressUpload shrinks a large photo-heavy PDF while keeping it a valid, smaller PDF', async () => {
+	// Embedded at ~8x the "printer" preset's 300 DPI target (so this exercises a genuinely
+	// over-scanned document, not one already near the quality floor the app now preserves for
+	// AI legibility of fine print like dimension tables and glossary diagrams).
 	const photo = await makePhotoBuffer(4000, 3000);
-	const pdf = await makePdfBuffer(photo, 6);
+	const pdf = await makePdfBuffer(photo, 6, 8);
 	const compressed = await compressUpload(pdf, 'application/pdf');
 	assert.ok(compressed.length < pdf.length * 0.5, `expected meaningful shrinkage, got ${pdf.length} -> ${compressed.length}`);
 	assert.equal(compressed.subarray(0, 4).toString(), '%PDF');
