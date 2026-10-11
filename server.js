@@ -1800,13 +1800,21 @@ app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fix
 	if (!Number.isFinite(amount) || amount <= 0) return response.status(400).json({ error: 'A positive invoice amount is required' });
 	const issuedDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.issuedDate || '') ? request.body.issuedDate : new Date().toISOString().slice(0, 10);
 	const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.dueDate || '') ? request.body.dueDate : new Date(new Date(issuedDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	const invoiceNumber = String(request.body.invoiceNumber || '');
 	let sourceFile = null;
+	let fileHash = null;
 	if (request.file) {
+		// Hashed before compression so re-uploading the identical PDF is still caught.
+		fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
 		sourceFile = storageKeyFor(request.file.originalname);
 		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
 	}
-	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber: String(request.body.invoiceNumber || ''), clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, notifiedOverdueAt: null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	// Same invoice number billed twice is the real-world duplicate (double-billing a client); an
+	// identical file is the fallback signal when no invoice number was entered.
+	const duplicate = (data.factures || []).find((item) => item.projectId === request.params.id
+		&& ((invoiceNumber && item.invoiceNumber === invoiceNumber) || (fileHash && item.fileHash === fileHash)));
+	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber, clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, notifiedOverdueAt: null, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfInvoiceNumber: duplicate?.invoiceNumber || null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.factures = [...(data.factures || []), facture];
 	await writeData(data);
 	response.status(201).json({ ...facture, colorStatus: factureColorStatus(facture) });
@@ -2367,6 +2375,10 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 	const data = await readData();
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	// Hashed from the original bytes (before compression, which can vary run to run) so re-uploading
+	// the exact same photo or plan is caught even though evidenceType or the chosen phase differs.
+	const fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
+	const duplicate = (data.documents || []).find((doc) => doc.projectId === projectId && doc.fileHash === fileHash);
 	const storedName = storageKeyFor(request.file.originalname);
 	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
@@ -2411,7 +2423,7 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	attachReferenceLinks(autoAnalysis);
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
 	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => {
