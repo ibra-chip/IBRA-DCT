@@ -2409,6 +2409,15 @@ app.post('/api/documents/:id/explain', auth, async (request, response) => {
 	await writeData(data);
 	response.json({ status: 'generated', explanation });
 });
+app.get('/api/documents/:id/thumbnail-url', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+	if (!url) return response.status(404).json({ error: 'Preview unavailable' });
+	response.json({ url });
+});
 app.get('/api/documents/:id/download', auth, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
