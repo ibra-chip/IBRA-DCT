@@ -25,6 +25,23 @@ import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
+// Last-resort safety net for the whole process, not just one request: Express's own error-handling
+// middleware (further down) only catches what happens inside its request/response cycle - a synchronous
+// throw inside a raw Node callback that isn't part of that cycle (a child_process event handler, a timer,
+// a truly unexpected bug anywhere in the codebase) is NOT routed through it, and Node's default behavior
+// for an uncaught exception or unhandled rejection is to crash the entire process - taking the app down
+// for every concurrent user at once until the host restarts it, not just failing the one request that
+// triggered it. Logging and staying up trades "might run with inconsistent state once" for "definitely
+// doesn't take the whole app down for everyone" - the safer trade for a multi-tenant HTTP server whose
+// actual state (data.json / Supabase) is written through its own already-serialized, conflict-checked
+// path (see writeData below) independent of the process staying alive.
+process.on('uncaughtException', (error) => {
+	console.error('Uncaught exception (process kept alive):', error);
+});
+process.on('unhandledRejection', (reason) => {
+	console.error('Unhandled promise rejection (process kept alive):', reason);
+});
+
 const vapidPublicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
 const vapidPrivateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
 const vapidKeyPattern = /^[A-Za-z0-9_-]+$/;

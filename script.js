@@ -51,6 +51,21 @@ document.addEventListener('DOMContentLoaded', () => {
 	const isOwner = (role = currentUser?.role) => ownerRoles.includes(role);
 	const isWorkerRole = (role) => workerRoles.includes(role);
 	const toast = (message) => { const french = { 'Korisnik je dodat.': 'Utilisateur enregistré.', 'Message enregistré.': 'Message enregistré.', 'Temps de travail enregistré.': 'Temps de travail enregistré.', 'Temps de travail non enregistré.': 'Temps de travail non enregistré.', 'Korisnik nije dodat.': 'Utilisateur non enregistré.', 'Dépense non enregistrée.': 'Dépense non enregistrée.', 'Devis non enregistré.': 'Devis non enregistré.', 'Le devis et le budget ont été enregistrés.': 'Devis et budget enregistrés.' }; const translated = french[message] || String(message).replace('Dokument je obrisan.', 'Document supprimé.').replace('Dokument je preimenovan.', 'Document renommé.').replace('Kopija dokumenta je dodata.', 'Copie du document ajoutée.'); const el = document.querySelector('#toast'); el.textContent = translated; el.classList.add('show'); setTimeout(() => el.classList.remove('show'), 2600); };
+	// Without this, an unhandled error in a click handler fails completely silently from the user's
+	// point of view: the button does nothing, no toast, no visible sign anything went wrong - exactly the
+	// "silent killer" pattern this app has been hardened against everywhere else. This can't fix the bug
+	// itself, but it makes the failure visible instead of invisible, and rate-limits itself so one error
+	// doesn't spam a wall of toasts.
+	let lastErrorToastAt = 0;
+	const reportUnexpectedError = (error) => {
+		console.error('Unhandled client error:', error);
+		const now = Date.now();
+		if (now - lastErrorToastAt < 4000) return;
+		lastErrorToastAt = now;
+		toast('Une erreur inattendue est survenue. Réessayez.');
+	};
+	window.addEventListener('error', (event) => reportUnexpectedError(event.error || event.message));
+	window.addEventListener('unhandledrejection', (event) => reportUnexpectedError(event.reason));
 	let closeQuickEditOutsideHandler = null;
 	let closeQuickEditEscHandler = null;
 	function closeQuickEditPopover() {
