@@ -1,0 +1,247 @@
+// Calibrated on-screen takeoff for plans: no AI involved anywhere here, just geometry. A user clicks two
+// points of a known real-world distance to set pixelsPerMeter, then traces a line (ml) or a polygon (m2)
+// on the plan image; the server recomputes the value from the raw points + calibration rather than
+// trusting whatever number the client sends, so these tests prove the math (distance / shoelace area)
+// against exact, hand-picked pixel coordinates, not just that the endpoints respond.
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import http from 'node:http';
+import jwt from 'jsonwebtoken';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import test, { after, before } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { PDFDocument } from 'pdf-lib';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const port = 9800 + Math.floor(Math.random() * 100);
+const secret = 'local-development-secret-change-before-deploy';
+let child, dataDir, provider;
+
+function fakeProvider() {
+	const files = new Map();
+	const server = http.createServer((request, response) => {
+		const chunks = []; request.on('data', (c) => chunks.push(c));
+		request.on('end', () => {
+			const body = Buffer.concat(chunks);
+			const [pathname] = request.url.split('?');
+			const key = decodeURIComponent(pathname.replace(/^\/ibra-ba-plan-test\//, ''));
+			if (request.method === 'PUT') { files.set(key, body); return response.end(); }
+			if (request.method === 'DELETE') { files.delete(key); return response.end(); }
+			const file = files.get(key);
+			if (!file) { response.statusCode = 404; return response.end(); }
+			if (request.method === 'HEAD') { response.statusCode = 200; return response.end(); }
+			response.end(file);
+		});
+	});
+	return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve({ server, port: server.address().port })));
+}
+
+function postMultipart(requestPath, token, fields, filePart) {
+	const boundary = `----ibraBaPlanTestBoundary${Date.now()}`;
+	const parts = [];
+	for (const [name, value] of Object.entries(fields)) parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`));
+	if (filePart) {
+		parts.push(Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="${filePart.field}"; filename="${filePart.filename}"\r\nContent-Type: ${filePart.contentType}\r\n\r\n`));
+		parts.push(filePart.buffer);
+		parts.push(Buffer.from('\r\n'));
+	}
+	parts.push(Buffer.from(`--${boundary}--\r\n`));
+	const body = Buffer.concat(parts);
+	return new Promise((resolve, reject) => {
+		const request = http.request({ host: '127.0.0.1', port, path: requestPath, method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': `multipart/form-data; boundary=${boundary}`, 'Content-Length': body.length } }, (response) => {
+			const chunks = [];
+			response.on('data', (chunk) => chunks.push(chunk));
+			response.on('end', () => { const buffer = Buffer.concat(chunks); resolve({ status: response.statusCode, contentType: response.headers['content-type'], buffer, body: (() => { try { return JSON.parse(buffer.toString('utf8') || '{}'); } catch { return null; } })() }); });
+		});
+		request.on('error', reject);
+		request.end(body);
+	});
+}
+
+const call = (method, requestPath, token, payload) => new Promise((resolve, reject) => {
+	const body = payload !== undefined ? Buffer.from(JSON.stringify(payload)) : null;
+	const headers = { Authorization: `Bearer ${token}` };
+	if (body) { headers['Content-Type'] = 'application/json'; headers['Content-Length'] = body.length; }
+	const request = http.request({ host: '127.0.0.1', port, path: requestPath, method, headers }, (response) => {
+		let data = '';
+		response.on('data', (chunk) => (data += chunk));
+		response.on('end', () => resolve({ status: response.statusCode, body: JSON.parse(data || '{}') }));
+	});
+	request.on('error', reject);
+	if (body) request.write(body);
+	request.end();
+});
+const get = (requestPath, token) => call('GET', requestPath, token);
+
+before(async () => {
+	provider = await fakeProvider();
+	dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ibra-ba-plan-test-'));
+	const seed = {
+		users: [
+			{ id: 'owner-a', name: 'Owner A', email: 'ownera@example.com', role: 'gerant', siret: '111111111', company: 'Company A', passwordHash: 'unused', projectIds: [], dailyRate: 0, hourlyRate: 0, createdAt: new Date().toISOString() },
+			{ id: 'owner-b', name: 'Owner B', email: 'ownerb@example.com', role: 'gerant', siret: '222222222', company: 'Company B', passwordHash: 'unused', projectIds: [], dailyRate: 0, hourlyRate: 0, createdAt: new Date().toISOString() },
+		],
+		projects: [{ id: 'proj-a', name: 'Chantier A', location: '', progress: 0, status: 'active', manager: 'Owner A', ownerId: 'owner-a', createdAt: new Date().toISOString() }],
+		documents: [],
+	};
+	await fs.writeFile(path.join(dataDir, 'data.json'), JSON.stringify(seed, null, 2));
+	child = spawn(process.execPath, ['server.js'], {
+		cwd: root,
+		env: {
+			...process.env, PORT: String(port), NODE_ENV: 'test', IBRA_DATA_DIR: dataDir,
+			SUPABASE_URL: '', SUPABASE_SERVICE_ROLE_KEY: '', GEMINI_API_KEY: '', GOOGLE_AI_API_KEY: '', OPENAI_API_KEY: '',
+			STORAGE_POOL: 'b2', B2_ENDPOINT: `http://127.0.0.1:${provider.port}`, B2_REGION: 'eu', B2_KEY_ID: 'testkey', B2_SECRET: 'testsecret', B2_BUCKET: 'ibra-ba-plan-test',
+		},
+		stdio: 'ignore',
+	});
+	for (let i = 0; i < 100; i += 1) {
+		try { if ((await get('/api/health')).status === 200) return; } catch { /* not up yet */ }
+		await new Promise((resolve) => setTimeout(resolve, 200));
+	}
+	throw new Error('server did not start');
+});
+
+after(() => { child?.kill(); provider?.server.close(); });
+
+const tokenFor = (userId, role) => jwt.sign({ sub: userId, name: userId, email: `${userId}@example.com`, role, company: '', siret: '', employerCompany: '', employerSiret: '', projectIds: [], avatarUrl: '', companyLogoUrl: '', companyName: '' }, secret, { expiresIn: '8h' });
+
+let documentId;
+
+test('uploading a plan image creates a document we can calibrate', async () => {
+	const result = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'plan-facade.jpg', contentType: 'image/jpeg', buffer: Buffer.from('fake-plan-image-bytes') });
+	assert.equal(result.status, 201);
+	documentId = result.body.id;
+	assert.ok(documentId);
+});
+
+test('measuring before calibration is rejected', async () => {
+	const response = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Bavette', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+	assert.equal(response.status, 400);
+});
+
+test('calibration rejects reference points that are too close together', async () => {
+	const response = await call('PATCH', `/api/documents/${documentId}/calibration`, tokenFor('owner-a', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 0.5, y: 0 }, realDistanceM: 2 });
+	assert.equal(response.status, 400);
+});
+
+test('calibrating the plan scale computes pixelsPerMeter from the two reference points', async () => {
+	// 100px represents 2m of real distance -> 50 pixels per meter.
+	const response = await call('PATCH', `/api/documents/${documentId}/calibration`, tokenFor('owner-a', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 100, y: 0 }, realDistanceM: 2 });
+	assert.equal(response.status, 200);
+	assert.equal(response.body.calibration.pixelsPerMeter, 50);
+});
+
+test('a traced line is measured in exact ml from the calibration, not guessed', async () => {
+	// 150px straight line at 50px/m -> exactly 3.00 ml.
+	const response = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'Bavette fenêtre 1', points: [{ x: 0, y: 0 }, { x: 150, y: 0 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.unit, 'ml');
+	assert.equal(response.body.value, 3);
+});
+
+test('a traced polygon is measured in exact m2 via the shoelace formula', async () => {
+	// 100px x 50px rectangle = 5000 px^2; at (50px/m)^2 = 2500 px^2/m^2 -> exactly 2.00 m2.
+	const response = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', label: 'Façade Nord', points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }] });
+	assert.equal(response.status, 201);
+	assert.equal(response.body.unit, 'm2');
+	assert.equal(response.body.value, 2);
+});
+
+test('a line needs at least 2 points and a polygon needs at least 3', async () => {
+	const lineResponse = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'line', label: 'x', points: [{ x: 0, y: 0 }] });
+	assert.equal(lineResponse.status, 400);
+	const polygonResponse = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'), { type: 'polygon', label: 'x', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] });
+	assert.equal(polygonResponse.status, 400);
+});
+
+test('GET measurements returns the calibration plus every saved measurement for the plan', async () => {
+	const response = await get(`/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.body.calibration.pixelsPerMeter, 50);
+	assert.equal(response.body.measurements.length, 2);
+	assert.ok(response.body.measurements.some((item) => item.unit === 'ml' && item.value === 3));
+	assert.ok(response.body.measurements.some((item) => item.unit === 'm2' && item.value === 2));
+});
+
+test('a measurement can be deleted', async () => {
+	const list = await get(`/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'));
+	const target = list.body.measurements[0];
+	const response = await call('DELETE', `/api/measurements/${target.id}`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	const after2 = await get(`/api/documents/${documentId}/measurements`, tokenFor('owner-a', 'gerant'));
+	assert.equal(after2.body.measurements.length, 1);
+});
+
+test('owner B cannot calibrate, measure, or read measurements on owner A\'s plan', async () => {
+	const calibrate = await call('PATCH', `/api/documents/${documentId}/calibration`, tokenFor('owner-b', 'gerant'), { pointA: { x: 0, y: 0 }, pointB: { x: 100, y: 0 }, realDistanceM: 2 });
+	assert.equal(calibrate.status, 403);
+	const measure = await call('POST', `/api/documents/${documentId}/measurements`, tokenFor('owner-b', 'gerant'), { type: 'line', label: 'x', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+	assert.equal(measure.status, 403);
+	const list = await get(`/api/documents/${documentId}/measurements`, tokenFor('owner-b', 'gerant'));
+	assert.equal(list.status, 403);
+	const image = await get(`/api/documents/${documentId}/plan-image`, tokenFor('owner-b', 'gerant'));
+	assert.equal(image.status, 403);
+});
+
+test('/plan-image serves the original bytes directly for an image-type plan', async () => {
+	const response = await new Promise((resolve, reject) => {
+		http.get({ host: '127.0.0.1', port, path: `/api/documents/${documentId}/plan-image`, headers: { Authorization: `Bearer ${tokenFor('owner-a', 'gerant')}` } }, (res) => {
+			const chunks = [];
+			res.on('data', (c) => chunks.push(c));
+			res.on('end', () => resolve({ status: res.statusCode, contentType: res.headers['content-type'], buffer: Buffer.concat(chunks) }));
+		}).on('error', reject);
+	});
+	assert.equal(response.status, 200);
+	assert.equal(response.contentType, 'image/jpeg');
+	assert.equal(response.buffer.toString('utf8'), 'fake-plan-image-bytes');
+});
+
+test('/plan-image rasterizes page 1 for a PDF-type plan and caches it', async () => {
+	const pdfDoc = await PDFDocument.create();
+	pdfDoc.addPage([200, 150]);
+	const pdfBytes = Buffer.from(await pdfDoc.save());
+	const upload = await postMultipart('/api/documents/upload', tokenFor('owner-a', 'gerant'), { projectId: 'proj-a', evidenceType: 'plan' }, { field: 'file', filename: 'plan-pdf.pdf', contentType: 'application/pdf', buffer: pdfBytes });
+	assert.equal(upload.status, 201);
+	const pdfDocumentId = upload.body.id;
+	const fetchImage = () => new Promise((resolve, reject) => {
+		http.get({ host: '127.0.0.1', port, path: `/api/documents/${pdfDocumentId}/plan-image`, headers: { Authorization: `Bearer ${tokenFor('owner-a', 'gerant')}` } }, (res) => {
+			const chunks = [];
+			res.on('data', (c) => chunks.push(c));
+			res.on('end', () => resolve({ status: res.statusCode, contentType: res.headers['content-type'], length: Buffer.concat(chunks).length }));
+		}).on('error', reject);
+	});
+	const first = await fetchImage();
+	assert.equal(first.status, 200);
+	assert.equal(first.contentType, 'image/png');
+	assert.ok(first.length > 0, 'expected a non-empty rasterized PNG');
+	const second = await fetchImage();
+	assert.equal(second.status, 200);
+	assert.equal(second.length, first.length, 'the cached raster should be served identically on a second request');
+});
+
+test('plan-info reports not_configured without a Gemini key rather than crashing', async () => {
+	const response = await call('POST', `/api/documents/${documentId}/plan-info`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.body.status, 'not_configured');
+	assert.equal(response.body.planInfo, null);
+});
+
+test('plan-info is cached on the document once generated, served without calling Gemini again', async () => {
+	// Seed a cached result directly (as if a previous call with a real key had already run) and confirm
+	// the route returns it as "cached" without needing GEMINI_API_KEY at all.
+	const raw = JSON.parse(await fs.readFile(path.join(dataDir, 'data.json'), 'utf8'));
+	const doc = raw.documents.find((item) => item.id === documentId);
+	doc.planInfo = { chantierAddress: '12 Rue de la Paix, 75002 Paris', clientName: 'Jean Dupont', architecte: 'Cabinet Martin' };
+	await fs.writeFile(path.join(dataDir, 'data.json'), JSON.stringify(raw, null, 2));
+	const response = await call('POST', `/api/documents/${documentId}/plan-info`, tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.body.status, 'cached');
+	assert.equal(response.body.planInfo.clientName, 'Jean Dupont');
+});
+
+test('owner B cannot read or trigger plan-info on owner A\'s plan', async () => {
+	const response = await call('POST', `/api/documents/${documentId}/plan-info`, tokenFor('owner-b', 'gerant'));
+	assert.equal(response.status, 403);
+});

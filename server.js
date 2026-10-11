@@ -18,7 +18,7 @@ import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
-import { compressUpload } from './lib/compress-upload.js';
+import { compressUpload, rasterizePdfFirstPage } from './lib/compress-upload.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -2494,6 +2494,141 @@ app.get('/api/documents/:id/download', auth, async (request, response) => {
 		response.status(502).json({ error: 'Document download failed: ' + error.message });
 	}
 });
+// Plan measurement tool (calibrated on-screen takeoff, no AI): the user clicks two points of a known
+// real-world distance to compute pixelsPerMeter, then traces lines (ml) or polygons (m2) on the plan -
+// the server recomputes the value from the raw points + calibration rather than trusting a client number.
+app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	try {
+		if (item.mimeType && item.mimeType.startsWith('image/')) {
+			const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+			response.setHeader('Content-Type', item.mimeType);
+			return response.send(buffer);
+		}
+		const rasterKey = `${item.storedName}.page1.png`;
+		let png;
+		try { png = await downloadFile(UPLOADS_BUCKET, rasterKey); }
+		catch {
+			const pdfBuffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+			png = await rasterizePdfFirstPage(pdfBuffer);
+			await uploadFile(UPLOADS_BUCKET, rasterKey, png, 'image/png').catch(() => {});
+		}
+		response.setHeader('Content-Type', 'image/png');
+		response.send(png);
+	} catch (error) {
+		response.status(502).json({ error: 'Plan image unavailable: ' + error.message });
+	}
+});
+// Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,
+// architecte - same reliable text-extraction mechanism as devis fields. Unlike the calibrated
+// measurements above, this is AI, so it's cached as a one-shot "AI read" the client must show as
+// unverified, never treated as exact the way a calibrated measurement is.
+const extractPlanInfoWithGemini = async (buffer, mimeType) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this construction plan (architectural drawing) very carefully, especially its title block/cartouche. Return only JSON with fields: chantierAddress string (the jobsite/project address), clientName string, architecte string. Copy each EXACTLY and COMPLETELY as printed on the plan, no paraphrasing or guessing. If a field is genuinely not visible anywhere on the plan, use an empty string.";
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { chantierAddress: { type: 'STRING' }, clientName: { type: 'STRING' }, architecte: { type: 'STRING' } }, required: ['chantierAddress', 'clientName', 'architecte'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini plan info network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini plan info rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
+app.post('/api/documents/:id/plan-info', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (item.planInfo) return response.json({ status: 'cached', planInfo: item.planInfo });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', planInfo: null });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const info = await extractPlanInfoWithGemini(buffer, item.mimeType);
+	if (!info) return response.json({ status: 'unavailable', planInfo: null });
+	item.planInfo = info;
+	await writeData(data);
+	response.json({ status: 'generated', planInfo: info });
+});
+const isFinitePoint = (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y);
+app.patch('/api/documents/:id/calibration', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const { pointA, pointB } = request.body || {};
+	const realDistanceM = Number(request.body?.realDistanceM);
+	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m) are required' });
+	const pixelDistance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
+	if (pixelDistance < 2) return response.status(400).json({ error: 'The two reference points are too close together to calibrate accurately' });
+	item.calibration = { pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
+	await writeData(data);
+	response.json({ calibration: item.calibration });
+});
+app.get('/api/documents/:id/measurements', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
+	response.json({ calibration: item.calibration || null, measurements });
+});
+const polygonAreaPx = (points) => {
+	let sum = 0;
+	for (let index = 0; index < points.length; index += 1) {
+		const a = points[index]; const b = points[(index + 1) % points.length];
+		sum += a.x * b.y - b.x * a.y;
+	}
+	return Math.abs(sum) / 2;
+};
+const polylineLengthPx = (points) => {
+	let sum = 0;
+	for (let index = 1; index < points.length; index += 1) sum += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+	return sum;
+};
+app.post('/api/documents/:id/measurements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.calibration) return response.status(400).json({ error: 'Calibrate the plan scale before measuring' });
+	const type = request.body.type === 'polygon' ? 'polygon' : 'line';
+	const points = (Array.isArray(request.body.points) ? request.body.points : []).filter(isFinitePoint);
+	const minPoints = type === 'polygon' ? 3 : 2;
+	if (points.length < minPoints) return response.status(400).json({ error: `At least ${minPoints} points are required` });
+	const label = String(request.body.label || '').trim() || (type === 'polygon' ? 'Surface' : 'Ligne');
+	const { pixelsPerMeter } = item.calibration;
+	const value = type === 'polygon' ? polygonAreaPx(points) / (pixelsPerMeter ** 2) : polylineLengthPx(points) / pixelsPerMeter;
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, label, points, value, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.planMeasurements = [...(data.planMeasurements || []), measurement];
+	await writeData(data);
+	response.status(201).json(measurement);
+});
+app.delete('/api/measurements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = (data.planMeasurements || []).find((measurement) => measurement.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Measurement not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => measurement.id !== item.id);
+	await writeData(data);
+	response.json({ deleted: true, id: item.id });
+});
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
@@ -2516,7 +2651,10 @@ app.delete('/api/documents/:id', auth, manager, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	await deleteFile(UPLOADS_BUCKET, item.storedName);
-	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
+	await deleteFile(UPLOADS_BUCKET, `${item.storedName}.page1.png`).catch(() => {});
+	data.documents = data.documents.filter((document) => document.id !== item.id);
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId !== item.id);
+	await writeData(data); response.json({ deleted: true, id: item.id });
 });
 app.post('/api/personal-documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file) return response.status(400).json({ error: 'File required' });

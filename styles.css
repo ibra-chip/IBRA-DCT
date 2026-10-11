@@ -799,3 +799,21 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .nav-sub{display:flex;align-items:center;gap:8px;padding:8px 10px;border:0;border-left:2px solid #ffffff1c;border-radius:8px;background:transparent;color:#aab5c9;font:inherit;font-size:.85rem;font-weight:600;text-align:left;cursor:pointer}
 .nav-sub:hover{background:#ffffff0d;color:#dfe5f0;border-left-color:#ffffff40}
 .nav-sub.active{background:#ffffff14;color:#ffffff;border-left-color:#8a92a0;font-weight:800}
+
+/* Plan measurement tool (calibrated on-screen takeoff): centered wide modal instead of the right drawer
+   other worker-detail-* modals use, since the canvas needs horizontal room. */
+#plan-measure-modal{justify-content:center;align-items:center}
+.plan-measure-card{width:min(1100px,96vw);height:min(92dvh,900px)}
+.plan-measure-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.plan-measure-toolbar button.active{border-color:var(--blue);color:var(--blue)}
+.plan-measure-status{margin-left:auto;font-size:.8rem;color:var(--muted);text-align:right}
+.plan-measure-info-box{padding:10px 12px;border:1px solid var(--roster-line);border-radius:10px;background:#ffffff05;font-size:.84rem;display:grid;gap:4px}
+.plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+.plan-measure-body{display:grid;grid-template-columns:1fr 320px;gap:14px;flex:1;min-height:0}
+.plan-measure-canvas-wrap{overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
+#plan-measure-canvas{cursor:crosshair;display:block}
+.plan-measure-list-wrap{display:grid;gap:10px;align-content:start;overflow:auto}
+.plan-measure-totals{display:flex;gap:14px;font-size:.84rem;font-weight:800}
+.plan-measure-list .list-item{padding:8px 10px}
+.plan-measure-list .list-item>div{display:flex;gap:8px;margin-top:4px}
+@media(max-width:850px){.plan-measure-body{grid-template-columns:1fr}.plan-measure-card{height:94dvh}}

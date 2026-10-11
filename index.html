@@ -239,6 +239,28 @@
 				<div class="user-edit-actions"><button class="secondary" id="company-identity-cancel" type="button">Annuler</button><button class="primary" type="submit">Enregistrer</button></div>
 			</form>
 		</div>
+		<div id="plan-measure-modal" class="modal worker-detail-modal" hidden role="dialog" aria-modal="true" aria-labelledby="plan-measure-title">
+			<aside class="worker-detail-card plan-measure-card" tabindex="-1">
+				<div class="worker-detail-header"><div><small>MESURE DU PLAN</small><h2 id="plan-measure-title">Mesurer le plan</h2><p>Calibrez l’échelle une fois, puis tracez des lignes (ml) ou des surfaces (m²) — géométrie exacte, aucune IA.</p></div><button id="plan-measure-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
+				<div class="plan-measure-toolbar">
+					<button type="button" class="secondary" id="plan-measure-calibrate">Calibrer l’échelle</button>
+					<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
+					<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
+					<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>
+					<button type="button" class="secondary" id="plan-measure-cancel-draw" hidden>Annuler le tracé</button>
+					<button type="button" class="secondary" id="plan-measure-info">Lire les infos du plan (IA)</button>
+					<span id="plan-measure-status" class="plan-measure-status"></span>
+				</div>
+				<div id="plan-measure-info-box" class="plan-measure-info-box" hidden></div>
+				<div class="plan-measure-body">
+					<div class="plan-measure-canvas-wrap"><canvas id="plan-measure-canvas"></canvas></div>
+					<div class="plan-measure-list-wrap">
+						<div id="plan-measure-totals" class="plan-measure-totals"></div>
+						<div id="plan-measure-list" class="list"></div>
+					</div>
+				</div>
+			</aside>
+		</div>
 		<div id="worker-assignment-modal" class="modal worker-detail-modal" hidden role="dialog" aria-modal="true" aria-labelledby="worker-assignment-title">
 			<aside id="worker-assignment-card" class="worker-detail-card assignment-card" tabindex="-1">
 				<div class="worker-detail-header"><div><small>ATTRIBUTIONS</small><h2 id="worker-assignment-title">Attributions chantier</h2><p>Choisissez les chantiers auxquels chaque ouvrier peut accéder.</p></div><button id="worker-assignment-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>

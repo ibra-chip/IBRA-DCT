@@ -1892,10 +1892,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadDocuments() { await loadProjectOptions(); const activeProject = currentProjectId(); const documents = (await request('/documents')).filter((item) => !activeProject || item.projectId === activeProject); const canManage = isOwner();
 		const explainable = (item) => ['plan', 'fiche-technique'].includes(item.evidenceType);
 		const isPhoto = (item) => (item.evidenceType || '').startsWith('photo-');
-		const renderItem = (item) => `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${explainable(item) ? `<button class="secondary explain-document" data-document="${item.id}">Objasni jednostavnim jezikom</button>` : ''}${canManage ? `<button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
+		const renderItem = (item) => `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${explainable(item) ? `<button class="secondary explain-document" data-document="${item.id}">Objasni jednostavnim jezikom</button>` : ''}${canManage ? `<button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
 		const groups = documentGroupOrder.map((type) => ({ type, items: documents.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length);
 		document.querySelector('#documents').innerHTML = groups.length ? groups.map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('') : '<small>Aucun document enregistré.</small>';
-		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); document.querySelectorAll('.view-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/documents/${button.dataset.document}/download`, button)));
+		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); document.querySelectorAll('.view-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/documents/${button.dataset.document}/download`, button))); document.querySelectorAll('.measure-plan').forEach((button) => button.addEventListener('click', () => openPlanMeasure(button.dataset.document)));
 			document.querySelectorAll('.document-thumb').forEach((img) => {
 				const documentId = img.dataset.thumbDoc;
 				const downloadPath = `/documents/${documentId}/download`;
@@ -1919,6 +1919,206 @@ document.addEventListener('DOMContentLoaded', () => {
 				finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 			}));
 		}
+	// Plan measurement tool: calibrated on-screen takeoff (click two points of a known real-world
+	// distance to set a scale, then trace lines/polygons) - pure geometry, no AI, matching how tools
+	// like On-Screen Takeoff / PlanSwift work. planMeasureState.*Points are stored in the plan's natural
+	// image pixel space (not the possibly-scaled canvas display size) so measurements stay correct
+	// regardless of zoom/window size; planMeasureState.scale converts natural space -> canvas display space.
+	let planMeasureState = null;
+	function planMeasureToNatural(event) {
+		const canvas = document.querySelector('#plan-measure-canvas');
+		const rect = canvas.getBoundingClientRect();
+		const x = (event.clientX - rect.left) * (canvas.width / rect.width) / planMeasureState.scale;
+		const y = (event.clientY - rect.top) * (canvas.height / rect.height) / planMeasureState.scale;
+		return { x, y };
+	}
+	function planMeasureLengthM(points) {
+		if (!planMeasureState?.calibration) return 0;
+		let pixelSum = 0;
+		for (let i = 1; i < points.length; i += 1) pixelSum += Math.hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+		return pixelSum / planMeasureState.calibration.pixelsPerMeter;
+	}
+	function planMeasureAreaM2(points) {
+		if (!planMeasureState?.calibration || points.length < 3) return 0;
+		let sum = 0;
+		for (let i = 0; i < points.length; i += 1) { const a = points[i]; const b = points[(i + 1) % points.length]; sum += a.x * b.y - b.x * a.y; }
+		return Math.abs(sum) / 2 / (planMeasureState.calibration.pixelsPerMeter ** 2);
+	}
+	function planMeasureRedraw() {
+		if (!planMeasureState?.image) return;
+		const canvas = document.querySelector('#plan-measure-canvas');
+		const ctx = canvas.getContext('2d');
+		const scale = planMeasureState.scale;
+		ctx.clearRect(0, 0, canvas.width, canvas.height);
+		ctx.drawImage(planMeasureState.image, 0, 0, canvas.width, canvas.height);
+		const strokePath = (points, close) => { ctx.beginPath(); points.forEach((p, i) => { const x = p.x * scale; const y = p.y * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); if (close) ctx.closePath(); };
+		if (planMeasureState.calibration) {
+			ctx.strokeStyle = '#31d3a4'; ctx.lineWidth = 2; ctx.setLineDash([]);
+			strokePath([planMeasureState.calibration.pointA, planMeasureState.calibration.pointB], false); ctx.stroke();
+		}
+		planMeasureState.measurements.forEach((item) => {
+			ctx.strokeStyle = item.type === 'polygon' ? '#f4c86f' : '#72b9ff';
+			ctx.fillStyle = item.type === 'polygon' ? '#f4c86f2e' : 'transparent';
+			ctx.lineWidth = 2;
+			strokePath(item.points, item.type === 'polygon');
+			if (item.type === 'polygon') ctx.fill();
+			ctx.stroke();
+			ctx.fillStyle = '#fff'; ctx.font = 'bold 12px sans-serif';
+			ctx.fillText(item.label, item.points[0].x * scale + 5, item.points[0].y * scale - 6);
+		});
+		if (planMeasureState.mode === 'calibrate' && planMeasureState.calibratePoints.length) {
+			ctx.fillStyle = '#31d3a4';
+			planMeasureState.calibratePoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 4, 0, Math.PI * 2); ctx.fill(); });
+			if (planMeasureState.calibratePoints.length === 2) { ctx.strokeStyle = '#31d3a4'; ctx.setLineDash([5, 5]); strokePath(planMeasureState.calibratePoints, false); ctx.stroke(); ctx.setLineDash([]); }
+		}
+		if ((planMeasureState.mode === 'line' || planMeasureState.mode === 'polygon') && planMeasureState.drawPoints.length) {
+			ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
+			strokePath(planMeasureState.drawPoints, false); ctx.stroke();
+			ctx.fillStyle = '#ffffff';
+			planMeasureState.drawPoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
+		}
+	}
+	function planMeasureUpdateStatus() {
+		const status = document.querySelector('#plan-measure-status');
+		if (!status || !planMeasureState) return;
+		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
+		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
+		if (planMeasureState.mode === 'polygon') { status.textContent = `Surface en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
+		status.textContent = planMeasureState.calibration ? `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m` : 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.';
+	}
+	function planMeasureRenderList() {
+		const totals = document.querySelector('#plan-measure-totals');
+		const list = document.querySelector('#plan-measure-list');
+		if (!totals || !list) return;
+		const totalMl = planMeasureState.measurements.filter((item) => item.unit === 'ml').reduce((sum, item) => sum + item.value, 0);
+		const totalM2 = planMeasureState.measurements.filter((item) => item.unit === 'm2').reduce((sum, item) => sum + item.value, 0);
+		totals.innerHTML = `<span>Total : ${totalMl.toFixed(2)} ml</span><span>Total : ${totalM2.toFixed(2)} m²</span>`;
+		list.innerHTML = planMeasureState.measurements.length ? planMeasureState.measurements.map((item) => `<div class="list-item"><strong>${escapeHtml(item.label)}</strong><small>${item.value.toFixed(2)} ${item.unit === 'm2' ? 'm²' : 'ml'}</small><div><button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button><button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`).join('') : '<small>Aucune mesure pour ce plan.</small>';
+		list.querySelectorAll('.delete-measurement').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true;
+			try { await request(`/measurements/${button.dataset.measurement}`, { method: 'DELETE' }); planMeasureState.measurements = planMeasureState.measurements.filter((item) => item.id !== button.dataset.measurement); planMeasureRenderList(); planMeasureRedraw(); }
+			catch { toast('Mesure non supprimée.'); button.disabled = false; }
+		}));
+		list.querySelectorAll('.add-measurement-to-devis').forEach((button) => button.addEventListener('click', async () => {
+			const item = planMeasureState.measurements.find((entry) => entry.id === button.dataset.measurement);
+			if (!item) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description: item.label, quantity: Number(item.value.toFixed(2)), unit: item.unit === 'm2' ? 'm²' : 'ml', unitPrice: 0, lineTotal: 0, category: 'Mesures du plan' }] }) });
+				toast('Stavka dodana u devis.');
+			} catch { toast('Stavka nije dodana.'); }
+			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+	}
+	function planMeasureSetMode(mode) {
+		planMeasureState.mode = mode;
+		planMeasureState.drawPoints = [];
+		planMeasureState.calibratePoints = [];
+		document.querySelectorAll('.plan-measure-toolbar button[id^="plan-measure-"]').forEach((button) => button.classList.remove('active'));
+		if (mode === 'calibrate') document.querySelector('#plan-measure-calibrate')?.classList.add('active');
+		if (mode === 'line') document.querySelector('#plan-measure-line')?.classList.add('active');
+		if (mode === 'polygon') document.querySelector('#plan-measure-polygon')?.classList.add('active');
+		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon';
+		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
+		planMeasureUpdateStatus();
+		planMeasureRedraw();
+	}
+	async function openPlanMeasure(documentId) {
+		const modal = document.querySelector('#plan-measure-modal');
+		const canvas = document.querySelector('#plan-measure-canvas');
+		if (!modal || !canvas) return;
+		const documents = await request('/documents');
+		const docItem = documents.find((item) => item.id === documentId);
+		if (!docItem) { toast('Document introuvable.'); return; }
+		modal.hidden = false; modal.setAttribute('aria-hidden', 'false');
+		document.querySelector('#plan-measure-info-box').hidden = true;
+		document.querySelector('#plan-measure-status').textContent = 'Chargement du plan...';
+		try {
+			const response = await fetch(`${api}/documents/${documentId}/plan-image`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const image = new Image();
+			const objectUrl = URL.createObjectURL(blob);
+			await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = objectUrl; });
+			const maxWidth = Math.min(900, document.querySelector('.plan-measure-canvas-wrap').clientWidth || 900);
+			const scale = Math.min(1, maxWidth / image.naturalWidth);
+			canvas.width = Math.round(image.naturalWidth * scale);
+			canvas.height = Math.round(image.naturalHeight * scale);
+			const measurementsResult = await request(`/documents/${documentId}/measurements`);
+			planMeasureState = { documentId, projectId: docItem.projectId, image, scale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawPoints: [], calibratePoints: [], objectUrl };
+			planMeasureRenderList();
+			planMeasureSetMode(null);
+		} catch {
+			document.querySelector('#plan-measure-status').textContent = 'Impossible de charger le plan.';
+		}
+	}
+	function closePlanMeasure() {
+		const modal = document.querySelector('#plan-measure-modal');
+		if (modal) { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); }
+		if (planMeasureState?.objectUrl) URL.revokeObjectURL(planMeasureState.objectUrl);
+		planMeasureState = null;
+	}
+	document.querySelector('#plan-measure-close')?.addEventListener('click', closePlanMeasure);
+	document.querySelector('#plan-measure-modal')?.addEventListener('click', (event) => { if (event.target.id === 'plan-measure-modal') closePlanMeasure(); });
+	document.querySelector('#plan-measure-calibrate')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'calibrate' ? null : 'calibrate'));
+	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
+	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' ? null : 'polygon'));
+	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
+	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
+		if (!planMeasureState) return;
+		const { mode, drawPoints } = planMeasureState;
+		const minPoints = mode === 'polygon' ? 3 : 2;
+		if (drawPoints.length < minPoints) { toast(`Il faut au moins ${minPoints} points.`); return; }
+		const defaultLabel = mode === 'polygon' ? 'Surface' : 'Ligne';
+		const label = window.prompt('Nom de cette mesure (ex. Façade Nord, Bavette fenêtre 1) :', defaultLabel);
+		if (!label?.trim()) return;
+		try {
+			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, label: label.trim(), points: drawPoints }) });
+			planMeasureState.measurements.push(measurement);
+			planMeasureRenderList();
+			planMeasureSetMode(null);
+			toast('Mesure enregistrée.');
+		} catch { toast('Mesure non enregistrée.'); }
+	});
+	document.querySelector('#plan-measure-canvas')?.addEventListener('click', async (event) => {
+		if (!planMeasureState?.mode) return;
+		const point = planMeasureToNatural(event);
+		if (planMeasureState.mode === 'calibrate') {
+			planMeasureState.calibratePoints.push(point);
+			if (planMeasureState.calibratePoints.length === 2) {
+				const realDistanceM = Number(window.prompt('Distance réelle entre ces deux points, en mètres (ex. 5) :', ''));
+				if (Number.isFinite(realDistanceM) && realDistanceM > 0) {
+					try {
+						const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pointA: planMeasureState.calibratePoints[0], pointB: planMeasureState.calibratePoints[1], realDistanceM }) });
+						planMeasureState.calibration = result.calibration;
+						toast('Échelle calibrée.');
+					} catch { toast('Calibration échouée.'); }
+				} else { toast('Calibration annulée : distance invalide.'); }
+				planMeasureSetMode(null);
+			} else { planMeasureUpdateStatus(); planMeasureRedraw(); }
+			return;
+		}
+		planMeasureState.drawPoints.push(point);
+		planMeasureUpdateStatus();
+		planMeasureRedraw();
+	});
+	document.querySelector('#plan-measure-info')?.addEventListener('click', async (event) => {
+		if (!planMeasureState) return;
+		const button = event.currentTarget;
+		const box = document.querySelector('#plan-measure-info-box');
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			const result = await request(`/documents/${planMeasureState.documentId}/plan-info`, { method: 'POST' });
+			if (result.status === 'not_configured' || result.status === 'unavailable' || !result.planInfo) {
+				box.hidden = false; box.innerHTML = '<small>Lecture IA indisponible pour ce plan.</small>';
+			} else {
+				const info = result.planInfo;
+				box.hidden = false;
+				box.innerHTML = `<strong>⚠ Lu par IA depuis le plan — à vérifier</strong><span>Chantier : ${escapeHtml(info.chantierAddress || '—')}</span><span>Client : ${escapeHtml(info.clientName || '—')}</span><span>Architecte : ${escapeHtml(info.architecte || '—')}</span>`;
+			}
+		} catch { toast('Lecture du plan impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
 	async function loadBudget() {
 		await loadProjectOptions();
 		const target = document.querySelector('#budget-summary');
