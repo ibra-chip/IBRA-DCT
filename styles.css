@@ -848,3 +848,45 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .nav-section-icon{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:7px;background:#31d3a41c;color:var(--green)}
 .nav-section-icon svg{width:13px;height:13px}
 @media(max-width:850px){.sidebar-user-actions{grid-template-columns:1fr 1fr}}
+
+/* Full-screen monthly timesheet (day-by-day list: date, start, end, hours worked, deviation from a
+   configurable reference hours/day) for a single worker, opened from the roster table or from inside
+   the existing worker-detail drawer. A dedicated full page rather than another side drawer, since the
+   point is a focused, scrollable day list with totals pinned at the bottom - not mixed with the
+   drawer's other sections (payment, documents, RDV). Reuses deriveWorkerSnapshot for all real numbers;
+   the reference-hours field is a local display comparison only, never sent to the server or payroll. */
+.worker-timesheet-modal{z-index:80;padding:0;align-items:stretch;justify-content:stretch;background:var(--surface-0,#06111d)}
+.worker-timesheet-page{display:flex;flex-direction:column;width:100%;height:100dvh;max-width:900px;margin:0 auto;background:var(--surface-1,#0b1b2c)}
+.worker-timesheet-header{display:flex;align-items:flex-start;gap:12px;padding:16px 18px;border-bottom:1px solid var(--roster-line,#ffffff14)}
+.worker-timesheet-heading{display:flex;align-items:center;gap:10px;flex:1;min-width:0}
+.worker-timesheet-heading h2{margin:2px 0;font-size:1.25rem}
+.worker-timesheet-heading p{margin:0;color:var(--muted);font-size:.8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.worker-timesheet-ref-field{display:grid;gap:3px;color:var(--muted);font-size:.68rem;font-weight:800;text-align:right;flex:none}
+.worker-timesheet-ref-field input{width:64px;min-height:36px;padding:6px 8px;text-align:center}
+.worker-timesheet-nav{display:flex;align-items:center;justify-content:center;gap:16px;padding:10px 18px;border-bottom:1px solid var(--roster-line,#ffffff14)}
+.worker-timesheet-nav strong{min-width:140px;text-align:center;font-size:1rem}
+.worker-timesheet-stats{display:flex;gap:0;padding:10px 18px;border-bottom:1px solid var(--roster-line,#ffffff14)}
+.worker-timesheet-stats>span{flex:1;display:grid;gap:2px;padding:0 14px;border-left:1px solid var(--roster-line,#ffffff14);text-align:center}
+.worker-timesheet-stats>span:first-child{border-left:0}
+.worker-timesheet-stats strong{font-size:1.2rem;font-variant-numeric:tabular-nums}
+.worker-timesheet-stats small{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.worker-timesheet-list{flex:1;overflow-y:auto;padding:4px 10px}
+.worker-timesheet-row{display:grid;grid-template-columns:52px 1fr 1fr 1fr 70px;align-items:center;gap:6px;padding:9px 8px;border-bottom:1px solid var(--roster-line,#ffffff0e);font-size:.86rem}
+.worker-timesheet-row.weekend{background:#ffffff04}
+.worker-timesheet-row.today{background:#72b9ff12;border-radius:8px}
+.worker-timesheet-row.worked .wt-hours{color:var(--text);font-weight:800}
+.wt-day{display:flex;flex-direction:column;line-height:1.15}
+.wt-day strong{font-size:.95rem}
+.wt-day small{color:var(--muted);font-size:.68rem;text-transform:uppercase}
+.wt-start,.wt-end{color:var(--muted);font-variant-numeric:tabular-nums}
+.wt-hours{color:var(--muted);font-variant-numeric:tabular-nums}
+.wt-overtime{text-align:right;font-weight:800;font-variant-numeric:tabular-nums;font-size:.78rem;color:var(--muted)}
+.wt-overtime.negative{color:var(--red)}
+.wt-overtime.positive{color:var(--green)}
+.worker-timesheet-footer{display:flex;gap:0;padding:12px 18px;border-top:1px solid var(--roster-line,#ffffff14);background:var(--surface-2,#102235);padding-bottom:max(12px,env(safe-area-inset-bottom))}
+.worker-timesheet-footer>span{flex:1;display:grid;gap:2px;text-align:center}
+.worker-timesheet-footer strong{font-size:1.1rem;font-variant-numeric:tabular-nums}
+.worker-timesheet-footer small{color:var(--muted);font-size:.68rem;text-transform:uppercase;letter-spacing:.04em}
+.worker-timesheet-footer .negative strong{color:var(--red)}
+.worker-timesheet-footer .positive strong{color:var(--green)}
+@media(max-width:600px){.worker-timesheet-row{grid-template-columns:44px 1fr 1fr 1fr 58px;font-size:.8rem}.worker-timesheet-header{padding:12px 14px}.worker-timesheet-heading p{display:none}}

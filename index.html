@@ -300,11 +300,24 @@
 				<div class="worker-detail-header"><div class="worker-detail-heading"><span id="worker-detail-avatar" class="worker-avatar worker-avatar--drawer worker-avatar--initials">?</span><div><small>OUVRIER · VUE MENSUELLE</small><h2 id="worker-detail-title">Détails de l’ouvrier</h2><p id="worker-detail-subtitle"></p></div></div><button id="worker-detail-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
 				<div class="worker-detail-period"><label>Mois affiché<input id="worker-detail-month" type="month" /></label><button type="button" id="worker-detail-payment-badge" class="worker-status" data-cycle-status>Chargement</button></div>
 				<div id="worker-detail-summary" class="worker-detail-summary"></div>
-				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>KALENDAR</small><h3>Radni dani i RDV</h3></div><small id="worker-detail-calendar-note"></small></div><div id="worker-detail-calendar" class="work-calendar worker-detail-calendar"></div><div id="worker-detail-entries" class="worker-detail-list worker-detail-entries-inline"></div></section>
+				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>KALENDAR</small><h3>Radni dani i RDV</h3></div><button type="button" class="secondary" id="worker-detail-open-timesheet">Vue calendrier plein écran</button></div><div id="worker-detail-calendar" class="work-calendar worker-detail-calendar"></div><div id="worker-detail-entries" class="worker-detail-list worker-detail-entries-inline"></div></section>
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>ISPLATA</small><h3>Plata i status</h3></div></div><div id="worker-detail-payment" class="worker-detail-payment"></div></section>
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>RDV / ODSUSTVO</small><h3>Termini</h3></div></div><div id="worker-detail-rendezvous" class="worker-detail-list"></div></section>
 				<section class="worker-detail-section"><div class="worker-detail-section-head"><div><small>DOCUMENTS</small><h3>Documents personnels</h3></div></div><form id="worker-detail-document-form" class="form-row"><label>Fichier<input type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required /></label><label>Type de document<input type="text" name="docType" placeholder="Carte BTP, assurance…" required /></label><label>Date d’expiration (facultatif)<input type="date" name="expiresAt" /></label><button class="secondary" type="submit">Ajouter</button></form><div id="worker-detail-documents" class="worker-detail-list"></div></section>
 			</aside>
+		</div>
+		<div id="worker-timesheet-modal" class="modal worker-timesheet-modal" hidden role="dialog" aria-modal="true" aria-labelledby="worker-timesheet-title">
+			<div class="worker-timesheet-page">
+				<div class="worker-timesheet-header">
+					<button id="worker-timesheet-close" class="icon-close" type="button" aria-label="Fermer">×</button>
+					<div class="worker-timesheet-heading"><span id="worker-timesheet-avatar" class="worker-avatar worker-avatar--drawer worker-avatar--initials">?</span><div><small>CALENDRIER MENSUEL</small><h2 id="worker-timesheet-title">Calendrier</h2><p id="worker-timesheet-subtitle"></p></div></div>
+					<label class="worker-timesheet-ref-field">h/jour réf.<input id="worker-timesheet-reference-hours" type="number" min="1" max="24" step="0.5" value="8" /></label>
+				</div>
+				<div class="worker-timesheet-nav"><button type="button" class="calendar-nav-btn" id="worker-timesheet-prev" aria-label="Mois précédent">‹</button><strong id="worker-timesheet-month-label"></strong><button type="button" class="calendar-nav-btn" id="worker-timesheet-next" aria-label="Mois suivant">›</button></div>
+				<div class="worker-timesheet-stats" id="worker-timesheet-stats"></div>
+				<div class="worker-timesheet-list" id="worker-timesheet-list"></div>
+				<div class="worker-timesheet-footer" id="worker-timesheet-footer"></div>
+			</div>
 		</div>
 	</div>
 	<script src="script.js"></script>
