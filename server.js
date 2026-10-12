@@ -2822,6 +2822,79 @@ const extractPlanInfoWithGemini = async (buffer, mimeType) => {
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
 };
+// Aggregates the RGE Qualibat compliance points already surfaced per-document (see
+// explainDocumentForLaypeople's "Points à respecter pour la conformité RGE Qualibat" section) into one
+// chantier-wide list, so a gérant doesn't have to open every plan/fiche technique one by one to see
+// what this site's own documents actually require. Deliberately reads the TEXT of each document (the
+// same deterministic parsePdf + cleanExtractedPdfText grounding already trusted for the explain
+// feature), not vision - these are written rules, not a layout to look at, and text is both cheaper and
+// more exact for that. A document with no extractable text (a scan/photo with no text layer) is simply
+// skipped and reported as such, never silently dropped without a trace.
+const extractRgeChecklistWithGemini = async ({ projectName, documents }) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_MODEL || process.env.GEMINI_VISION_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const combined = documents.map((doc, index) => `=== DOCUMENT ${index + 1}: ${doc.name} ===\n${doc.text.slice(0, 8000)}`).join('\n\n');
+	const prompt = `Voici le texte extrait de plusieurs documents techniques du chantier "${projectName}". Pour chaque règle d'exécution, tolérance, matériau ou contrôle explicitement obligatoire pour la conformité RGE Qualibat que tu trouves dans ce texte, liste-la avec le nom exact du document source (repris tel quel depuis "DOCUMENT N: <nom>"). Règle la plus importante : ne liste QUE ce qui est écrit noir sur blanc dans le texte fourni ci-dessous - n'invente et ne déduis aucune règle RGE générale absente de ce texte précis. Si un document ne contient aucune règle de conformité explicite, ne crée aucune entrée pour lui.\n\n${combined}`;
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { points: { type: 'ARRAY', items: { type: 'OBJECT', properties: { rule: { type: 'STRING' }, sourceDocument: { type: 'STRING' } }, required: ['rule', 'sourceDocument'] } } }, required: ['points'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini RGE checklist network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini RGE checklist rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try {
+		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		return Array.isArray(parsed.points) ? parsed.points : [];
+	} catch { return null; }
+};
+app.post('/api/projects/:id/rge-checklist', auth, manager, async (request, response) => {
+	const data = await readData();
+	// Single canAccessProject check, same as every other :id-keyed project route in this file - it
+	// already returns false for a nonexistent id (projectById inside it finds nothing), so a separate
+	// 404 after it would be unreachable dead code and, worse, would leak to an unauthorized caller
+	// whether a given project id exists at all versus just being someone else's.
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	const relevantDocs = data.documents.filter((document) => document.projectId === request.params.id && ['plan', 'fiche-technique'].includes(document.evidenceType));
+	if (!relevantDocs.length) return response.json({ status: 'no_documents', points: [], documentsRead: [], documentsSkipped: [] });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', points: [], documentsRead: [], documentsSkipped: [] });
+	const documentsWithText = [];
+	const documentsSkipped = [];
+	for (const document of relevantDocs) {
+		const isPdf = document.mimeType === 'application/pdf' || document.originalName.toLowerCase().endsWith('.pdf');
+		if (!isPdf) { documentsSkipped.push(document.originalName); continue; }
+		try {
+			const buffer = await downloadFile(UPLOADS_BUCKET, document.storedName);
+			const cleaned = cleanExtractedPdfText((await parsePdf(buffer)).text);
+			if (cleaned.length > 20) documentsWithText.push({ name: document.originalName, text: cleaned });
+			else documentsSkipped.push(document.originalName);
+		} catch { documentsSkipped.push(document.originalName); }
+	}
+	if (!documentsWithText.length) return response.json({ status: 'no_text', points: [], documentsRead: [], documentsSkipped });
+	const points = await extractRgeChecklistWithGemini({ projectName: project.name, documents: documentsWithText });
+	if (!points) return response.json({ status: 'unavailable', points: [], documentsRead: [], documentsSkipped });
+	project.rgeChecklist = { points, generatedAt: new Date().toISOString(), documentsRead: documentsWithText.map((document) => document.name), documentsSkipped };
+	await writeData(data);
+	response.json({ status: 'generated', points, documentsRead: project.rgeChecklist.documentsRead, documentsSkipped });
+});
+app.get('/api/projects/:id/rge-checklist', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	response.json(project.rgeChecklist ? { status: 'cached', ...project.rgeChecklist } : { status: 'not_generated', points: [], documentsRead: [], documentsSkipped: [] });
+});
 app.post('/api/documents/:id/plan-info', auth, manager, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);

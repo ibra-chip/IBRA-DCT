@@ -724,6 +724,35 @@ document.addEventListener('DOMContentLoaded', () => {
 		modulesTarget.innerHTML = (rgeQualibatKnowledge.modules || []).map((module) => { const items = french ? (module.itemsFr || module.items) : module.items; return `<article class="rge-module"><h3>${escapeHtml(localized(module, 'title'))}</h3><ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}</ul></article>`; }).join('');
 	}
 	async function loadControlHistory() { await loadProjectOptions(); const projectId = currentProjectId(); const history = projectId ? await request(`/projects/${projectId}/control-history`) : []; const target = document.querySelector('#control-history'); target.innerHTML = history.length ? history.slice().reverse().map((item) => `<div class="list-item"><strong>${item.from} → ${item.to}</strong><small>${item.controlId} · ${item.changedBy} · ${new Date(item.changedAt).toLocaleString()}</small></div>`).join('') : '<small>Nema promena za izabrani chantier.</small>'; }
+	function renderRgeSiteChecklist(result) {
+		const target = document.querySelector('#rge-site-checklist');
+		if (!target) return;
+		if (result.status === 'not_configured' || result.status === 'unavailable') { target.innerHTML = '<small>Lecture IA indisponible pour ce chantier.</small>'; return; }
+		if (result.status === 'no_documents') { target.innerHTML = '<small>Aucun plan ni fiche technique pour ce chantier.</small>'; return; }
+		if (result.status === 'no_text') { target.innerHTML = '<small>Les documents de ce chantier n’ont pas de texte lisible (scans/photos uniquement).</small>'; return; }
+		if (result.status === 'not_generated') { target.innerHTML = '<small>Cliquez sur « Actualiser » pour lire les documents de ce chantier.</small>'; return; }
+		const skippedNote = result.documentsSkipped?.length ? `<small>Non lus (pas de texte) : ${result.documentsSkipped.map((name) => escapeHtml(name)).join(', ')}</small>` : '';
+		const generatedNote = result.generatedAt ? `<small>Lu le ${new Date(result.generatedAt).toLocaleString()} · ${result.documentsRead?.length || 0} document(s)</small>` : '';
+		if (!result.points?.length) { target.innerHTML = `<small>Aucun point de conformité RGE explicite trouvé dans les documents lus.</small>${generatedNote}${skippedNote}`; return; }
+		target.innerHTML = `<div class="ai-badge">⚠ Lu par IA depuis le texte des documents — à vérifier</div>${generatedNote}${result.points.map((point) => `<div class="list-item"><strong>${escapeHtml(point.rule)}</strong><small>Source : ${escapeHtml(point.sourceDocument)}</small></div>`).join('')}${skippedNote}`;
+	}
+	async function loadRgeSiteChecklist() {
+		const projectId = currentProjectId();
+		const target = document.querySelector('#rge-site-checklist');
+		if (!target) return;
+		if (!projectId) { target.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
+		try { renderRgeSiteChecklist(await request(`/projects/${projectId}/rge-checklist`)); }
+		catch { target.innerHTML = '<small>Impossible de charger la conformité RGE.</small>'; }
+	}
+	document.querySelector('#rge-site-checklist-refresh')?.addEventListener('click', async (event) => {
+		const projectId = currentProjectId();
+		if (!projectId) { toast('Sélectionnez un chantier.'); return; }
+		const button = event.currentTarget;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try { renderRgeSiteChecklist(await request(`/projects/${projectId}/rge-checklist`, { method: 'POST' })); }
+		catch { toast('Lecture impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
 	const userRoleLabels = { admin: 'Administrateur', manager: 'Manager', gerant: 'Gérant', user: 'Ouvrier', worker: 'Ouvrier' };
 	let lastUserEditorTrigger;
 	const userEditModal = document.querySelector('#user-edit-modal');
@@ -2544,7 +2573,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'purchases-view': () => Promise.allSettled([loadPurchases(), loadBudget(), loadFinancialSummary()]),
 			'line-items-view': () => Promise.allSettled([loadProjectOptions(), loadLineItems()]),
 			'factures-view': () => Promise.allSettled([loadProjectOptions(), loadFactures()]),
-			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary()]),
+			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary(), loadRgeSiteChecklist()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
 			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId()), loadMyTasks()]),
