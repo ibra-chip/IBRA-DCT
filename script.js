@@ -2890,6 +2890,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			deleteProjectButton.hidden = !projectId;
 			deleteProjectButton.dataset.project = projectId || '';
 		}
+		const quickTaskForm = document.querySelector('#quick-task-form');
+		if (quickTaskForm) {
+			quickTaskForm.hidden = !projectId;
+			quickTaskForm.dataset.project = projectId || '';
+		}
 		if (!projectId) { container.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
 		try {
 			const [items, contacts] = await Promise.all([request(`/projects/${projectId}/budget/line-items`), request('/contacts')]);
@@ -2971,6 +2976,28 @@ document.addEventListener('DOMContentLoaded', () => {
 			await loadProjectOptions();
 			await loadLineItems();
 		} catch { toast('Suppression impossible.'); }
+		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
+	});
+	// A chantier with no devis yet (common for a quick site visit or prep work before a formal quote
+	// exists) previously had no way at all to tell a worker what to do - the entire task/assignment
+	// system runs on devis line items. This creates a minimal one (no price, quantity 1, its own
+	// description as the category) through the exact same endpoint and assignment UI already used for
+	// real devis lines, instead of building a second, parallel task system.
+	document.querySelector('#quick-task-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const projectId = form.dataset.project;
+		if (!projectId) return;
+		const description = form.elements.description.value.trim();
+		if (!description) return;
+		const button = form.querySelector('button');
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			await request(`/projects/${projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: 1, unit: '', unitPrice: 0, lineTotal: 0, category: description }], source: 'manual' }) });
+			form.reset();
+			toast('Tâche créée.');
+			await loadLineItems();
+		} catch { toast('Tâche non créée.'); }
 		finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 	});
 	async function loadMyTasks() {
