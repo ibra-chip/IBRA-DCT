@@ -893,6 +893,112 @@ async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectN
 	page.drawText('Mesures calibrées directement sur le plan (géométrie exacte, pixel par pixel) - aucune reconnaissance IA.', { x: marginX, y, size: 8, font, color: rgb(0.45, 0.45, 0.45) });
 	return Buffer.from(await doc.save());
 }
+// Generates the devis itself from this chantier's own line items (with their prices), instead of only
+// ever importing one someone else sent. Same pdf-lib pattern as buildMetrePdf/buildHoursPdf (company
+// branding, paginated table, the same WinAnsi sanitizer for free-text descriptions - a devis line's
+// description is just as user-typed as a measurement's label, so the exact same "−" vs "-" class of bug
+// applies here too), grouped by category with a subtotal per category and one grand total at the end.
+async function buildDevisPdf({ companyName, companyAddress, logoBuffer, projectName, devisNumber, client, items, total, generatedAt }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	const encodableCache = new Map();
+	const isEncodable = (char) => {
+		if (encodableCache.has(char)) return encodableCache.get(char);
+		let ok = true;
+		try { font.widthOfTextAtSize(char, 10); } catch { ok = false; }
+		encodableCache.set(char, ok);
+		return ok;
+	};
+	const safeText = (value) => {
+		const text = String(value || '');
+		try { font.widthOfTextAtSize(text, 10); return text; } catch { return [...text].map((char) => (isEncodable(char) ? char : '?')).join(''); }
+	};
+	const headerTop = y;
+	let brandY = headerTop;
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 100; const maxHeight = 50;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(safeText(companyName), 11, fontBold);
+	drawRight(safeText(truncate(companyAddress, 50)), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText('Devis', { x: marginX, y: leftY, size: 18, font: fontBold });
+	leftY -= 24;
+	if (devisNumber) { page.drawText(`N° ${safeText(devisNumber)}`, { x: marginX, y: leftY, size: 11, font: fontBold }); leftY -= 16; }
+	page.drawText(`Chantier : ${safeText(truncate(projectName, 48))}`, { x: marginX, y: leftY, size: 11, font });
+	leftY -= 16;
+	if (client) { page.drawText(`Client : ${safeText(truncate(client, 48))}`, { x: marginX, y: leftY, size: 10, font }); leftY -= 14; }
+	page.drawText(`Généré le ${safeText(generatedAt)}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	y = Math.min(leftY, brandY) - 16;
+	const columns = [
+		{ label: 'Désignation', x: marginX },
+		{ label: 'Qté', x: marginX + 260 },
+		{ label: 'Unité', x: marginX + 300 },
+		{ label: 'P.U. EUR', x: marginX + 345 },
+		{ label: 'Total EUR', x: rightEdge - 70 },
+	];
+	const drawTableHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	drawTableHeader();
+	let currentCategory = null;
+	let categorySubtotal = 0;
+	const flushCategorySubtotal = () => {
+		if (currentCategory === null) return;
+		page.drawText(`Sous-total ${safeText(truncate(currentCategory, 40))} : ${categorySubtotal.toFixed(2)} EUR`, { x: marginX, y, size: 9, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+		y -= 18;
+	};
+	for (const item of items) {
+		const category = item.category || item.description;
+		if (category !== currentCategory) {
+			if (y < 110) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+			flushCategorySubtotal();
+			if (y < 90) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+			page.drawText(safeText(truncate(category, 60)), { x: marginX, y, size: 10, font: fontBold });
+			y -= 16;
+			currentCategory = category;
+			categorySubtotal = 0;
+		}
+		if (y < 90) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+		categorySubtotal += Number(item.lineTotal || 0);
+		page.drawText(safeText(truncate(item.description, 42)), { x: columns[0].x, y, size: 9, font });
+		page.drawText(String(item.quantity), { x: columns[1].x, y, size: 9, font });
+		page.drawText(safeText(item.unit || ''), { x: columns[2].x, y, size: 9, font });
+		page.drawText(Number(item.unitPrice || 0).toFixed(2), { x: columns[3].x, y, size: 9, font });
+		page.drawText(Number(item.lineTotal || 0).toFixed(2), { x: columns[4].x, y, size: 9, font: fontBold });
+		y -= 16;
+	}
+	if (y < 90) { page = doc.addPage(pageSize); y = 800; }
+	flushCategorySubtotal();
+	y -= 8;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 22;
+	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} EUR`, { x: marginX, y, size: 13, font: fontBold });
+	return Buffer.from(await doc.save());
+}
 const previousMonthKey = (date = new Date()) => {
 	const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
 	return previous.toISOString().slice(0, 7);
@@ -1804,6 +1910,36 @@ app.get('/api/projects/:id/budget/line-items', auth, manager, async (request, re
 		const spent = materialSpent + laborSpent;
 		return { ...item, spent, profit: item.lineTotal - spent };
 	}));
+});
+// Generates the devis itself from this chantier's own line items, closing the loop started by the
+// price-catalog/metre/discrepancy-check work: those let the app price and verify a devis, this lets it
+// actually produce one to send. Reuses the devis header (number/client) already saved on this project if
+// one was ever imported, but never requires it - a chantier built up purely from plan measurements and
+// quick tasks can still generate a devis with whatever header info is available (blanks left blank, not
+// invented). The grand total is always the live sum of current line items, never the possibly-stale
+// total from an original import, since prices can be edited or lines added after that happened.
+app.get('/api/projects/:id/devis-pdf', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	const items = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).sort((a, b) => a.sortOrder - b.sortOrder);
+	if (!items.length) return response.status(400).json({ error: 'Aucune ligne de devis pour ce chantier' });
+	const budget = projectBudgetFor(data, request.params.id);
+	const total = items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	const branding = await companyBrandingForPdf(data, worker);
+	const pdf = await buildDevisPdf({
+		...branding,
+		projectName: project?.name || request.params.id,
+		devisNumber: budget?.devisNumber || '',
+		client: budget?.client || '',
+		items,
+		total,
+		generatedAt: new Date().toLocaleDateString('fr-FR'),
+	});
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="devis-${String(project?.name || request.params.id).replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
+	response.send(pdf);
 });
 // A reminder of a price the company itself charged before, never an invented number - prices change
 // over time and "fourniture et pose" (supply+install) vs "pose" (install only) can be a 4x difference

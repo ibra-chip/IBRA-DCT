@@ -14,7 +14,10 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import test, { after, before } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
 
+const require = createRequire(import.meta.url);
+const { PDFParse } = require('pdf-parse');
 const root = fileURLToPath(new URL('..', import.meta.url));
 const port = 9900 + Math.floor(Math.random() * 100);
 const secret = 'local-development-secret-change-before-deploy';
@@ -34,6 +37,13 @@ const call = (method, requestPath, token, payload) => new Promise((resolve, reje
 	request.end();
 });
 const get = (requestPath, token) => call('GET', requestPath, token);
+const getBinary = (requestPath, token) => new Promise((resolve, reject) => {
+	http.get({ host: '127.0.0.1', port, path: requestPath, headers: { Authorization: `Bearer ${token}` } }, (response) => {
+		const chunks = [];
+		response.on('data', (chunk) => chunks.push(chunk));
+		response.on('end', () => resolve({ status: response.statusCode, contentType: response.headers['content-type'], buffer: Buffer.concat(chunks) }));
+	}).on('error', reject);
+});
 
 before(async () => {
 	dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'ibra-ba-line-items-test-'));
@@ -45,8 +55,10 @@ before(async () => {
 		projects: [
 			{ id: 'proj-a1', name: 'Chantier A1', location: '', progress: 0, status: 'active', manager: 'Owner A', ownerId: 'owner-a', createdAt: new Date().toISOString() },
 			{ id: 'proj-a2', name: 'Chantier A2', location: '', progress: 0, status: 'active', manager: 'Owner A', ownerId: 'owner-a', createdAt: new Date().toISOString() },
+			{ id: 'proj-devispdf', name: 'Chantier Devis PDF', location: '', progress: 0, status: 'active', manager: 'Owner A', ownerId: 'owner-a', createdAt: new Date().toISOString() },
 		],
 		documents: [], devisLineItems: [],
+		projectBudgets: [{ id: 'budget-devispdf', projectId: 'proj-devispdf', projectName: 'Chantier Devis PDF', chantierName: 'Chantier Devis PDF', devisNumber: 'DV-2026-01', client: 'Client Test', total: 0, spent: 0, remaining: 0, status: 'uploaded', uploadedBy: 'owner-a', updatedAt: new Date().toISOString() }],
 	};
 	await fs.writeFile(path.join(dataDir, 'data.json'), JSON.stringify(seed, null, 2));
 	child = spawn(process.execPath, ['server.js'], {
@@ -204,4 +216,41 @@ test('owner B (a different company) cannot edit owner A\'s line item, even by gu
 test('PATCH to a line item that does not exist 404s', async () => {
 	const response = await call('PATCH', '/api/budget/line-items/does-not-exist', tokenFor('owner-a', 'gerant'), { unitPrice: 5 });
 	assert.equal(response.status, 404);
+});
+
+test('devis-pdf is rejected (400) for a chantier with no line items', async () => {
+	// A fresh, dedicated chantier (never touched by any other test in this file) so this genuinely
+	// proves the empty case, not an accident of some other test having already added a line to it.
+	const response = await getBinary('/api/projects/proj-devispdf/devis-pdf', tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 400);
+});
+
+test('devis-pdf generates a real PDF reusing the saved devis header (number/client) and the live sum of current line item prices', async () => {
+	await call('POST', '/api/projects/proj-devispdf/budget/line-items', tokenFor('owner-a', 'gerant'), { items: [
+		{ description: 'Isolation facade', quantity: 20, unit: 'm²', unitPrice: 45, lineTotal: 900, category: 'ITE' },
+		{ description: 'Fenetre PVC', quantity: 2, unit: 'unité', unitPrice: 300, lineTotal: 600, category: 'Menuiserie' },
+	] });
+	const response = await getBinary('/api/projects/proj-devispdf/devis-pdf', tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.contentType, 'application/pdf');
+	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
+	assert.ok(response.buffer.length > 500, 'a real multi-row devis PDF should be more than a trivial stub');
+});
+
+test('devis-pdf total is the live sum of current line items, not a stale imported total - and the PDF text proves it', async () => {
+	// Reusing proj-devispdf from the test above: Isolation 900 + Fenetre 600 = 1500 EUR total, even
+	// though the seeded projectBudgets record itself has total: 0 (never updated after lines were added).
+	const response = await getBinary('/api/projects/proj-devispdf/devis-pdf', tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	const parser = new PDFParse({ data: response.buffer });
+	const result = await parser.getText();
+	assert.ok(result.text.includes('DV-2026-01'), 'devis number from the saved header must appear');
+	assert.ok(result.text.includes('Client Test'), 'client from the saved header must appear');
+	assert.ok(result.text.includes('Isolation facade'), 'line item description must appear');
+	assert.ok(result.text.includes('1500.00'), `total must be the live sum of line items (1500.00), got: ${result.text}`);
+});
+
+test('owner B (a different company) cannot download owner A\'s devis PDF', async () => {
+	const response = await getBinary('/api/projects/proj-devispdf/devis-pdf', tokenFor('owner-b', 'gerant'));
+	assert.equal(response.status, 403);
 });

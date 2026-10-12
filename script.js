@@ -2480,12 +2480,29 @@ document.addEventListener('DOMContentLoaded', () => {
 			const rowsHtml = [...categories.entries()].map(([category, items]) => `<div class="budget-line-items-category"><strong>${escapeHtml(category)}</strong>${items.map((item) => `<div class="budget-line-item-row"><span>${escapeHtml(item.description)}</span><span>${Number(item.quantity || 0)} ${escapeHtml(item.unit || '')}</span><span>${formatEUR(item.unitPrice)}</span><span>${formatEUR(item.lineTotal)}</span></div>`).join('')}</div>`).join('');
 			return `<details class="budget-line-items-detail"><summary>Voir le détail du devis (${lineItems.length} stavke)</summary>${rowsHtml}</details>`;
 		};
-		target.innerHTML = rows.length ? rows.map(({ project, budget, financial, lineItems }) => `<div class="list-item"><strong>${escapeHtml(project.name)}</strong><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${renderLineItemsDetail(lineItems)}${isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div>`).join('') : '<small>Nema registrovanih chantiers.</small>';
+		target.innerHTML = rows.length ? rows.map(({ project, budget, financial, lineItems }) => `<div class="list-item"><strong>${escapeHtml(project.name)}</strong><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${renderLineItemsDetail(lineItems)}<div>${lineItems.length ? `<button class="secondary download-devis-pdf" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Télécharger le devis PDF</button>` : ''}${isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div></div>`).join('') : '<small>Nema registrovanih chantiers.</small>';
 		document.querySelectorAll('.remove-project').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm(`Supprimer le chantier ${button.dataset.name} et les données associées ?`)) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			try { await request(`/projects/${button.dataset.project}`, { method: 'DELETE' }); await refreshActiveView(); toast('Chantier je obrisan.'); }
 			catch (error) { let message = 'Chantier nije obrisan.'; try { message = JSON.parse(error.message).error || message; } catch {} toast(message); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		document.querySelectorAll('.download-devis-pdf').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				const response = await fetch(`${api}/projects/${button.dataset.project}/devis-pdf`, { headers: { Authorization: `Bearer ${token()}` } });
+				if (!response.ok) throw new Error();
+				const blob = await response.blob();
+				const url = URL.createObjectURL(blob);
+				const link = document.createElement('a');
+				link.href = url;
+				link.download = `devis-${(button.dataset.name || 'chantier').replace(/\s+/g, '-')}.pdf`;
+				document.body.append(link);
+				link.click();
+				link.remove();
+				URL.revokeObjectURL(url);
+			} catch { toast('Export du devis impossible.'); }
+			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
 	}
 	async function loadPurchases() {
