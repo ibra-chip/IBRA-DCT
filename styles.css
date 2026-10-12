@@ -825,3 +825,26 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-list .list-item{padding:8px 10px}
 .plan-measure-list .list-item>div{display:flex;gap:8px;margin-top:4px}
 @media(max-width:850px){.plan-measure-body{grid-template-columns:1fr}.plan-measure-card{height:94dvh}}
+
+/* Sidebar user-status card + sectioned nav headers (Gestion / Parametres), styled after a mobile
+   time-tracking app's slide-out menu: a compact identity card up top with quick account/logout
+   pills, then the existing nav regrouped under two labeled sections instead of one flat list. */
+.sidebar-user-card{display:grid;gap:10px;padding:14px;border:1px solid var(--roster-line,#ffffff14);border-radius:var(--radius-card,14px);background:linear-gradient(180deg,#ffffff09,#ffffff03)}
+.sidebar-user-card-row{display:flex;align-items:center;gap:10px;min-width:0}
+.sidebar-user-icon{display:grid;place-items:center;flex:none;width:34px;height:34px;border-radius:999px;background:#72b9ff1c;color:var(--blue)}
+.sidebar-user-icon svg{width:18px;height:18px}
+.sidebar-user-copy{display:grid;gap:2px;min-width:0}
+.sidebar-user-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.92rem}
+.sidebar-user-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
+.sidebar-user-actions{display:grid;grid-template-columns:.85fr 1.15fr;gap:8px}
+.sidebar-pill{display:flex;align-items:center;justify-content:center;gap:5px;min-height:38px;padding:8px 6px;border:1px solid var(--border-soft,#ffffff18);border-radius:999px;background:#ffffff06;color:var(--text);font:inherit;font-size:.72rem;font-weight:800;cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sidebar-pill:hover{background:#72b9ff14;border-color:#72b9ff40}
+.sidebar-pill .nav-icon{width:14px;height:14px;flex:none}
+.sidebar-pill-danger{border-color:#f77d7d4a;color:#ffd5d5;background:#f77d7d0d}
+.sidebar-pill-danger:hover{border-color:var(--red);background:#f77d7d1c}
+.nav-section{display:flex;flex-direction:column;gap:6px}
+.nav-section+.nav-section{margin-top:8px;padding-top:12px;border-top:1px solid var(--roster-line,#ffffff14)}
+.nav-section-head{display:flex;align-items:center;gap:8px;margin:2px 4px 2px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-size:.68rem;font-weight:900}
+.nav-section-icon{display:grid;place-items:center;flex:none;width:22px;height:22px;border-radius:7px;background:#31d3a41c;color:var(--green)}
+.nav-section-icon svg{width:13px;height:13px}
+@media(max-width:850px){.sidebar-user-actions{grid-template-columns:1fr 1fr}}
