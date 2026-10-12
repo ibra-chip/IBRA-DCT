@@ -889,3 +889,10 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .worker-timesheet-footer .negative strong{color:var(--red)}
 .worker-timesheet-footer .positive strong{color:var(--green)}
 @media(max-width:600px){.worker-timesheet-row{grid-template-columns:44px 1fr 1fr 1fr 58px;font-size:.8rem}.worker-timesheet-header{padding:12px 14px}.worker-timesheet-heading p{display:none}}
+
+/* Chantier page sections (Avancement/Plan/Controles/RGE/Historique) used to be hidden behind tabs
+   (.mobile-tabs + data-tab-hidden) - converted to one stacked scrollable page instead, so nothing
+   (especially RGE compliance) is ever one un-clicked tab away from being missed. Consistent spacing
+   between the now-always-visible sibling panels; .schedule-panel and .audit-history already had their
+   own margin-top:18px from before, this just covers the other panels in the stack too. */
+#chantier-view .panel+.panel{margin-top:18px}
