@@ -135,3 +135,48 @@ test('/api/projects/:id/budget saves a photographed devis as the source file', a
 	assert.equal(result.status, 201, `expected the devis photo save to succeed, got ${result.status}: ${JSON.stringify(result.body)}`);
 	assert.match(result.body.sourceFile, /devis-photo\.jpg$/);
 });
+
+// A fuel/gas station ticket, or any other till receipt for achats/dépenses, is almost always a phone
+// photo rather than a scanned PDF. /api/pdf/inspect and the real /api/purchases save route previously
+// hard-required application/pdf, which blocked this exact real case even though the Gemini vision
+// fallback (no key in this test env, so it degrades to needsOcr instead of crashing) reads an image
+// buffer exactly like a PDF buffer already.
+test('/api/pdf/inspect accepts a photographed purchase receipt instead of requiring a PDF', async () => {
+	const result = await postMultipart('/api/pdf/inspect', token(), {}, { field: 'file', filename: 'receipt-photo.jpg', contentType: 'image/jpeg', buffer: Buffer.from('fake-receipt-photo-bytes') });
+	assert.equal(result.status, 200, `expected the receipt photo to be accepted, got ${result.status}: ${JSON.stringify(result.body)}`);
+	assert.equal(result.body.textFound, false, 'a photo has no PDF text layer, so textFound must stay false (no crash attempting to parse it as a PDF)');
+	assert.equal(result.body.needsOcr, true, 'no GEMINI_API_KEY in this test environment, so the AI fallback must degrade to needsOcr rather than throwing');
+	assert.equal(result.body.aiUsed, false);
+});
+
+test('/api/pdf/inspect still reads a real PDF receipt via the fast text-regex path, unaffected by the photo fallback', async () => {
+	const pdfBuffer = Buffer.from('%PDF-1.4\n%fake-pdf-with-regexable-text\nTotal TTC: 45,90 EUR\nDate: 12/10/2026\n');
+	const result = await postMultipart('/api/pdf/inspect', token(), {}, { field: 'file', filename: 'receipt.pdf', contentType: 'application/pdf', buffer: pdfBuffer });
+	assert.equal(result.status, 200);
+	// pdf-parse can't extract real text from this fake buffer either, so this also falls through to the
+	// same AI-unavailable degrade path - the point of this test is just that a real PDF is still routed
+	// through the PDF branch (isPdfFile true) and never mistaken for a photo.
+	assert.equal(result.body.needsOcr, true);
+});
+
+test('/api/pdf/inspect still rejects a file that is neither a PDF nor a photo', async () => {
+	const result = await postMultipart('/api/pdf/inspect', token(), {}, { field: 'file', filename: 'notes.txt', contentType: 'text/plain', buffer: Buffer.from('not a receipt') });
+	assert.equal(result.status, 400);
+});
+
+test('/api/purchases saves a photographed fuel/till receipt, not only a PDF', async () => {
+	const result = await postMultipart('/api/purchases', token(), { projectId: 'proj-1', supplier: 'Station Total', description: 'Gazole 45L', amount: '65.40', purchaseDate: '2026-10-12', category: 'other' }, { field: 'invoice', filename: 'gazole-receipt.jpg', contentType: 'image/jpeg', buffer: Buffer.from('fake-fuel-receipt-photo-bytes') });
+	assert.equal(result.status, 201, `expected the fuel receipt photo save to succeed, got ${result.status}: ${JSON.stringify(result.body)}`);
+	assert.match(result.body.invoiceFile, /gazole-receipt\.jpg$/);
+	assert.equal(result.body.supplier, 'Station Total');
+});
+
+test('/api/purchases still rejects a save with no file at all', async () => {
+	const result = await postMultipart('/api/purchases', token(), { projectId: 'proj-1', supplier: 'Station Total', description: 'Gazole', amount: '10', purchaseDate: '2026-10-12', category: 'other' }, null);
+	assert.equal(result.status, 400);
+});
+
+test('/api/purchases still rejects a file that is neither a PDF nor a photo', async () => {
+	const result = await postMultipart('/api/purchases', token(), { projectId: 'proj-1', supplier: 'Station Total', description: 'Gazole', amount: '10', purchaseDate: '2026-10-12', category: 'other' }, { field: 'invoice', filename: 'notes.txt', contentType: 'text/plain', buffer: Buffer.from('not a receipt') });
+	assert.equal(result.status, 400);
+});

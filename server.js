@@ -1704,16 +1704,53 @@ app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFile
 	const lineItemsResult = await extractDevisLineItemsWithGemini(request.file);
 	response.json({ extracted, lineItems: lineItemsResult.items, lineItemsSource: 'ai', lineItemsError: lineItemsResult.error, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItemsResult.items.length > 0 });
 });
+// A phone photo of a till receipt (a fuel/gas station ticket is the exact real case this is for) has
+// no text layer to regex-match at all, unlike a real PDF invoice - this is the same PDF-or-photo
+// tolerance and Gemini vision fallback already trusted for devis/facture inspect, just aimed at a
+// till-receipt's fields (supplier, a short description of what was bought, amount, date) instead.
+const inspectPurchaseWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this purchase receipt or invoice (PDF or photo) very carefully - it could be a fuel/gas station ticket, a hardware store receipt, a supplier invoice, or any other till receipt. Return only JSON with fields: supplier string (the business/station name exactly as printed), description string (what was purchased, a few words, e.g. \"Gazole 45L\" or \"Matériel électrique\" - summarize briefly if there are several line items, or copy the single item name), amount number (the final total actually paid, exact figure as printed, no rounding), date string (YYYY-MM-DD, the purchase/transaction date as printed, never guessed). If a field is genuinely not visible anywhere on the receipt, use an empty string or 0.";
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { supplier: { type: 'STRING' }, description: { type: 'STRING' }, amount: { type: 'NUMBER' }, date: { type: 'STRING', description: 'YYYY-MM-DD' } }, required: ['supplier', 'description', 'amount'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini purchase inspect network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini purchase inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
 app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
-	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
-	const parsed = await parsePdf(request.file.buffer);
-	const text = parsed.text.replace(/\s+/g, ' ').trim();
-	const amountMatch = text.match(/(?:total|montant|amount|ukupno)\s*(?:ttc|t\.t\.c\.|eur|€)?\s*[:=]?\s*([\d\s.,]+)/i);
-	const dateMatch = text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/);
-	const supplier = text.match(/(?:fournisseur|supplier|dobavljač|vendeur)\s*[:=-]?\s*([^|;]{2,80})/i)?.[1]?.trim() || '';
-	const number = text.match(/(?:facture|invoice|facture n|račun|devis)\s*(?:n°|no|br\.?|#)?\s*[:=-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '';
-	const amount = amountMatch ? Number(amountMatch[1].replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
-	response.json({ textFound: text.length > 0, extracted: { number, supplier, date: dateMatch?.[1] || '', amount: Number.isFinite(amount) ? amount : 0 }, source: request.file.originalname, needsOcr: text.length === 0 });
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A PDF or photo receipt is required' });
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	let text = '';
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Purchase PDF text parse failed:', error.message); } }
+	if (text) {
+		const amountMatch = text.match(/(?:total|montant|amount|ukupno)\s*(?:ttc|t\.t\.c\.|eur|€)?\s*[:=]?\s*([\d\s.,]+)/i);
+		const dateMatch = text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/);
+		const supplier = text.match(/(?:fournisseur|supplier|dobavljač|vendeur)\s*[:=-]?\s*([^|;]{2,80})/i)?.[1]?.trim() || '';
+		const number = text.match(/(?:facture|invoice|facture n|račun|devis)\s*(?:n°|no|br\.?|#)?\s*[:=-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '';
+		const amount = amountMatch ? Number(amountMatch[1].replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
+		return response.json({ textFound: true, extracted: { number, supplier, date: dateMatch?.[1] || '', amount: Number.isFinite(amount) ? amount : 0, description: '' }, source: request.file.originalname, needsOcr: false, aiUsed: false });
+	}
+	// No text layer (a scanned PDF or, the common real case, a phone photo of a till receipt) - fall
+	// back to Gemini vision rather than reporting "needs manual OCR" the way this route always used to.
+	const ai = await inspectPurchaseWithGemini(request.file);
+	if (!ai) return response.json({ textFound: false, extracted: { number: '', supplier: '', date: '', amount: 0, description: '' }, source: request.file.originalname, needsOcr: true, aiUsed: false });
+	response.json({ textFound: false, extracted: { number: '', supplier: String(ai.supplier || ''), date: parseFrenchDate(ai.date) || (/^\d{4}-\d{2}-\d{2}$/.test(ai.date || '') ? ai.date : ''), amount: Number(ai.amount) || 0, description: String(ai.description || '') }, source: `${request.file.originalname} · Gemini`, needsOcr: false, aiUsed: true });
 });
 const parseFrenchDate = (raw) => {
 	const match = String(raw || '').match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
@@ -2273,7 +2310,8 @@ app.get('/api/purchases', auth, async (request, response) => {
 	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
 });
 app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFilenameEncoding, async (request, response) => {
-	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A purchase invoice PDF is required' });
+	// Accepts a phone photo of a till receipt too (eg. fuel station), not just a PDF - see /api/pdf/inspect.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A purchase invoice PDF or photo is required' });
 	const amount = Number(request.body.amount || 0);
 	const category = String(request.body.category || 'other');
 	if (!request.body.projectId || !request.body.supplier || !request.body.description || !Number.isFinite(amount) || amount <= 0 || !['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'].includes(category)) return response.status(400).json({ error: 'Purchase fields are incomplete' });
