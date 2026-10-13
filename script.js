@@ -2188,12 +2188,19 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureState.drawPoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
 		}
 		if (planMeasureState.candidates?.length) {
-			ctx.strokeStyle = '#f39a4a'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
-			ctx.fillStyle = '#f39a4a';
+			const candidateColor = { opening: '#f39a4a', 'rail-v': '#72b9ff', 'rail-h': '#c879ff' };
+			ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
 			ctx.font = 'bold 12px sans-serif';
 			planMeasureState.candidates.forEach((box, index) => {
-				ctx.strokeRect(box.x0 * scale, box.y0 * scale, (box.x1 - box.x0) * scale, (box.y1 - box.y0) * scale);
-				ctx.fillText(`#${index + 1}`, box.x0 * scale + 3, box.y0 * scale + 13);
+				const color = candidateColor[box.kind] || candidateColor.opening;
+				ctx.strokeStyle = color; ctx.fillStyle = color;
+				const w = (box.x1 - box.x0) * scale; const h = (box.y1 - box.y0) * scale;
+				// A rail candidate is only a couple of pixels thick before scaling - padded out to a minimum
+				// visible width/height here (display only, never written back to the stored box) so its outline
+				// doesn't vanish on screen while the gérant is reviewing it.
+				const padX = w < 6 ? (6 - w) / 2 : 0; const padY = h < 6 ? (6 - h) / 2 : 0;
+				ctx.strokeRect(box.x0 * scale - padX, box.y0 * scale - padY, w + padX * 2, h + padY * 2);
+				ctx.fillText(`#${index + 1}`, box.x0 * scale + 3, box.y0 * scale - padY + 13);
 			});
 			ctx.setLineDash([]);
 		}
@@ -2237,12 +2244,34 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-detect-openings')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-detect-rails')?.toggleAttribute('disabled', disabled);
 		const actions = document.querySelector('#plan-measure-candidates-actions');
-		const count = planMeasureState?.candidates?.length || 0;
+		const candidates = planMeasureState?.candidates || [];
 		if (actions) {
-			actions.hidden = count === 0;
+			actions.hidden = candidates.length === 0;
+			const openingBoxes = candidates.filter((box) => box.kind === 'opening');
+			const railV = candidates.filter((box) => box.kind === 'rail-v');
+			const railH = candidates.filter((box) => box.kind === 'rail-h');
+			// A rail candidate is only a few pixels thick - too thin to reliably click-to-reject one at a time
+			// among what's often hundreds of them across a whole facade (confirmed on a real plan: 500+ rail
+			// segments). So unlike openings (confirmed one by one, each a genuinely distinct real-world item),
+			// rails are reviewed as a SUM: the overlay on the canvas is the review (does the pattern of lines
+			// look right across the facade), and confirming adds one devis line per orientation with the total
+			// length - never hundreds of individual line items nobody would scroll through anyway.
+			const pxPerM = planMeasureState?.calibration?.pixelsPerMeter || 1;
+			const totalV = railV.reduce((sum, box) => sum + (box.y1 - box.y0) / pxPerM, 0);
+			const totalH = railH.reduce((sum, box) => sum + (box.x1 - box.x0) / pxPerM, 0);
 			const countLabel = document.querySelector('#plan-measure-candidates-count');
-			if (countLabel) countLabel.textContent = `${count} ouverture(s) détectée(s) (⚠ hors couleur bleue = jamais détecté), à vérifier :`;
+			if (countLabel) {
+				const parts = [];
+				if (openingBoxes.length) parts.push(`${openingBoxes.length} ouverture(s)`);
+				if (railV.length) parts.push(`${railV.length} rail(aux) vertical(aux) = ${totalV.toFixed(1)} ml`);
+				if (railH.length) parts.push(`${railH.length} rail(aux) horizontal(aux) = ${totalH.toFixed(1)} ml`);
+				countLabel.textContent = `${parts.join(', ')} détecté(s) (⚠ hors couleur reconnue = jamais détecté), à vérifier :`;
+			}
+			document.querySelector('#plan-measure-candidates-confirm')?.toggleAttribute('hidden', openingBoxes.length === 0);
+			document.querySelector('#plan-measure-candidates-rails-v')?.toggleAttribute('hidden', railV.length === 0);
+			document.querySelector('#plan-measure-candidates-rails-h')?.toggleAttribute('hidden', railH.length === 0);
 		}
 	}
 	// Deterministic (no AI, no language model) opening detector: finds blue/cyan-colored rectangular
@@ -2301,6 +2330,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			// rectangular, reasonably solid blobs the size of a real window pane at this resolution.
 			if (count < 40 || extent < 0.55 || aspect < 0.3 || aspect > 3.5) continue;
 			candidates.push({
+				kind: 'opening',
 				x0: x0 / detectScale, y0: y0 / detectScale,
 				x1: (x1 + 1) / detectScale, y1: (y1 + 1) / detectScale,
 			});
@@ -2372,20 +2402,138 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		return list.map(({ parts, ...rest }) => rest);
 	}
+	// Detects the steel "ossature" rails (horizontal + vertical furring/cladding rails) drawn on a facade
+	// elevation plan - a DIFFERENT color convention from window openings, confirmed by hand on two real
+	// BONDY "OSSATURES" plans: both rail orientations share the exact same fill color (sky blue, ~173/221/
+	// 247) in the plan's own legend ("Ossature L acier galva"), distinguished from each other only by which
+	// way they're drawn, never by hue. Unlike a window pane (a filled rectangle, many pixels across even on
+	// a big plan), a rail is drawn as a THIN line - only 1px wide at this app's actual 150 DPI raster,
+	// confirmed by sampling the real plan pixel by pixel. A 1px feature can vanish entirely under the
+	// opening detector's downscale step, so this runs at full resolution (no downscale) even though that
+	// costs more time on a huge A0 sheet.
+	function planMeasureDetectRails() {
+		if (!planMeasureState?.image || !planMeasureState.calibration) return;
+		const image = planMeasureState.image;
+		const natW = image.naturalWidth;
+		const natH = image.naturalHeight;
+		if (natW * natH > 60_000_000) { toast('Plan trop grand pour détecter les rails à pleine résolution - tracez-les à la main.'); return; }
+		const offscreen = document.createElement('canvas');
+		offscreen.width = natW; offscreen.height = natH;
+		const octx = offscreen.getContext('2d', { willReadFrequently: true });
+		octx.drawImage(image, 0, 0, natW, natH);
+		const { data } = octx.getImageData(0, 0, natW, natH);
+		// A generous +-22 per channel absorbs antialiasing without drifting into this same sheet's other
+		// colors (checked against both the window blue (0,0,255)/(0,137,182) and the plaque/pattes colors -
+		// no collision on either real plan tested).
+		const tol = 22;
+		const isRail = new Uint8Array(natW * natH);
+		for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+			const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+			if (Math.abs(r - 173) <= tol && Math.abs(g - 221) <= tol && Math.abs(b - 247) <= tol) isRail[p] = 1;
+		}
+		const labelOf = new Int32Array(natW * natH).fill(-1);
+		const stack = [];
+		const verticals = [];
+		const horizontals = [];
+		// A dimension label, crossing rail, or window frame drawn over a rail line breaks it into pieces in
+		// the SOURCE drawing itself, not just at render time - confirmed by tracing one real rail column
+		// pixel by pixel: small ~2-3px gaps (antialiasing) alongside repeated ~80px (~1m) gaps lining up
+		// exactly where label boxes cross it. Raw fragments are merged back below; the length/aspect checks
+		// here only filter the tiny corner specks where a vertical and horizontal rail nearly touch.
+		const minLengthPx = 0.15 * planMeasureState.calibration.pixelsPerMeter;
+		for (let start = 0; start < natW * natH; start += 1) {
+			if (!isRail[start] || labelOf[start] !== -1) continue;
+			let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+			stack.length = 0;
+			stack.push(start);
+			labelOf[start] = 1;
+			while (stack.length) {
+				const p = stack.pop();
+				const px = p % natW; const py = (p - px) / natW;
+				if (px < x0) x0 = px; if (px > x1) x1 = px;
+				if (py < y0) y0 = py; if (py > y1) y1 = py;
+				if (px > 0 && isRail[p - 1] && labelOf[p - 1] === -1) { labelOf[p - 1] = 1; stack.push(p - 1); }
+				if (px < natW - 1 && isRail[p + 1] && labelOf[p + 1] === -1) { labelOf[p + 1] = 1; stack.push(p + 1); }
+				if (p - natW >= 0 && isRail[p - natW] && labelOf[p - natW] === -1) { labelOf[p - natW] = 1; stack.push(p - natW); }
+				if (p + natW < natW * natH && isRail[p + natW] && labelOf[p + natW] === -1) { labelOf[p + natW] = 1; stack.push(p + natW); }
+			}
+			const bw = x1 - x0 + 1; const bh = y1 - y0 + 1;
+			const aspect = bh ? bw / bh : 0;
+			if (aspect <= 0.35 && bh >= minLengthPx) verticals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 });
+			else if (aspect >= 3 && bw >= minLengthPx) horizontals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 });
+		}
+		const mergedV = planMeasureMergeCollinearRailSegments(verticals, 'v').map((box) => ({ ...box, kind: 'rail-v' }));
+		const mergedH = planMeasureMergeCollinearRailSegments(horizontals, 'h').map((box) => ({ ...box, kind: 'rail-h' }));
+		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH];
+		planMeasureSyncToolbar();
+		planMeasureRedraw();
+		toast(mergedV.length || mergedH.length
+			? `${mergedV.length} rail(aux) vertical(aux) + ${mergedH.length} rail(aux) horizontal(aux) détecté(s) - vérifiez avant de confirmer. ⚠ Seule la couleur bleu ciel « Ossature L acier galva » est reconnue - tout autre profilé (plaque pliée, pattes, équerres) doit être tracé à la main.`
+			: 'Aucun rail détecté automatiquement sur ce plan (couleur non reconnue) - tracez-les manuellement avec « + Ligne (ml) ».');
+	}
+	// Bridges a rail's own real breaks (label boxes, crossing elements drawn over it in the source plan)
+	// back into one candidate per physical rail run, without bridging two genuinely different rails
+	// together - the gap check only ever compares segments already confirmed collinear (same column for a
+	// vertical rail, same row for a horizontal one), so two separate rails in different columns/rows can
+	// never merge with each other regardless of this threshold. 1.2m comfortably covers the ~1m recurring
+	// gaps measured by hand on the real plan while staying far short of a typical floor height, so it can't
+	// bridge two rails that are genuinely separate pieces either side of a floor break.
+	function planMeasureMergeCollinearRailSegments(boxes, axis) {
+		const pixelsPerMeter = planMeasureState.calibration.pixelsPerMeter;
+		const gapPx = 1.2 * pixelsPerMeter;
+		const bandTolPx = Math.max(3, 0.03 * pixelsPerMeter);
+		let list = boxes.map((box) => ({ ...box, parts: 1 }));
+		let changed = true;
+		while (changed) {
+			changed = false;
+			outer: for (let i = 0; i < list.length; i += 1) {
+				const a = list[i];
+				if (!a) continue;
+				for (let j = i + 1; j < list.length; j += 1) {
+					const c = list[j];
+					if (!c) continue;
+					// Caps how many fragments one candidate can absorb - a real rail realistically crosses a
+					// handful of labels/crossings per floor, never dozens; stops a pathological run of tiny
+					// specks from chaining into one implausibly long candidate.
+					if (a.parts + c.parts > 8) continue;
+					const sameBand = axis === 'v'
+						? Math.abs(a.x0 - c.x0) <= bandTolPx && Math.abs(a.x1 - c.x1) <= bandTolPx
+						: Math.abs(a.y0 - c.y0) <= bandTolPx && Math.abs(a.y1 - c.y1) <= bandTolPx;
+					if (!sameBand) continue;
+					const gap = axis === 'v' ? Math.max(c.y0 - a.y1, a.y0 - c.y1) : Math.max(c.x0 - a.x1, a.x0 - c.x1);
+					if (gap > gapPx) continue;
+					a.x0 = Math.min(a.x0, c.x0); a.y0 = Math.min(a.y0, c.y0);
+					a.x1 = Math.max(a.x1, c.x1); a.y1 = Math.max(a.y1, c.y1);
+					a.parts += c.parts;
+					list[j] = null;
+					changed = true;
+					break outer;
+				}
+			}
+			list = list.filter(Boolean);
+		}
+		// A merged run longer than this is implausible for one physical rail piece on a residential/mid-rise
+		// facade (would span many floors uninterrupted) - rather than guess which part of such a chain is
+		// real, it's dropped from auto-detection entirely so nothing implausible is ever silently presented
+		// as one measurement; trace it by hand in sections with "+ Ligne (ml)" instead.
+		const maxSpanPx = 20 * pixelsPerMeter;
+		return list.filter((box) => (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0) <= maxSpanPx).map(({ parts, ...rest }) => rest);
+	}
 	async function planMeasureConfirmCandidates() {
-		if (!planMeasureState?.candidates?.length) return;
+		const openingBoxes = (planMeasureState?.candidates || []).filter((box) => box.kind === 'opening');
+		if (!openingBoxes.length) return;
 		const button = document.querySelector('#plan-measure-candidates-confirm');
 		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
 		try {
 			let index = 0;
-			for (const box of planMeasureState.candidates) {
+			for (const box of openingBoxes) {
 				index += 1;
-				const points = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
 				// Each candidate is resolved against its OWN center point, not the currently active zone - a
 				// plan with multiple delimited zones (e.g. façade + pignon) can have detected candidates in
 				// both at once, and confirming them all in one click must still apply the right scale to each.
 				const center = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
 				const zone = planMeasureZoneForPoint(center) || planMeasureState.calibration;
+				const points = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
 				// The real width/height in meters comes straight from the calibrated px/m ratio, exactly like
 				// every other measurement in this tool - not a guess, so it's safe to put in the label.
 				const widthM = (box.x1 - box.x0) / zone.pixelsPerMeter;
@@ -2397,7 +2545,7 @@ document.addEventListener('DOMContentLoaded', () => {
 					planMeasureState.measurements.push(measurement);
 				} catch { /* one failed candidate must not stop the rest from being confirmed */ }
 			}
-			planMeasureState.candidates = [];
+			planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'opening');
 			planMeasureRenderList();
 			planMeasureSyncToolbar();
 			planMeasureRedraw();
@@ -2405,6 +2553,39 @@ document.addEventListener('DOMContentLoaded', () => {
 		} finally {
 			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}
+	}
+	// A rail candidate is only a couple of pixels thick on screen - too thin to click-to-reject one at a
+	// time among what's routinely hundreds of them across a whole facade (538 verticals + 582 horizontals,
+	// measured on a real plan). So unlike an opening (confirmed individually, each a genuinely distinct
+	// real-world item), rails are reviewed as a SUM: the dashed overlay on the canvas IS the review (does
+	// the pattern of lines look right across the facade), and this adds ONE devis line with the total
+	// length for the chosen orientation - never hundreds of line items nobody would scroll through anyway.
+	async function planMeasureAddRailTotalToDevis(kind) {
+		const boxes = (planMeasureState?.candidates || []).filter((box) => box.kind === kind);
+		if (!boxes.length) return;
+		const button = document.querySelector(kind === 'rail-v' ? '#plan-measure-candidates-rails-v' : '#plan-measure-candidates-rails-h');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			// Each box is resolved against its OWN center point (same reasoning as an opening candidate) so a
+			// plan with multiple delimited zones still applies the right scale to every segment before summing.
+			const totalM = boxes.reduce((sum, box) => {
+				const center = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
+				const zone = planMeasureZoneForPoint(center) || planMeasureState.calibration;
+				return sum + (kind === 'rail-v' ? box.y1 - box.y0 : box.x1 - box.x0) / zone.pixelsPerMeter;
+			}, 0);
+			const orientationLabel = kind === 'rail-v' ? 'Ossature L acier galva verticale' : 'Ossature L acier galva horizontale';
+			const matchDescription = orientationLabel;
+			if (!(await planMeasureConfirmAgainstExistingLineItem(matchDescription, Number(totalM.toFixed(2)), 'ml'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(matchDescription, 'ml');
+			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'} : ${boxes.length} segment(s) détecté(s), ${totalM.toFixed(2)} ml au total`;
+			await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: Number(totalM.toFixed(2)), unit: 'ml', unitPrice, lineTotal: Number((totalM * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
+			planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== kind);
+			planMeasureSyncToolbar();
+			planMeasureRedraw();
+			toast(`${orientationLabel} (${totalM.toFixed(2)} ml) ajouté au devis.`);
+		} catch { toast('Stavka nije dodana.'); }
+		finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 	}
 	function planMeasureApplyZoom(newScale) {
 		if (!planMeasureState?.image) return;
@@ -2714,7 +2895,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-zoom-reset')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.baseScale));
 	document.querySelector('#plan-measure-rotate')?.addEventListener('click', () => planMeasureState && planMeasureRotate());
 	document.querySelector('#plan-measure-detect-openings')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectOpenings());
+	document.querySelector('#plan-measure-detect-rails')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectRails());
 	document.querySelector('#plan-measure-candidates-confirm')?.addEventListener('click', () => planMeasureConfirmCandidates());
+	document.querySelector('#plan-measure-candidates-rails-v')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-v'));
+	document.querySelector('#plan-measure-candidates-rails-h')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-h'));
 	document.querySelector('#plan-measure-candidates-clear')?.addEventListener('click', () => { if (!planMeasureState) return; planMeasureState.candidates = []; planMeasureSyncToolbar(); planMeasureRedraw(); });
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
