@@ -617,8 +617,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { panel.hidden = true; }
 	}
 	async function loadDashboard() {
-		await loadProjectOptions();
-		await loadAttentionItems();
+		// loadAttentionItems() is cross-chantier (its own /attention-items call, no dependency on which
+		// project loadProjectOptions() ends up selecting) - was waiting for projectOptions to finish for no
+		// reason, adding a full extra round trip to every dashboard open.
+		await Promise.all([loadProjectOptions(), loadAttentionItems()]);
 		const projectId = currentProjectId();
 		const project = currentProject();
 		if (!projectId) {
