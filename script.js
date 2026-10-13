@@ -2304,6 +2304,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			toast('Calibrez d’abord l’échelle (bouton « Calibrer l’échelle ») avant de tracer une mesure.');
 			return;
 		}
+		document.querySelector('#plan-measure-magnifier')?.setAttribute('hidden', '');
 		planMeasureState.mode = mode;
 		planMeasureState.drawRole = role;
 		planMeasureState.drawPoints = [];
@@ -2419,6 +2420,62 @@ document.addEventListener('DOMContentLoaded', () => {
 			toast('Mesure enregistrée.');
 		} catch { toast('Mesure non enregistrée.'); }
 	});
+	// AutoCAD-style magnifier: while in a point-placing mode (calibrate/line/polygon/opening), a zoomed
+	// loupe with a crosshair follows the cursor/finger so the exact pixel about to be placed is visible
+	// magnified, instead of guessing under a fingertip. Reads from the already-drawn main canvas (same
+	// pixels the click handler below converts via planMeasureToNatural), so the loupe can never disagree
+	// with where the point actually lands - it's a crop of the real canvas, not a separate render.
+	const PLAN_MEASURE_MAGNIFIER_SIZE = 140;
+	const PLAN_MEASURE_MAGNIFIER_ZOOM = 3;
+	function planMeasureUpdateMagnifier(clientX, clientY) {
+		const magnifier = document.querySelector('#plan-measure-magnifier');
+		if (!magnifier) return;
+		if (!planMeasureState?.mode) { magnifier.hidden = true; return; }
+		const canvas = document.querySelector('#plan-measure-canvas');
+		const wrap = document.querySelector('.plan-measure-canvas-wrap');
+		if (!canvas || !wrap) { magnifier.hidden = true; return; }
+		const canvasRect = canvas.getBoundingClientRect();
+		if (clientX < canvasRect.left || clientX > canvasRect.right || clientY < canvasRect.top || clientY > canvasRect.bottom) { magnifier.hidden = true; return; }
+		// Position within the canvas's own pixel buffer (canvas.width/height can differ from its displayed
+		// CSS size), matching exactly how planMeasureToNatural resolves a click to a point.
+		const canvasX = (clientX - canvasRect.left) * (canvas.width / canvasRect.width);
+		const canvasY = (clientY - canvasRect.top) * (canvas.height / canvasRect.height);
+		magnifier.width = PLAN_MEASURE_MAGNIFIER_SIZE;
+		magnifier.height = PLAN_MEASURE_MAGNIFIER_SIZE;
+		const ctx = magnifier.getContext('2d');
+		const sourceSize = PLAN_MEASURE_MAGNIFIER_SIZE / PLAN_MEASURE_MAGNIFIER_ZOOM;
+		ctx.imageSmoothingEnabled = false;
+		ctx.clearRect(0, 0, PLAN_MEASURE_MAGNIFIER_SIZE, PLAN_MEASURE_MAGNIFIER_SIZE);
+		ctx.save();
+		ctx.beginPath();
+		ctx.arc(PLAN_MEASURE_MAGNIFIER_SIZE / 2, PLAN_MEASURE_MAGNIFIER_SIZE / 2, PLAN_MEASURE_MAGNIFIER_SIZE / 2, 0, Math.PI * 2);
+		ctx.clip();
+		ctx.drawImage(canvas, canvasX - sourceSize / 2, canvasY - sourceSize / 2, sourceSize, sourceSize, 0, 0, PLAN_MEASURE_MAGNIFIER_SIZE, PLAN_MEASURE_MAGNIFIER_SIZE);
+		ctx.restore();
+		ctx.strokeStyle = '#f77d7d';
+		ctx.lineWidth = 1.5;
+		const center = PLAN_MEASURE_MAGNIFIER_SIZE / 2;
+		ctx.beginPath(); ctx.moveTo(center - 14, center); ctx.lineTo(center + 14, center); ctx.stroke();
+		ctx.beginPath(); ctx.moveTo(center, center - 14); ctx.lineTo(center, center + 14); ctx.stroke();
+		// Positioned above the cursor/finger (so a fingertip never covers it); flips below if too close to
+		// the top, and stays clamped horizontally within the scrollable wrap's own content area.
+		const wrapRect = wrap.getBoundingClientRect();
+		const offsetX = clientX - wrapRect.left + wrap.scrollLeft;
+		const offsetY = clientY - wrapRect.top + wrap.scrollTop;
+		let left = offsetX - PLAN_MEASURE_MAGNIFIER_SIZE / 2;
+		let top = offsetY - PLAN_MEASURE_MAGNIFIER_SIZE - 24;
+		if (top < wrap.scrollTop) top = offsetY + 24;
+		left = Math.max(wrap.scrollLeft + 4, Math.min(left, wrap.scrollLeft + wrapRect.width - PLAN_MEASURE_MAGNIFIER_SIZE - 4));
+		magnifier.style.left = `${left}px`;
+		magnifier.style.top = `${top}px`;
+		magnifier.hidden = false;
+	}
+	const planMeasureCanvasForMagnifier = document.querySelector('#plan-measure-canvas');
+	planMeasureCanvasForMagnifier?.addEventListener('mousemove', (event) => planMeasureUpdateMagnifier(event.clientX, event.clientY));
+	planMeasureCanvasForMagnifier?.addEventListener('mouseleave', () => { const magnifier = document.querySelector('#plan-measure-magnifier'); if (magnifier) magnifier.hidden = true; });
+	planMeasureCanvasForMagnifier?.addEventListener('touchstart', (event) => { const touch = event.touches[0]; if (touch) planMeasureUpdateMagnifier(touch.clientX, touch.clientY); }, { passive: true });
+	planMeasureCanvasForMagnifier?.addEventListener('touchmove', (event) => { const touch = event.touches[0]; if (touch) planMeasureUpdateMagnifier(touch.clientX, touch.clientY); }, { passive: true });
+	planMeasureCanvasForMagnifier?.addEventListener('touchend', () => { const magnifier = document.querySelector('#plan-measure-magnifier'); if (magnifier) magnifier.hidden = true; });
 	document.querySelector('#plan-measure-canvas')?.addEventListener('click', async (event) => {
 		if (!planMeasureState?.mode) return;
 		const point = planMeasureToNatural(event);

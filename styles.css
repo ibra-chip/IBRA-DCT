@@ -820,7 +820,8 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
 .plan-measure-body{display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px;flex:1;min-height:0}
-.plan-measure-canvas-wrap{min-height:0;overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
+.plan-measure-canvas-wrap{position:relative;min-height:0;overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
+.plan-measure-magnifier{position:absolute;width:140px;height:140px;border:3px solid var(--blue,#72b9ff);border-radius:50%;box-shadow:0 8px 24px #0008;pointer-events:none;z-index:5;background:#fff}
 #plan-measure-canvas{cursor:crosshair;display:block}
 .plan-measure-list-wrap{display:grid;gap:10px;align-content:start;overflow:auto}
 .plan-measure-totals{display:flex;gap:14px;font-size:.84rem;font-weight:800}
