@@ -2343,12 +2343,16 @@ document.addEventListener('DOMContentLoaded', () => {
 			const image = new Image();
 			const objectUrl = URL.createObjectURL(blob);
 			await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = objectUrl; });
-			const maxWidth = Math.min(900, document.querySelector('.plan-measure-canvas-wrap').clientWidth || 900);
-			// baseScale is the "fit to screen" size - on a narrow phone this can shrink a large plan enough
-			// that a small window's corners are a few blurry pixels apart, too imprecise to tap accurately.
-			// Zoom in/out (below) lets the user scale up past this before placing a point; the canvas-wrap
-			// already scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
-			const baseScale = Math.min(1, maxWidth / image.naturalWidth);
+			const canvasWrap = document.querySelector('.plan-measure-canvas-wrap');
+			const maxWidth = canvasWrap?.clientWidth || 900;
+			const maxHeight = canvasWrap?.clientHeight || 600;
+			// baseScale is the "fit to screen" size - uses the real available space in both directions (not
+			// a fixed cap), so a wide full-screen layout actually gets used instead of leaving the plan small
+			// in a mostly-empty canvas area. On a narrow phone this can still shrink a large plan enough that
+			// a small window's corners are a few blurry pixels apart, too imprecise to tap accurately - zoom
+			// in/out (below) lets the user scale up past this before placing a point; the canvas-wrap already
+			// scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
+			const baseScale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
