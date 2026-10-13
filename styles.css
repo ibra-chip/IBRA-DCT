@@ -828,9 +828,14 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
 .plan-measure-body{display:grid;grid-template-columns:1fr 280px;grid-template-rows:1fr;gap:10px;flex:1;min-height:0}
-.plan-measure-canvas-wrap{position:relative;min-height:0;overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
+/* display:flex + margin:auto on the canvas (not justify/align-items:center on the wrap) centers it when it's
+   smaller than the available space - e.g. a landscape plan fit to a narrow phone screen, width-bound with
+   slack left over in height - without the well-known flex-centering-plus-overflow:auto bug where browsers
+   clip the start of scrollable content once it's zoomed past the available space. Same rule, same result on
+   phone and desktop: whatever space fitting leaves over is split evenly instead of pinned to one corner. */
+.plan-measure-canvas-wrap{position:relative;display:flex;min-height:0;overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
 .plan-measure-magnifier{position:absolute;width:140px;height:140px;border:3px solid var(--blue,#72b9ff);border-radius:50%;box-shadow:0 8px 24px #0008;pointer-events:none;z-index:5;background:#fff}
-#plan-measure-canvas{cursor:crosshair;display:block}
+#plan-measure-canvas{cursor:crosshair;display:block;margin:auto}
 .plan-measure-list-wrap{display:grid;gap:10px;align-content:start;overflow:auto}
 .plan-measure-totals{display:flex;gap:14px;font-size:.84rem;font-weight:800}
 .plan-measure-list .list-item{padding:8px 10px}

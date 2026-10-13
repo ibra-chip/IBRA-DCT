@@ -3280,14 +3280,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		const submitButton = form.querySelector('button');
 		const submitButtonLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement en cours…'; }
-		message.textContent = 'Enregistrement en cours (le serveur peut mettre jusqu’à 1 min à se réveiller)…';
+		message.textContent = 'Enregistrement en cours… sur chantier avec un réseau faible, l’envoi d’un gros fichier peut prendre plusieurs minutes - ne fermez pas cette page.';
 		try {
 			// The upload itself only saves the file and the document record - it no longer waits for the AI
 			// analysis (that used to run inline here and could take well over a minute for a large technical
 			// PDF, timing out the whole request at an infra level even though the file was already safely
 			// uploaded). Analysis is requested separately right below, so a slow or failed analysis can never
 			// again make it look like the document itself wasn't saved.
-			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(90000) });
+			// Timeout is generous (4 min, not 90s) because this step's real bottleneck on a chantier is the
+			// WORKER'S OWN mobile upload speed, not server processing - a large scanned plan PDF (up to the
+			// 25MB server limit) over weak on-site cellular data can genuinely take minutes to transfer, and
+			// cutting it off early would silently throw away a real upload in progress for no server-side reason.
+			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(240000) });
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(result.error || `${response.status}`);
 			form.reset();
@@ -3309,7 +3313,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		} catch (error) {
 			message.classList.add('error');
-			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'Le serveur met trop de temps à répondre (plus de 90 s). Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
+			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'L’envoi prend trop de temps (plus de 4 min) - probablement un réseau faible sur le chantier. Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre avant de réessayer.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
 			toast('Document non enregistré ou sans réponse. Voir le message sous le formulaire.');
 		} finally {
 			if (submitButton) { submitButton.disabled = false; submitButton.textContent = submitButtonLabel; }
