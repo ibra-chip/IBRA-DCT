@@ -2265,7 +2265,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		toast(merged.length ? `${merged.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer.` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
 	}
 	function planMeasureMergeAdjacentCandidates(boxes) {
-		let list = boxes.map((box) => ({ ...box }));
+		let list = boxes.map((box) => ({ ...box, parts: 1 }));
 		let changed = true;
 		while (changed) {
 			changed = false;
@@ -2277,6 +2277,11 @@ document.addEventListener('DOMContentLoaded', () => {
 				for (let j = i + 1; j < list.length; j += 1) {
 					const c = list[j];
 					if (!c) continue;
+					// A real window has at most 3 panes - without this cap, a chain of otherwise-valid small
+					// merges could keep absorbing neighbors across a whole row and eventually bridge a real
+					// gap between two separate parts of the building. Caught by hand on a second real plan
+					// (two different building wings got merged into one absurd candidate) before shipping.
+					if (a.parts + c.parts > 3) continue;
 					const heightC = c.y1 - c.y0;
 					const widthC = c.x1 - c.x0;
 					// A double/triple window's panes can be adjacent along either axis of the plan's OWN
@@ -2292,8 +2297,15 @@ document.addEventListener('DOMContentLoaded', () => {
 					const yGap = Math.max(c.y0 - a.y1, a.y0 - c.y1);
 					const verticalPair = xOverlap >= 0.6 * Math.min(widthA, widthC) && yGap >= 0 && yGap <= 1.2 * Math.min(widthA, widthC);
 					if (!horizontalPair && !verticalPair) continue;
-					a.x0 = Math.min(a.x0, c.x0); a.y0 = Math.min(a.y0, c.y0);
-					a.x1 = Math.max(a.x1, c.x1); a.y1 = Math.max(a.y1, c.y1);
+					const mergedX0 = Math.min(a.x0, c.x0); const mergedY0 = Math.min(a.y0, c.y0);
+					const mergedX1 = Math.max(a.x1, c.x1); const mergedY1 = Math.max(a.y1, c.y1);
+					// Second, independent guard: even within the 3-part cap, reject a merge that would
+					// produce an implausibly elongated shape for a real window (a bridge between two
+					// legitimately separate, similarly-colored elements rather than one window's panes).
+					const mergedAspect = (mergedX1 - mergedX0) / (mergedY1 - mergedY0 || 1);
+					if (mergedAspect > 6 || mergedAspect < 1 / 6) continue;
+					a.x0 = mergedX0; a.y0 = mergedY0; a.x1 = mergedX1; a.y1 = mergedY1;
+					a.parts += c.parts;
 					list[j] = null;
 					changed = true;
 					break outer;
@@ -2301,7 +2313,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			list = list.filter(Boolean);
 		}
-		return list;
+		return list.map(({ parts, ...rest }) => rest);
 	}
 	async function planMeasureConfirmCandidates() {
 		if (!planMeasureState?.candidates?.length) return;
