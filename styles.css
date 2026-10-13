@@ -804,7 +804,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 
 /* Plan measurement tool (calibrated on-screen takeoff): centered wide modal instead of the right drawer
    other worker-detail-* modals use, since the canvas needs horizontal room. */
-.plan-measure-card{display:flex;flex-direction:column;width:100%;max-width:1400px;height:100dvh}
+.plan-measure-card{display:flex;flex-direction:column;width:100%;max-width:none;height:100dvh;padding:14px 18px}
 .plan-measure-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .plan-measure-more{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
 .plan-measure-more summary{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:11px 14px;border:1px solid var(--border-soft,#ffffff18);border-radius:10px;background:#ffffff08;color:var(--text);font:inherit;font-weight:700;cursor:pointer;list-style:none}
@@ -820,7 +820,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box{padding:10px 12px;border:1px solid var(--roster-line);border-radius:10px;background:#ffffff05;font-size:.84rem;display:grid;gap:4px}
 .plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
-.plan-measure-body{display:grid;grid-template-columns:1fr 320px;grid-template-rows:1fr;gap:14px;flex:1;min-height:0}
+.plan-measure-body{display:grid;grid-template-columns:1fr 280px;grid-template-rows:1fr;gap:10px;flex:1;min-height:0}
 .plan-measure-canvas-wrap{position:relative;min-height:0;overflow:auto;border:1px solid var(--roster-line);border-radius:12px;background:#0b1b2c}
 .plan-measure-magnifier{position:absolute;width:140px;height:140px;border:3px solid var(--blue,#72b9ff);border-radius:50%;box-shadow:0 8px 24px #0008;pointer-events:none;z-index:5;background:#fff}
 #plan-measure-canvas{cursor:crosshair;display:block}
@@ -828,7 +828,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-totals{display:flex;gap:14px;font-size:.84rem;font-weight:800}
 .plan-measure-list .list-item{padding:8px 10px}
 .plan-measure-list .list-item>div{display:flex;gap:8px;margin-top:4px}
-@media(max-width:850px){.plan-measure-body{grid-template-columns:1fr;grid-template-rows:1fr 160px}.plan-measure-card{height:94dvh;padding:12px}.plan-measure-toolbar{gap:6px}.plan-measure-toolbar button{min-height:38px;padding:7px 9px;font-size:.78rem}.plan-measure-status{flex-basis:100%;margin-left:0}#plan-measure-modal .worker-detail-header p{display:none}#plan-measure-modal .worker-detail-header h2{font-size:1.05rem}}
+@media(max-width:850px){.plan-measure-body{grid-template-columns:1fr;grid-template-rows:1fr 130px;gap:8px}.plan-measure-card{height:94dvh;padding:10px}.plan-measure-toolbar{gap:6px}.plan-measure-toolbar button{min-height:38px;padding:7px 9px;font-size:.78rem}.plan-measure-status{flex-basis:100%;margin-left:0}#plan-measure-modal .worker-detail-header{padding-bottom:6px;margin-bottom:2px}#plan-measure-modal .worker-detail-header p{display:none}#plan-measure-modal .worker-detail-header h2{font-size:1rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 
 /* Sidebar user-status card + sectioned nav headers (Gestion / Parametres), styled after a mobile
    time-tracking app's slide-out menu: a compact identity card up top with quick account/logout
