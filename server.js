@@ -3124,8 +3124,13 @@ const isFinitePoint = (point) => point && Number.isFinite(point.x) && Number.isF
 // the moment it's created, so past measurements never change retroactively when the active one changes).
 // item.calibrations is the saved history of every named zone, so a gérant can switch back to "Façade" or
 // "Pignon" without re-clicking reference points each time.
-function addCalibrationZone(item, calibration, label) {
-	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null };
+// An optional region (a rectangle in natural-image pixel space) a calibration zone applies to - lets the
+// tool resolve WHICH zone a given point belongs to on its own (planMeasureZoneForPoint, client-side) instead
+// of relying on the gérant to remember to switch the active zone before clicking. A zone with no region is
+// the fallback that matches anywhere, so a single-scale plan (the common case) never needs one.
+const isFiniteRegion = (region) => region && [region.x0, region.y0, region.x1, region.y1].every(Number.isFinite);
+function addCalibrationZone(item, calibration, label, region) {
+	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null, region: isFiniteRegion(region) ? region : null };
 	item.calibrations = [...(item.calibrations || []), named];
 	item.calibration = named;
 	return named;
@@ -3165,6 +3170,23 @@ app.patch('/api/documents/:id/calibration/activate', auth, manager, async (reque
 	item.calibration = found;
 	await writeData(data);
 	response.json({ calibration: item.calibration, calibrations: item.calibrations });
+});
+// Attaches (or replaces) the rectangle a calibration zone applies to, drawn by the gérant right after
+// naming the zone - separate from PATCH .../calibration itself so the two reference points used to set the
+// scale are never confused with the two corners used to mark where it applies.
+app.patch('/api/documents/:id/calibration/:calibrationId/region', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const found = (item.calibrations || []).find((calibration) => calibration.id === request.params.calibrationId);
+	if (!found) return response.status(404).json({ error: 'Calibration zone not found' });
+	const { x0, y0, x1, y1 } = request.body || {};
+	const region = isFiniteRegion({ x0, y0, x1, y1 }) ? { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) } : null;
+	found.region = region;
+	if (item.calibration?.id === found.id) item.calibration = found;
+	await writeData(data);
+	response.json({ calibration: found, calibrations: item.calibrations });
 });
 app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	const data = await readData();
@@ -3223,6 +3245,12 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	if (!item.calibration) return response.status(400).json({ error: 'Calibrate the plan scale before measuring' });
+	// A caller that already knows which zone a shape belongs to (e.g. the client resolved it geometrically
+	// against each zone's saved region) can name that zone explicitly instead of relying on whichever
+	// calibration happens to be "active" - avoids having to PATCH .../activate before every single shape on
+	// a plan that mixes zones, and removes any race between "switch active zone" and "post this shape".
+	const explicitCalibration = request.body.calibrationId ? (item.calibrations || []).find((calibration) => calibration.id === request.body.calibrationId) : null;
+	if (request.body.calibrationId && !explicitCalibration) return response.status(400).json({ error: 'Unknown calibrationId' });
 	const type = request.body.type === 'polygon' ? 'polygon' : 'line';
 	const points = (Array.isArray(request.body.points) ? request.body.points : []).filter(isFinitePoint);
 	const minPoints = type === 'polygon' ? 3 : 2;
@@ -3231,7 +3259,7 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	// "opening" only applies to polygons (a window/door traced inside a wall surface, to subtract from
 	// it) - a line has no area to deduct from, so it always stays "surface" regardless of what's sent.
 	const role = type === 'polygon' && request.body.role === 'opening' ? 'opening' : 'surface';
-	const { pixelsPerMeter } = item.calibration;
+	const { pixelsPerMeter } = explicitCalibration || item.calibration;
 	const value = type === 'polygon' ? polygonAreaPx(points) / (pixelsPerMeter ** 2) : polylineLengthPx(points) / pixelsPerMeter;
 	// A window/door opening is usually billed per piece (fourniture + pose) and/or by the linear meter
 	// of trim/sealant around it, not by its m2 - so every polygon also gets its closed-loop perimeter
@@ -3242,7 +3270,7 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	// pattern-matching the image. Clamped to a sane range so a typo (or a stray huge number) can't silently
 	// multiply a total by something absurd.
 	const repeatCount = Math.max(1, Math.min(999, Math.round(Number(request.body.repeatCount)) || 1));
-	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', calibrationId: (explicitCalibration || item.calibration).id, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.planMeasurements = [...(data.planMeasurements || []), measurement];
 	await writeData(data);
 	response.status(201).json(measurement);

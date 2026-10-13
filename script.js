@@ -2099,6 +2099,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		}
 		return { x: lx / planMeasureState.scale, y: ly / planMeasureState.scale };
 	}
+	// Resolves which calibration zone a natural-space point falls inside (by its saved region rectangle).
+	// If no delimited region claims the point, it falls back to whichever zone has NO region at all - that
+	// zone is the implicit "rest of the plan" catch-all (e.g. the main façade scale, with only the pignon
+	// sub-section separately delimited). This must NOT fall back to "whatever zone is currently active",
+	// because the active zone changes as the gérant works and using it would make the resolved scale depend
+	// on click order instead of on the plan's own geometry - a silent, undetectable source of wrong numbers.
+	// Only when there is more than one regionless zone (genuinely ambiguous) do we fall back to the active
+	// zone, same as a plain single-scale plan where no zone has ever had a region defined at all.
+	function planMeasureZoneForPoint(point) {
+		const zones = planMeasureState?.calibrations || [];
+		const match = zones.find((zone) => zone.region && point.x >= zone.region.x0 && point.x <= zone.region.x1 && point.y >= zone.region.y0 && point.y <= zone.region.y1);
+		if (match) return match;
+		const undelimited = zones.filter((zone) => !zone.region);
+		if (undelimited.length === 1) return undelimited[0];
+		return planMeasureState?.calibration || null;
+	}
 	function planMeasureLengthM(points) {
 		if (!planMeasureState?.calibration) return 0;
 		let pixelSum = 0;
@@ -2131,10 +2147,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		const naturalDrawHeight = planMeasureState.image.naturalHeight * scale;
 		ctx.drawImage(planMeasureState.image, 0, 0, naturalDrawWidth, naturalDrawHeight);
 		const strokePath = (points, close) => { ctx.beginPath(); points.forEach((p, i) => { const x = p.x * scale; const y = p.y * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); if (close) ctx.closePath(); };
-		if (planMeasureState.calibration) {
+		if (planMeasureState.calibration?.pointA && planMeasureState.calibration?.pointB) {
 			ctx.strokeStyle = '#31d3a4'; ctx.lineWidth = 2; ctx.setLineDash([]);
 			strokePath([planMeasureState.calibration.pointA, planMeasureState.calibration.pointB], false); ctx.stroke();
 		}
+		// Shows exactly where each delimited zone applies, so a mixed-scale plan (façade at one zone, pignon
+		// at another) is visually self-explanatory instead of relying on memory - matches what the automatic
+		// per-shape zone resolution already uses under the hood.
+		(planMeasureState.calibrations || []).forEach((zone) => {
+			if (!zone.region) return;
+			ctx.strokeStyle = zone.id === planMeasureState.calibration?.id ? '#72b9ff' : '#72b9ff80';
+			ctx.lineWidth = 2; ctx.setLineDash([10, 6]);
+			ctx.strokeRect(zone.region.x0 * scale, zone.region.y0 * scale, (zone.region.x1 - zone.region.x0) * scale, (zone.region.y1 - zone.region.y0) * scale);
+			ctx.setLineDash([]);
+			ctx.fillStyle = '#72b9ff'; ctx.font = 'bold 13px sans-serif';
+			ctx.fillText(zone.label || 'Zone', zone.region.x0 * scale + 4, zone.region.y0 * scale + 16);
+		});
 		planMeasureState.measurements.forEach((item) => {
 			const isOpening = item.type === 'polygon' && item.role === 'opening';
 			ctx.strokeStyle = isOpening ? '#f77d7d' : item.type === 'polygon' ? '#f4c86f' : '#72b9ff';
@@ -2173,11 +2201,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		const status = document.querySelector('#plan-measure-status');
 		if (!status || !planMeasureState) return;
 		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
+		if (planMeasureState.mode === 'calibrate-region') { status.textContent = `Délimitation de la zone : cliquez 2 coins opposés (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
 		if (planMeasureState.mode === 'polygon') { const kind = planMeasureState.drawRole === 'opening' ? 'Ouverture à déduire' : 'Surface'; status.textContent = `${kind} en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
 		if (!planMeasureState.calibration) { status.textContent = 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.'; return; }
 		const zoneSuffix = planMeasureState.calibration.label ? ` (zone : ${planMeasureState.calibration.label})` : '';
-		const multiZoneWarning = (planMeasureState.calibrations?.length || 0) > 1 ? ' ⚠ Plusieurs zones de calibration existent sur ce plan - vérifiez que la zone active correspond à ce que vous mesurez.' : '';
+		const zones = planMeasureState.calibrations || [];
+		// With at most one regionless zone, planMeasureZoneForPoint always resolves deterministically (see its
+		// own comment) - the tool genuinely applies the right scale on its own, so no manual check is needed.
+		// Only 2+ regionless zones are truly ambiguous (the tool can't tell them apart) and need the gérant's eye.
+		const undelimitedCount = zones.filter((zone) => !zone.region).length;
+		const multiZoneWarning = zones.length > 1
+			? (undelimitedCount > 1 ? ' ⚠ Plusieurs zones de calibration sans délimitation claire - vérifiez que la zone active correspond à ce que vous mesurez.' : ' ℹ Plusieurs zones existent ; la bonne échelle est appliquée automatiquement selon l’endroit du plan.')
+			: '';
 		status.textContent = `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m${zoneSuffix}${multiZoneWarning}`;
 	}
 	// Lets a gérant switch back to a previously calibrated zone (e.g. a plan with a façade at one printed
@@ -2343,13 +2379,19 @@ document.addEventListener('DOMContentLoaded', () => {
 			for (const box of planMeasureState.candidates) {
 				index += 1;
 				const points = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
+				// Each candidate is resolved against its OWN center point, not the currently active zone - a
+				// plan with multiple delimited zones (e.g. façade + pignon) can have detected candidates in
+				// both at once, and confirming them all in one click must still apply the right scale to each.
+				const center = { x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 };
+				const zone = planMeasureZoneForPoint(center) || planMeasureState.calibration;
 				// The real width/height in meters comes straight from the calibrated px/m ratio, exactly like
 				// every other measurement in this tool - not a guess, so it's safe to put in the label.
-				const widthM = (box.x1 - box.x0) / planMeasureState.calibration.pixelsPerMeter;
-				const heightM = (box.y1 - box.y0) / planMeasureState.calibration.pixelsPerMeter;
-				const label = `Ouverture détectée #${index} — ${widthM.toFixed(2)}×${heightM.toFixed(2)} m`;
+				const widthM = (box.x1 - box.x0) / zone.pixelsPerMeter;
+				const heightM = (box.y1 - box.y0) / zone.pixelsPerMeter;
+				const zoneNote = zone.label ? ` (${zone.label})` : '';
+				const label = `Ouverture détectée #${index} — ${widthM.toFixed(2)}×${heightM.toFixed(2)} m${zoneNote}`;
 				try {
-					const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'polygon', role: 'opening', label, points, repeatCount: 1 }) });
+					const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'polygon', role: 'opening', label, points, repeatCount: 1, calibrationId: zone.id }) });
 					planMeasureState.measurements.push(measurement);
 				} catch { /* one failed candidate must not stop the rest from being confirmed */ }
 			}
@@ -2618,7 +2660,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, originalName: docItem.originalName, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, calibrations: measurementsResult.calibrations || [], measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, originalName: docItem.originalName, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, calibrations: measurementsResult.calibrations || [], measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], pendingRegionCalibrationId: null, currentShapeCalibrationId: null, objectUrl };
 			planMeasureRenderCalibrationZones();
 			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
 			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
@@ -2689,7 +2731,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			repeatCount = Math.max(1, Math.round(Number(repeatInput)) || 1);
 		}
 		try {
-			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, role: drawRole, label: label.trim(), points: drawPoints, repeatCount }) });
+			const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: mode, role: drawRole, label: label.trim(), points: drawPoints, repeatCount, calibrationId: planMeasureState.currentShapeCalibrationId }) });
 			planMeasureState.measurements.push(measurement);
 			planMeasureRenderList();
 			planMeasureSetMode(null);
@@ -2785,11 +2827,53 @@ document.addEventListener('DOMContentLoaded', () => {
 						planMeasureState.calibrations = result.calibrations || [];
 						planMeasureRenderCalibrationZones();
 						toast('Échelle calibrée.');
+						// From the second zone onward, offer to mark where it applies - once a zone has a region,
+						// the tool resolves the right scale on its own for anything drawn inside it, instead of
+						// depending on the gérant remembering to switch zones first. A single-scale plan never
+						// sees this prompt (nothing to disambiguate yet with only one zone).
+						if (planMeasureState.calibrations.length > 1 && window.confirm(`Délimiter la zone « ${label || 'sans nom'} » sur le plan ? Cliquez OK puis cliquez 2 coins opposés de la zone où cette échelle s’applique.`)) {
+							planMeasureState.pendingRegionCalibrationId = result.calibration.id;
+							planMeasureSetMode('calibrate-region');
+							return;
+						}
 					} catch { toast('Calibration échouée.'); }
 				} else { toast('Calibration annulée : distance invalide.'); }
 				planMeasureSetMode(null);
 			} else { planMeasureUpdateStatus(); planMeasureRedraw(); }
 			return;
+		}
+		if (planMeasureState.mode === 'calibrate-region') {
+			planMeasureState.calibratePoints.push(point);
+			if (planMeasureState.calibratePoints.length === 2) {
+				const [a, b] = planMeasureState.calibratePoints;
+				try {
+					const result = await request(`/documents/${planMeasureState.documentId}/calibration/${planMeasureState.pendingRegionCalibrationId}/region`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ x0: a.x, y0: a.y, x1: b.x, y1: b.y }) });
+					planMeasureState.calibrations = result.calibrations || planMeasureState.calibrations;
+					if (planMeasureState.calibration?.id === result.calibration.id) planMeasureState.calibration = result.calibration;
+					toast('Zone délimitée.');
+				} catch { toast('Délimitation échouée.'); }
+				planMeasureState.pendingRegionCalibrationId = null;
+				planMeasureSetMode(null);
+			} else { planMeasureUpdateStatus(); planMeasureRedraw(); }
+			return;
+		}
+		// Resolve the right calibration zone automatically for the FIRST point of a new shape only - a shape
+		// must use one consistent scale throughout, so this is locked in once per shape rather than
+		// re-resolved per point (which could otherwise mix scales inside a single line/polygon if it happened
+		// to cross a zone boundary). Silently switches the active zone to match when they differ, so the
+		// gérant never has to remember to do it themselves for a zone that's already been delimited.
+		if (planMeasureState.drawPoints.length === 0) {
+			const resolved = planMeasureZoneForPoint(point);
+			planMeasureState.currentShapeCalibrationId = resolved?.id || null;
+			if (resolved && resolved.id !== planMeasureState.calibration?.id) {
+				try {
+					const result = await request(`/documents/${planMeasureState.documentId}/calibration/activate`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calibrationId: resolved.id }) });
+					planMeasureState.calibration = result.calibration;
+					planMeasureState.calibrations = result.calibrations || planMeasureState.calibrations;
+					planMeasureRenderCalibrationZones();
+					toast(`Zone détectée automatiquement : ${resolved.label || 'sans nom'}.`);
+				} catch { /* keep the previously active zone if the switch itself fails */ }
+			}
 		}
 		planMeasureState.drawPoints.push(point);
 		planMeasureUpdateStatus();
