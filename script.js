@@ -2067,12 +2067,30 @@ document.addEventListener('DOMContentLoaded', () => {
 	// image pixel space (not the possibly-scaled canvas display size) so measurements stay correct
 	// regardless of zoom/window size; planMeasureState.scale converts natural space -> canvas display space.
 	let planMeasureState = null;
+	// Canvas pixel size for the CURRENT scale + rotation - width/height swap at 90/270 since the plan is
+	// turned on its side. Exact integer math (Math.round only here, never trig) so rotating never shifts
+	// an already-placed point by even a fraction of a pixel.
+	function planMeasureCanvasSize() {
+		const scaledW = Math.round(planMeasureState.image.naturalWidth * planMeasureState.scale);
+		const scaledH = Math.round(planMeasureState.image.naturalHeight * planMeasureState.scale);
+		const swapped = planMeasureState.rotation === 90 || planMeasureState.rotation === 270;
+		return swapped ? { width: scaledH, height: scaledW } : { width: scaledW, height: scaledH };
+	}
 	function planMeasureToNatural(event) {
 		const canvas = document.querySelector('#plan-measure-canvas');
 		const rect = canvas.getBoundingClientRect();
-		const x = (event.clientX - rect.left) * (canvas.width / rect.width) / planMeasureState.scale;
-		const y = (event.clientY - rect.top) * (canvas.height / rect.height) / planMeasureState.scale;
-		return { x, y };
+		const dx = (event.clientX - rect.left) * (canvas.width / rect.width);
+		const dy = (event.clientY - rect.top) * (canvas.height / rect.height);
+		// Exact inverse of the rotation transform planMeasureRedraw applies below, so a click always maps
+		// back to the same natural-image point regardless of which way the plan is currently turned.
+		let lx; let ly;
+		switch (planMeasureState.rotation) {
+			case 90: lx = dy; ly = canvas.width - dx; break;
+			case 180: lx = canvas.width - dx; ly = canvas.height - dy; break;
+			case 270: lx = canvas.height - dy; ly = dx; break;
+			default: lx = dx; ly = dy;
+		}
+		return { x: lx / planMeasureState.scale, y: ly / planMeasureState.scale };
 	}
 	function planMeasureLengthM(points) {
 		if (!planMeasureState?.calibration) return 0;
@@ -2092,7 +2110,19 @@ document.addEventListener('DOMContentLoaded', () => {
 		const ctx = canvas.getContext('2d');
 		const scale = planMeasureState.scale;
 		ctx.clearRect(0, 0, canvas.width, canvas.height);
-		ctx.drawImage(planMeasureState.image, 0, 0, canvas.width, canvas.height);
+		ctx.save();
+		// Every draw call below (image, calibration line, measurements, in-progress points) already uses
+		// natural-image coordinates * scale, unrotated. Rotating the context itself here, once, turns all
+		// of it together and exactly - no stored point is ever touched, so calibration/measurements made
+		// before a rotation stay numerically correct after it.
+		switch (planMeasureState.rotation) {
+			case 90: ctx.translate(canvas.width, 0); ctx.rotate(Math.PI / 2); break;
+			case 180: ctx.translate(canvas.width, canvas.height); ctx.rotate(Math.PI); break;
+			case 270: ctx.translate(0, canvas.height); ctx.rotate(-Math.PI / 2); break;
+		}
+		const naturalDrawWidth = planMeasureState.image.naturalWidth * scale;
+		const naturalDrawHeight = planMeasureState.image.naturalHeight * scale;
+		ctx.drawImage(planMeasureState.image, 0, 0, naturalDrawWidth, naturalDrawHeight);
 		const strokePath = (points, close) => { ctx.beginPath(); points.forEach((p, i) => { const x = p.x * scale; const y = p.y * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); if (close) ctx.closePath(); };
 		if (planMeasureState.calibration) {
 			ctx.strokeStyle = '#31d3a4'; ctx.lineWidth = 2; ctx.setLineDash([]);
@@ -2120,6 +2150,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			ctx.fillStyle = '#ffffff';
 			planMeasureState.drawPoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
 		}
+		ctx.restore();
 	}
 	function planMeasureUpdateStatus() {
 		const status = document.querySelector('#plan-measure-status');
@@ -2143,11 +2174,28 @@ document.addEventListener('DOMContentLoaded', () => {
 		// letting the canvas balloon to an unusable size on a very small source image.
 		const clamped = Math.max(planMeasureState.baseScale, Math.min(planMeasureState.baseScale * 8, newScale));
 		planMeasureState.scale = clamped;
-		canvas.width = Math.round(planMeasureState.image.naturalWidth * clamped);
-		canvas.height = Math.round(planMeasureState.image.naturalHeight * clamped);
+		const size = planMeasureCanvasSize();
+		canvas.width = size.width;
+		canvas.height = size.height;
 		const zoomLabel = document.querySelector('#plan-measure-zoom-level');
 		if (zoomLabel) zoomLabel.textContent = `${Math.round(clamped * 100)}%`;
 		planMeasureRedraw();
+	}
+	// Rotates the view 90° at a time (cycling 0->90->180->270->0) and re-fits it to the available screen
+	// space in the new orientation - a plan exported sideways (common with large-format A0/A1 PDFs) can be
+	// turned upright before calibrating/measuring. Nothing about the stored calibration or measurements
+	// ever changes here: only the view transform does, so work done before a rotation stays exactly correct.
+	function planMeasureRotate() {
+		if (!planMeasureState?.image) return;
+		planMeasureState.rotation = (planMeasureState.rotation + 90) % 360;
+		const canvasWrap = document.querySelector('.plan-measure-canvas-wrap');
+		const maxWidth = canvasWrap?.clientWidth || 900;
+		const maxHeight = canvasWrap?.clientHeight || 600;
+		const swapped = planMeasureState.rotation === 90 || planMeasureState.rotation === 270;
+		const effectiveWidth = swapped ? planMeasureState.image.naturalHeight : planMeasureState.image.naturalWidth;
+		const effectiveHeight = swapped ? planMeasureState.image.naturalWidth : planMeasureState.image.naturalHeight;
+		planMeasureState.baseScale = Math.min(1, maxWidth / effectiveWidth, maxHeight / effectiveHeight);
+		planMeasureApplyZoom(planMeasureState.baseScale);
 	}
 	function planMeasureUndoLastPoint() {
 		if (!planMeasureState || !planMeasureState.drawPoints.length) return;
@@ -2362,7 +2410,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
 			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
 			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
 			planMeasureRenderList();
@@ -2401,6 +2449,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-zoom-in')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale * 1.25));
 	document.querySelector('#plan-measure-zoom-out')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale / 1.25));
 	document.querySelector('#plan-measure-zoom-reset')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.baseScale));
+	document.querySelector('#plan-measure-rotate')?.addEventListener('click', () => planMeasureState && planMeasureRotate());
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
 		const { mode, drawPoints, drawRole } = planMeasureState;
