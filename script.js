@@ -2432,7 +2432,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const swapped = planMeasureState.rotation === 90 || planMeasureState.rotation === 270;
 		const effectiveWidth = swapped ? planMeasureState.image.naturalHeight : planMeasureState.image.naturalWidth;
 		const effectiveHeight = swapped ? planMeasureState.image.naturalWidth : planMeasureState.image.naturalHeight;
-		planMeasureState.baseScale = Math.min(1, maxWidth / effectiveWidth, maxHeight / effectiveHeight);
+		planMeasureState.baseScale = Math.min(maxWidth / effectiveWidth, maxHeight / effectiveHeight);
 		planMeasureApplyZoom(planMeasureState.baseScale);
 	}
 	function planMeasureUndoLastPoint() {
@@ -2656,7 +2656,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			// a small window's corners are a few blurry pixels apart, too imprecise to tap accurately - zoom
 			// in/out (below) lets the user scale up past this before placing a point; the canvas-wrap already
 			// scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
-			const baseScale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+			const baseScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);

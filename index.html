@@ -255,16 +255,20 @@
 			<aside class="worker-detail-card plan-measure-card" tabindex="-1">
 				<div class="worker-detail-header"><div><small>MESURE DU PLAN</small><h2 id="plan-measure-title">Mesurer le plan</h2><p>Calibrez l’échelle une fois, puis tracez des lignes (ml), des surfaces (m²) et les ouvertures à déduire (fenêtres, portes) — le total net se calcule tout seul. Géométrie exacte, aucune IA.</p></div><button id="plan-measure-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
 				<div class="plan-measure-toolbar">
-					<button type="button" class="secondary" id="plan-measure-calibrate">Calibrer l’échelle</button>
-					<select id="plan-measure-calibration-zone" class="secondary" hidden aria-label="Zone de calibration active"></select>
-					<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
-					<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
-					<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
-					<button type="button" class="secondary" id="plan-measure-detect-openings">🔍 Détecter les ouvertures (bêta)</button>
+					<span class="plan-measure-tool-group">
+						<button type="button" class="secondary" id="plan-measure-calibrate">Calibrer l’échelle</button>
+						<select id="plan-measure-calibration-zone" class="secondary" hidden aria-label="Zone de calibration active"></select>
+						<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
+						<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
+						<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
+						<button type="button" class="secondary" id="plan-measure-detect-openings">🔍 Détecter les ouvertures (bêta)</button>
+					</span>
 					<span id="plan-measure-candidates-actions" class="plan-measure-candidates-actions" hidden><span id="plan-measure-candidates-count"></span><button type="button" class="secondary" id="plan-measure-candidates-confirm">✓ Confirmer tout</button><button type="button" class="secondary" id="plan-measure-candidates-clear">✕ Effacer</button></span>
-					<button type="button" class="secondary" id="plan-measure-undo-point" hidden>↺ Annuler le dernier point</button>
-					<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>
-					<button type="button" class="secondary" id="plan-measure-cancel-draw" hidden>Annuler le tracé</button>
+					<span class="plan-measure-tool-group">
+						<button type="button" class="secondary" id="plan-measure-undo-point" hidden>↺ Annuler le dernier point</button>
+						<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>
+						<button type="button" class="secondary" id="plan-measure-cancel-draw" hidden>Annuler le tracé</button>
+					</span>
 					<details class="plan-measure-more"><summary>Plus d’options</summary><button type="button" class="secondary" id="plan-measure-info">Lire les infos du plan (IA)</button><button type="button" class="secondary" id="plan-measure-metre-pdf">Exporter le métré (PDF)</button></details>
 					<span class="plan-measure-zoom"><button type="button" class="secondary" id="plan-measure-zoom-out" aria-label="Zoom arrière">−</button><span id="plan-measure-zoom-level">100%</span><button type="button" class="secondary" id="plan-measure-zoom-in" aria-label="Zoom avant">+</button><button type="button" class="secondary" id="plan-measure-zoom-reset">Ajuster</button><button type="button" class="secondary" id="plan-measure-rotate" aria-label="Pivoter le plan">⟳ Pivoter</button></span>
 					<span id="plan-measure-status" class="plan-measure-status"></span>
