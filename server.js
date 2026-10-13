@@ -343,6 +343,7 @@ async function analyzePhotoWithVision({ buffer, mimeType, fileName, evidenceType
 	const prompt = `${french ? 'Analyse cette photo de chantier façade/ITE/bardage' : 'Analiziraj ovu fotografiju chantier fasade/ITE/bardage'}.
 Réponds uniquement en JSON avec: workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1.
 Ne devine jamais les mesures, marques ou performances non visibles. Si un élément n'est pas clairement visible, écris qu'il faut confirmer par plan/fiche technique/DTA.
+Le champ confidence doit être une estimation honnête de TA propre certitude, jamais arrondie à la hausse : s'il y a le moindre doute, un angle flou, un élément partiellement caché ou un détail non visible sur la photo, confidence doit rester bas. Ne mets jamais une valeur proche de 1 sauf si tu es vraiment certain de chaque élément déclaré.
 File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.`;
 	const parseVisionJson = (text) => {
 		const clean = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
@@ -406,6 +407,7 @@ async function analyzeDocumentWithGemini({ buffer, mimeType, fileName, evidenceT
 Tu dois répondre SPECIFIQUEMENT selon ce plan/fiche, pas avec un texte générique.
 Si le document parle de bardage ventilé, explique exactement par où commencer, l'ordre logique: support, calepinage, ossature/équerres/tasseaux, isolant, pare-pluie, lame d'air, profils départ/angles/tableaux, pose du parement, contrôles et photos preuve.
 Si une information précise n'est pas dans le document, écris "à confirmer dans le plan/fiche/DTA" au lieu d'inventer.
+Le champ confidence doit être une estimation honnête de TA propre certitude sur cette analyse, jamais arrondie à la hausse. S'il y a du texte illisible, des pages non comprises dans ce que tu as reçu, un schéma ambigu ou une information manquante que tu as dû marquer "à confirmer", confidence doit rester bas en conséquence - ne mets une valeur proche de 1 que si le document est entièrement clair et que chaque élément déclaré en est tiré avec certitude.
 Réponds uniquement en JSON avec:
 summary string, workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1, answer string.
 Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.
