@@ -2795,36 +2795,20 @@ app.get('/api/projects/:id/situation-summary', auth, async (request, response) =
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
-app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
-	if (!request.file) return response.status(400).json({ error: 'File required' });
-	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
-	const evidenceType = request.body.evidenceType || 'other';
-	const projectId = String(request.body.projectId || '');
-	console.log(`[documents/upload] evidenceType=${evidenceType} mimetype=${request.file.mimetype} name=${request.file.originalname}`);
-	const data = await readData();
-	let context;
-	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	// Hashed from the original bytes (before compression, which can vary run to run) so re-uploading
-	// the exact same photo or plan is caught even though evidenceType or the chosen phase differs.
-	const fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
-	const duplicate = (data.documents || []).find((doc) => doc.projectId === projectId && doc.fileHash === fileHash);
-	const storedName = storageKeyFor(request.file.originalname);
-	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
-	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+// Shared by the upload route's background analysis and the on-demand /analyze endpoint below - a plan/
+// fiche-technique is analyzed through the technical-document path (Gemini reads a photo page directly,
+// same as a PDF page) even when it's a photographed "carnet de détail" page, not a real PDF - only the
+// PDF-only steps (text layer parsing, embedded-image extraction) are skipped.
+async function runDocumentAutoAnalysis({ buffer, mimetype, originalname, evidenceType, language }) {
 	let autoAnalysis = null;
-	const language = request.body.responseLanguage || 'sr';
 	try {
-		// A plan/fiche-technique is analyzed through the technical-document path (Gemini reads a photo
-		// page directly, same as a PDF page) even when it's a photographed "carnet de détail" page, not
-		// a real PDF - only the PDF-only steps (text layer parsing, embedded-image extraction) are skipped.
 		if (['plan', 'fiche-technique'].includes(evidenceType)) {
-			const buffer = request.file.buffer;
-			const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+			const isPdfFile = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
 			let parsed = { text: '' };
 			if (isPdfFile) { try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
-			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
+			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: mimetype, fileName: originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
 			if (!autoAnalysis) {
-				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
+				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: originalname, evidenceType, language });
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 			} else if (!autoAnalysis.answer) {
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
@@ -2841,11 +2825,10 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 					console.error('PDF image extraction failed:', error.message);
 				}
 			}
-		} else if (request.file.mimetype.startsWith('image/')) {
-			const buffer = request.file.buffer;
+		} else if (mimetype.startsWith('image/')) {
 			let visionResult = { vision: null, status: 'not_configured' };
-			try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
-			autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
+			try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: mimetype, fileName: originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
+			autoAnalysis = analyzeConstructionPhoto({ fileName: originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 		}
 	} catch (error) {
@@ -2853,18 +2836,64 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 		autoAnalysis = null;
 	}
 	if (!autoAnalysis) {
-		console.warn(`[documents/upload] no analysis branch matched or all fallbacks failed for evidenceType=${evidenceType} mimetype=${request.file.mimetype}`);
+		console.warn(`[documents/analyze] no analysis branch matched or all fallbacks failed for evidenceType=${evidenceType} mimetype=${mimetype}`);
 		const french = language === 'fr';
-		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
+		autoAnalysis = { status: 'analysis_error', fileName: originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	attachReferenceLinks(autoAnalysis);
+	return autoAnalysis;
+}
+app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'File required' });
+	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
+	const evidenceType = request.body.evidenceType || 'other';
+	const projectId = String(request.body.projectId || '');
+	console.log(`[documents/upload] evidenceType=${evidenceType} mimetype=${request.file.mimetype} name=${request.file.originalname}`);
+	const data = await readData();
+	let context;
+	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	// Hashed from the original bytes (before compression, which can vary run to run) so re-uploading
+	// the exact same photo or plan is caught even though evidenceType or the chosen phase differs.
+	const fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
+	const duplicate = (data.documents || []).find((doc) => doc.projectId === projectId && doc.fileHash === fileHash);
+	const storedName = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
 	// Only meaningful for evidenceType=plan: lets the owner upload an "existant" and a "nouveau" plan for
 	// the same chantier and trace démolition vs construction on each separately with the measurement
 	// tool - no AI comparison between the two drawings, just a label so a devis line item built from a
 	// measurement on either one lands in the right category automatically.
 	const planType = evidenceType === 'plan' && ['existant', 'nouveau'].includes(request.body.planType) ? request.body.planType : null;
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
-	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: { status: 'pending' } };
+	data.documents.push(item);
+	await writeData(data);
+	// The file and the document record are both durably saved at this point - respond now. The AI
+	// analysis below (Gemini + PDF parsing + image extraction) can take well over a minute for a large
+	// multi-page technical PDF (a real structural plan was seen timing out the whole upload request at an
+	// infra-level 503 before this fix, with the file already in storage but the document record never
+	// created because all of this used to run before the response). The client calls /analyze right after
+	// a successful upload to get the same immediate-feeling result, but a slow or failed analysis can
+	// never again cause the upload itself to fail or the document to go unsaved.
+	response.status(201).json(item);
+});
+app.post('/api/documents/:id/analyze', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (item.autoAnalysisFull) return response.json({ ...item, autoAnalysis: item.autoAnalysisFull });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const language = request.body?.responseLanguage || 'sr';
+	const autoAnalysis = await runDocumentAutoAnalysis({ buffer, mimetype: item.mimeType, originalname: item.originalName, evidenceType: item.evidenceType, language });
+	const freshData = await readData();
+	const freshItem = freshData.documents.find((document) => document.id === item.id);
+	if (freshItem) {
+		freshItem.autoAnalysis = { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence };
+		freshItem.autoAnalysisFull = autoAnalysis;
+		await writeData(freshData);
+	}
+	response.json({ ...item, autoAnalysis });
 });
 app.get('/api/documents', auth, async (request, response) => {
 	const data = await readData();

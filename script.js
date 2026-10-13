@@ -2898,9 +2898,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		body.set('responseLanguage', language);
 		const submitButton = form.querySelector('button');
 		const submitButtonLabel = submitButton?.textContent;
-		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement et analyse en cours (peut prendre jusqu’à 30 s)…'; }
-		message.textContent = 'Enregistrement et analyse en cours, veuillez patienter (le serveur peut mettre jusqu’à 1 min à se réveiller)…';
+		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement en cours…'; }
+		message.textContent = 'Enregistrement en cours (le serveur peut mettre jusqu’à 1 min à se réveiller)…';
 		try {
+			// The upload itself only saves the file and the document record - it no longer waits for the AI
+			// analysis (that used to run inline here and could take well over a minute for a large technical
+			// PDF, timing out the whole request at an infra level even though the file was already safely
+			// uploaded). Analysis is requested separately right below, so a slow or failed analysis can never
+			// again make it look like the document itself wasn't saved.
 			const response = await fetch(`${api}/documents/upload`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body, signal: AbortSignal.timeout(90000) });
 			const result = await response.json().catch(() => ({}));
 			if (!response.ok) throw new Error(result.error || `${response.status}`);
@@ -2909,14 +2914,18 @@ document.addEventListener('DOMContentLoaded', () => {
 			message.textContent = '';
 			await refreshActiveView();
 			if (!stay) showView('evidence-summary-view');
-			const answerTarget = document.querySelector('#ai-answer');
-			if (result.autoAnalysis && renderAutoAnalysis(answerTarget, result.autoAnalysis)) {
-				toast('Document enregistré et analysé automatiquement.');
-			} else if (answerTarget) {
-				answerTarget.innerHTML = `<div class="list-item auto-analysis"><strong>Document enregistré, analyse indisponible</strong><p>Le serveur n’a renvoyé aucune analyse pour ce document. Réponse reçue : ${escapeHtml(JSON.stringify(result).slice(0, 400))}</p></div>`;
-				toast('Document enregistré, mais sans analyse automatique.');
-			}
+			toast('Document enregistré.');
 			if (result.duplicateOfId) toast(`⚠ Ce fichier semble déjà avoir été ajouté (« ${result.duplicateOfName || 'document existant'} »). Vérifiez avant de garder les deux.`);
+			const answerTarget = document.querySelector('#ai-answer');
+			if (answerTarget) answerTarget.innerHTML = `<div class="list-item auto-analysis"><strong>Analyse automatique en cours…</strong><p>Le document est déjà enregistré ; l’analyse peut prendre jusqu’à une minute.</p></div>`;
+			try {
+				const analyzeResponse = await fetch(`${api}/documents/${result.id}/analyze`, { method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token()}`}, body: JSON.stringify({ responseLanguage: language }), signal: AbortSignal.timeout(90000) });
+				const analyzeResult = await analyzeResponse.json().catch(() => ({}));
+				if (analyzeResponse.ok && analyzeResult.autoAnalysis && renderAutoAnalysis(answerTarget, analyzeResult.autoAnalysis)) toast('Analyse automatique terminée.');
+				else if (answerTarget) answerTarget.innerHTML = `<div class="list-item auto-analysis"><strong>Analyse indisponible</strong><p>Le document est bien enregistré. Ouvrez-le manuellement pour vérifier son contenu.</p></div>`;
+			} catch {
+				if (answerTarget) answerTarget.innerHTML = `<div class="list-item auto-analysis"><strong>Analyse indisponible</strong><p>Le document est bien enregistré. Ouvrez-le manuellement pour vérifier son contenu.</p></div>`;
+			}
 		} catch (error) {
 			message.classList.add('error');
 			message.textContent = error.name === 'TimeoutError' || error.name === 'AbortError' ? 'Le serveur met trop de temps à répondre (plus de 90 s). Le document est peut-être quand même enregistré ; vérifiez la liste ci-contre.' : `Document non enregistré : ${error.message || 'erreur inconnue'}`;
