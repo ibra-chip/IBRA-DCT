@@ -2157,6 +2157,16 @@ document.addEventListener('DOMContentLoaded', () => {
 			ctx.fillStyle = '#ffffff';
 			planMeasureState.drawPoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
 		}
+		if (planMeasureState.candidates?.length) {
+			ctx.strokeStyle = '#f39a4a'; ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
+			ctx.fillStyle = '#f39a4a';
+			ctx.font = 'bold 12px sans-serif';
+			planMeasureState.candidates.forEach((box, index) => {
+				ctx.strokeRect(box.x0 * scale, box.y0 * scale, (box.x1 - box.x0) * scale, (box.y1 - box.y0) * scale);
+				ctx.fillText(`#${index + 1}`, box.x0 * scale + 3, box.y0 * scale + 13);
+			});
+			ctx.setLineDash([]);
+		}
 		ctx.restore();
 	}
 	function planMeasureUpdateStatus() {
@@ -2172,6 +2182,107 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-line')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-detect-openings')?.toggleAttribute('disabled', disabled);
+		const actions = document.querySelector('#plan-measure-candidates-actions');
+		const count = planMeasureState?.candidates?.length || 0;
+		if (actions) {
+			actions.hidden = count === 0;
+			const countLabel = document.querySelector('#plan-measure-candidates-count');
+			if (countLabel) countLabel.textContent = `${count} ouverture(s) détectée(s), à vérifier :`;
+		}
+	}
+	// Deterministic (no AI, no language model) opening detector: finds blue/cyan-colored rectangular
+	// regions on the plan image - a very common CAD convention for window/door glazing, confirmed by hand
+	// against a real structural plan before shipping this. Same image always gives the exact same result,
+	// nothing is "guessed". Results are only ever candidates the user reviews (reject a false positive by
+	// clicking it, or "Confirmer tout") - never auto-created as real measurements, because color-matching
+	// alone cannot be honestly promised as 100% accurate on every possible plan style; only the geometry
+	// the user explicitly confirms is.
+	function planMeasureDetectOpenings() {
+		if (!planMeasureState?.image || !planMeasureState.calibration) return;
+		const image = planMeasureState.image;
+		const natW = image.naturalWidth;
+		const natH = image.naturalHeight;
+		// Downscaled for performance on large A0-format plans (can rasterize to several thousand pixels per
+		// side) - a window is still many pixels across at this size, so this doesn't meaningfully hurt
+		// detection, but keeps the flood-fill below well under a second on the main thread.
+		const detectScale = Math.min(1, 1600 / Math.max(natW, natH));
+		const dw = Math.max(1, Math.round(natW * detectScale));
+		const dh = Math.max(1, Math.round(natH * detectScale));
+		const offscreen = document.createElement('canvas');
+		offscreen.width = dw; offscreen.height = dh;
+		const octx = offscreen.getContext('2d', { willReadFrequently: true });
+		octx.drawImage(image, 0, 0, dw, dh);
+		const { data } = octx.getImageData(0, 0, dw, dh);
+		const isBlue = new Uint8Array(dw * dh);
+		for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+			const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+			if (b > 140 && b > r + 30 && g > r && r < 150) isBlue[p] = 1;
+		}
+		const labelOf = new Int32Array(dw * dh).fill(-1);
+		const stack = [];
+		const candidates = [];
+		for (let start = 0; start < dw * dh; start += 1) {
+			if (!isBlue[start] || labelOf[start] !== -1) continue;
+			let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity; let count = 0;
+			stack.length = 0;
+			stack.push(start);
+			labelOf[start] = 1;
+			while (stack.length) {
+				const p = stack.pop();
+				const px = p % dw; const py = (p - px) / dw;
+				if (px < x0) x0 = px; if (px > x1) x1 = px;
+				if (py < y0) y0 = py; if (py > y1) y1 = py;
+				count += 1;
+				if (px > 0 && isBlue[p - 1] && labelOf[p - 1] === -1) { labelOf[p - 1] = 1; stack.push(p - 1); }
+				if (px < dw - 1 && isBlue[p + 1] && labelOf[p + 1] === -1) { labelOf[p + 1] = 1; stack.push(p + 1); }
+				if (p - dw >= 0 && isBlue[p - dw] && labelOf[p - dw] === -1) { labelOf[p - dw] = 1; stack.push(p - dw); }
+				if (p + dw < dw * dh && isBlue[p + dw] && labelOf[p + dw] === -1) { labelOf[p + dw] = 1; stack.push(p + dw); }
+			}
+			const bw = x1 - x0 + 1; const bh = y1 - y0 + 1;
+			const extent = count / (bw * bh);
+			const aspect = bh ? bw / bh : 0;
+			// Rejects thin annotation/dimension lines (very elongated, or a thin stroke that technically
+			// fills its own tiny bounding box) and single-pixel antialiasing specks - keeps roughly
+			// rectangular, reasonably solid blobs the size of a real window pane at this resolution.
+			if (count < 40 || extent < 0.55 || aspect < 0.3 || aspect > 3.5) continue;
+			candidates.push({
+				x0: x0 / detectScale, y0: y0 / detectScale,
+				x1: (x1 + 1) / detectScale, y1: (y1 + 1) / detectScale,
+			});
+		}
+		planMeasureState.candidates = candidates;
+		planMeasureSyncToolbar();
+		planMeasureRedraw();
+		toast(candidates.length ? `${candidates.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer.` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
+	}
+	async function planMeasureConfirmCandidates() {
+		if (!planMeasureState?.candidates?.length) return;
+		const button = document.querySelector('#plan-measure-candidates-confirm');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			let index = 0;
+			for (const box of planMeasureState.candidates) {
+				index += 1;
+				const points = [{ x: box.x0, y: box.y0 }, { x: box.x1, y: box.y0 }, { x: box.x1, y: box.y1 }, { x: box.x0, y: box.y1 }];
+				// The real width/height in meters comes straight from the calibrated px/m ratio, exactly like
+				// every other measurement in this tool - not a guess, so it's safe to put in the label.
+				const widthM = (box.x1 - box.x0) / planMeasureState.calibration.pixelsPerMeter;
+				const heightM = (box.y1 - box.y0) / planMeasureState.calibration.pixelsPerMeter;
+				const label = `Ouverture détectée #${index} — ${widthM.toFixed(2)}×${heightM.toFixed(2)} m`;
+				try {
+					const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'polygon', role: 'opening', label, points, repeatCount: 1 }) });
+					planMeasureState.measurements.push(measurement);
+				} catch { /* one failed candidate must not stop the rest from being confirmed */ }
+			}
+			planMeasureState.candidates = [];
+			planMeasureRenderList();
+			planMeasureSyncToolbar();
+			planMeasureRedraw();
+			toast('Ouvertures confirmées et ajoutées au métré.');
+		} finally {
+			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+		}
 	}
 	function planMeasureApplyZoom(newScale) {
 		if (!planMeasureState?.image) return;
@@ -2417,7 +2528,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], objectUrl };
 			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
 			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
 			planMeasureRenderList();
@@ -2457,6 +2568,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-zoom-out')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale / 1.25));
 	document.querySelector('#plan-measure-zoom-reset')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.baseScale));
 	document.querySelector('#plan-measure-rotate')?.addEventListener('click', () => planMeasureState && planMeasureRotate());
+	document.querySelector('#plan-measure-detect-openings')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectOpenings());
+	document.querySelector('#plan-measure-candidates-confirm')?.addEventListener('click', () => planMeasureConfirmCandidates());
+	document.querySelector('#plan-measure-candidates-clear')?.addEventListener('click', () => { if (!planMeasureState) return; planMeasureState.candidates = []; planMeasureSyncToolbar(); planMeasureRedraw(); });
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
 		const { mode, drawPoints, drawRole } = planMeasureState;
@@ -2538,6 +2652,19 @@ document.addEventListener('DOMContentLoaded', () => {
 	planMeasureCanvasForMagnifier?.addEventListener('touchmove', (event) => { const touch = event.touches[0]; if (touch) planMeasureUpdateMagnifier(touch.clientX, touch.clientY); }, { passive: true });
 	planMeasureCanvasForMagnifier?.addEventListener('touchend', () => { const magnifier = document.querySelector('#plan-measure-magnifier'); if (magnifier) magnifier.hidden = true; });
 	document.querySelector('#plan-measure-canvas')?.addEventListener('click', async (event) => {
+		if (!planMeasureState) return;
+		// Rejecting a false-positive detected candidate works even outside any drawing mode - clicking
+		// directly on one of the dashed orange boxes removes just that one, before the rest get confirmed.
+		if (!planMeasureState.mode && planMeasureState.candidates?.length) {
+			const point = planMeasureToNatural(event);
+			const index = planMeasureState.candidates.findIndex((box) => point.x >= box.x0 && point.x <= box.x1 && point.y >= box.y0 && point.y <= box.y1);
+			if (index !== -1) {
+				planMeasureState.candidates.splice(index, 1);
+				planMeasureSyncToolbar();
+				planMeasureRedraw();
+				return;
+			}
+		}
 		if (!planMeasureState?.mode) return;
 		const point = planMeasureToNatural(event);
 		if (planMeasureState.mode === 'calibrate') {

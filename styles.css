@@ -815,6 +815,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-toolbar button[disabled]{opacity:.4;cursor:not-allowed}
 .plan-measure-status{margin-left:auto;font-size:.8rem;color:var(--muted);text-align:right}
 .plan-measure-zoom{display:flex;align-items:center;gap:4px}
+.plan-measure-candidates-actions{display:flex;align-items:center;gap:6px;padding:4px 8px;border:1px solid #f39a4a44;border-radius:8px;background:#f39a4a12;font-size:.78rem;color:var(--text)}
 .plan-measure-zoom button{min-width:40px;padding:6px 10px}
 #plan-measure-zoom-level{font-size:.8rem;color:var(--muted);min-width:42px;text-align:center}
 .plan-measure-info-box{padding:10px 12px;border:1px solid var(--roster-line);border-radius:10px;background:#ffffff05;font-size:.84rem;display:grid;gap:4px}
