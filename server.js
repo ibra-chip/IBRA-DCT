@@ -3116,6 +3116,20 @@ app.post('/api/documents/:id/plan-info', auth, manager, async (request, response
 	response.json({ status: 'generated', planInfo: info });
 });
 const isFinitePoint = (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y);
+// A single sheet often prints more than one scale (e.g. "FACADE ... éch. 1/75e" next to
+// "PIGNON ... éch. 1/50e" on the exact same BONDY plans this was built against) - calibrating once against
+// one of those and then measuring inside the other would silently be wrong by the ratio between the two
+// scales (here, 50%). item.calibration stays the single ACTIVE calibration everything else in this file
+// already reads (POST .../measurements bakes a measurement's value/perimeterM from whichever one is active
+// the moment it's created, so past measurements never change retroactively when the active one changes).
+// item.calibrations is the saved history of every named zone, so a gérant can switch back to "Façade" or
+// "Pignon" without re-clicking reference points each time.
+function addCalibrationZone(item, calibration, label) {
+	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null };
+	item.calibrations = [...(item.calibrations || []), named];
+	item.calibration = named;
+	return named;
+}
 app.patch('/api/documents/:id/calibration', auth, manager, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
@@ -3125,18 +3139,32 @@ app.patch('/api/documents/:id/calibration', auth, manager, async (request, respo
 	if (Number.isFinite(scaleDenominator) && scaleDenominator > 0) {
 		const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
 		if (!isPdf) return response.status(400).json({ error: 'Scale-based calibration only applies to a PDF plan (it needs the page to be true paper-space, not a photo)' });
-		item.calibration = { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
+		const calibration = addCalibrationZone(item, { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label);
 		await writeData(data);
-		return response.json({ calibration: item.calibration });
+		return response.json({ calibration, calibrations: item.calibrations });
 	}
 	const { pointA, pointB } = request.body || {};
 	const realDistanceM = Number(request.body?.realDistanceM);
 	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m), or a PDF scaleDenominator, are required' });
 	const pixelDistance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
 	if (pixelDistance < 2) return response.status(400).json({ error: 'The two reference points are too close together to calibrate accurately' });
-	item.calibration = { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() };
+	const calibration = addCalibrationZone(item, { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label);
 	await writeData(data);
-	response.json({ calibration: item.calibration });
+	response.json({ calibration, calibrations: item.calibrations });
+});
+// Switches the ACTIVE calibration back to a previously saved zone (e.g. "Pignon 1:50") without making the
+// gérant re-click two reference points every time they move between parts of a mixed-scale sheet. Never
+// creates a new zone and never touches past measurements' already-baked values - purely a pointer change.
+app.patch('/api/documents/:id/calibration/activate', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const found = (item.calibrations || []).find((calibration) => calibration.id === request.body?.calibrationId);
+	if (!found) return response.status(404).json({ error: 'Calibration zone not found' });
+	item.calibration = found;
+	await writeData(data);
+	response.json({ calibration: item.calibration, calibrations: item.calibrations });
 });
 app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	const data = await readData();
@@ -3144,7 +3172,11 @@ app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
-	response.json({ calibration: item.calibration || null, measurements });
+	// Backward-compatible: a document calibrated before per-zone calibrations existed has item.calibration
+	// but no item.calibrations array yet - synthesize a one-entry list so the client's zone switcher always
+	// has something consistent to show, without needing to touch old documents on disk.
+	const calibrations = item.calibrations || (item.calibration ? [item.calibration] : []);
+	response.json({ calibration: item.calibration || null, calibrations, measurements });
 });
 app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, response) => {
 	const data = await readData();
@@ -3156,9 +3188,10 @@ app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, respo
 	const project = projectById(data, item.projectId);
 	const worker = data.users.find((user) => user.id === request.user.sub);
 	const branding = await companyBrandingForPdf(data, worker);
-	const calibrationLabel = item.calibration
+	const zoneSuffix = item.calibration?.label ? ` [zone : ${item.calibration.label}]` : '';
+	const calibrationLabel = (item.calibration
 		? (item.calibration.method === 'pdf-scale' ? `Échelle du plan : 1:${item.calibration.scaleDenominator} (lue dans le texte du PDF)` : `Calibration manuelle : ${item.calibration.pixelsPerMeter.toFixed(2)} px/m`)
-		: 'Plan non calibré';
+		: 'Plan non calibré') + zoneSuffix;
 	const pdf = await buildMetrePdf({
 		...branding,
 		projectName: project?.name || item.projectId,

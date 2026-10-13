@@ -2175,7 +2175,23 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
 		if (planMeasureState.mode === 'polygon') { const kind = planMeasureState.drawRole === 'opening' ? 'Ouverture à déduire' : 'Surface'; status.textContent = `${kind} en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
-		status.textContent = planMeasureState.calibration ? `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m` : 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.';
+		if (!planMeasureState.calibration) { status.textContent = 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.'; return; }
+		const zoneSuffix = planMeasureState.calibration.label ? ` (zone : ${planMeasureState.calibration.label})` : '';
+		const multiZoneWarning = (planMeasureState.calibrations?.length || 0) > 1 ? ' ⚠ Plusieurs zones de calibration existent sur ce plan - vérifiez que la zone active correspond à ce que vous mesurez.' : '';
+		status.textContent = `Échelle calibrée : ${planMeasureState.calibration.pixelsPerMeter.toFixed(1)} px/m${zoneSuffix}${multiZoneWarning}`;
+	}
+	// Lets a gérant switch back to a previously calibrated zone (e.g. a plan with a façade at one printed
+	// scale and a pignon/gable at another) without re-clicking two reference points every time - purely a
+	// convenience over calling the same PATCH endpoint again with the saved points, see the server comment
+	// on addCalibrationZone for why this never touches any measurement already created under another zone.
+	function planMeasureRenderCalibrationZones() {
+		const select = document.querySelector('#plan-measure-calibration-zone');
+		if (!select) return;
+		const zones = planMeasureState?.calibrations || [];
+		select.hidden = zones.length < 2;
+		if (zones.length < 2) return;
+		select.innerHTML = zones.map((zone, index) => `<option value="${escapeHtml(zone.id)}">${escapeHtml(zone.label || `Zone ${index + 1}`)} (${zone.pixelsPerMeter.toFixed(1)} px/m)</option>`).join('');
+		select.value = planMeasureState.calibration?.id || '';
 	}
 	function planMeasureSyncToolbar() {
 		const disabled = !planMeasureState?.calibration;
@@ -2487,14 +2503,22 @@ document.addEventListener('DOMContentLoaded', () => {
 			} catch { toast('Stavka nije dodana.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
+		// The description passed to planMeasureConfirmAgainstExistingLineItem must stay the plain, stable
+		// phrase below - it's what lets a future addition recognize "this is the same kind of line" as an
+		// existing devis entry (including one written by a subcontractor, to catch them under-quoting). The
+		// actual created item then gets a MORE DETAILED description (which plan, zone, and the gross/net
+		// breakdown) so re-reading the devis later actually explains what the number is, without breaking
+		// that matching.
 		totals.querySelector('.add-net-total-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
-			const description = 'Surface nette (ouvertures déduites)';
+			const matchDescription = 'Surface nette (ouvertures déduites)';
 			const quantity = Number(totalNetM2.toFixed(2));
-			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'm²'))) return;
-			const unitPrice = await planMeasureResolveLineItemPrice(description, 'm²');
+			if (!(await planMeasureConfirmAgainstExistingLineItem(matchDescription, quantity, 'm²'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(matchDescription, 'm²');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			const zoneNote = planMeasureState.calibration?.label ? `, zone « ${planMeasureState.calibration.label} »` : '';
+			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${totalGrossM2.toFixed(2)} m² brut − ${totalOpeningsM2.toFixed(2)} m² ouvertures (${openingsCount}) = ${totalNetM2.toFixed(2)} m² net`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Total net dodat u devis.');
@@ -2503,11 +2527,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 		totals.querySelector('.add-openings-unit-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
-			const description = 'Ouvertures (fenêtres/portes) - fourniture et pose';
-			if (!(await planMeasureConfirmAgainstExistingLineItem(description, openingsCount, 'unité'))) return;
-			const unitPrice = await planMeasureResolveLineItemPrice(description, 'unité');
+			const matchDescription = 'Ouvertures (fenêtres/portes) - fourniture et pose';
+			if (!(await planMeasureConfirmAgainstExistingLineItem(matchDescription, openingsCount, 'unité'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(matchDescription, 'unité');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			const zoneNote = planMeasureState.calibration?.label ? `, zone « ${planMeasureState.calibration.label} »` : '';
+			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${openingsCount} unité(s), pourtour total ${openingsPerimeterMl.toFixed(2)} ml`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice, lineTotal: Number((openingsCount * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Ouvertures (unité) dodate u devis.');
@@ -2516,12 +2542,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		});
 		totals.querySelector('.add-openings-ml-to-devis')?.addEventListener('click', async (event) => {
 			const button = event.currentTarget;
-			const description = 'Pourtour ouvertures (étanchéité/finition)';
+			const matchDescription = 'Pourtour ouvertures (étanchéité/finition)';
 			const quantity = Number(openingsPerimeterMl.toFixed(2));
-			if (!(await planMeasureConfirmAgainstExistingLineItem(description, quantity, 'ml'))) return;
-			const unitPrice = await planMeasureResolveLineItemPrice(description, 'ml');
+			if (!(await planMeasureConfirmAgainstExistingLineItem(matchDescription, quantity, 'ml'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(matchDescription, 'ml');
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			const zoneNote = planMeasureState.calibration?.label ? `, zone « ${planMeasureState.calibration.label} »` : '';
+			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${openingsCount} ouverture(s)`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
 				toast('Pourtour ouvertures (ml) dodat u devis.');
@@ -2590,7 +2618,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			canvas.width = Math.round(image.naturalWidth * baseScale);
 			canvas.height = Math.round(image.naturalHeight * baseScale);
 			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], objectUrl };
+			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, originalName: docItem.originalName, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, calibrations: measurementsResult.calibrations || [], measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], objectUrl };
+			planMeasureRenderCalibrationZones();
 			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
 			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
 			planMeasureRenderList();
@@ -2621,6 +2650,16 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-close')?.addEventListener('click', closePlanMeasure);
 	document.querySelector('#plan-measure-modal')?.addEventListener('click', (event) => { if (event.target.id === 'plan-measure-modal') closePlanMeasure(); });
 	document.querySelector('#plan-measure-calibrate')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'calibrate' ? null : 'calibrate'));
+	document.querySelector('#plan-measure-calibration-zone')?.addEventListener('change', async (event) => {
+		if (!planMeasureState) return;
+		try {
+			const result = await request(`/documents/${planMeasureState.documentId}/calibration/activate`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ calibrationId: event.target.value }) });
+			planMeasureState.calibration = result.calibration;
+			planMeasureState.calibrations = result.calibrations || [];
+			planMeasureUpdateStatus();
+			toast(`Zone active : ${result.calibration.label || 'sans nom'}.`);
+		} catch { toast('Changement de zone échoué.'); }
+	});
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
 	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
 	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
@@ -2734,9 +2773,17 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (planMeasureState.calibratePoints.length === 2) {
 				const realDistanceM = Number(window.prompt('Distance réelle entre ces deux points, en mètres (ex. 5) :', ''));
 				if (Number.isFinite(realDistanceM) && realDistanceM > 0) {
+					// Many plans print more than one scale on the same sheet (e.g. a façade at 1/75e next to
+					// a pignon/gable at 1/50e - confirmed on a real plan from this exact app). Naming the zone
+					// lets the gérant switch back to it later from the dropdown instead of re-clicking two
+					// points every time they move between parts of the plan - never required, an empty name
+					// just becomes "Zone N".
+					const label = window.prompt('Nom de cette zone de calibration (ex. « Façade », « Pignon ») - laissez vide si le plan n’a qu’une seule échelle :', '');
 					try {
-						const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pointA: planMeasureState.calibratePoints[0], pointB: planMeasureState.calibratePoints[1], realDistanceM }) });
+						const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pointA: planMeasureState.calibratePoints[0], pointB: planMeasureState.calibratePoints[1], realDistanceM, label }) });
 						planMeasureState.calibration = result.calibration;
+						planMeasureState.calibrations = result.calibrations || [];
+						planMeasureRenderCalibrationZones();
 						toast('Échelle calibrée.');
 					} catch { toast('Calibration échouée.'); }
 				} else { toast('Calibration annulée : distance invalide.'); }
