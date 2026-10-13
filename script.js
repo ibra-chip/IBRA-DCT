@@ -2188,7 +2188,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (actions) {
 			actions.hidden = count === 0;
 			const countLabel = document.querySelector('#plan-measure-candidates-count');
-			if (countLabel) countLabel.textContent = `${count} ouverture(s) détectée(s), à vérifier :`;
+			if (countLabel) countLabel.textContent = `${count} ouverture(s) détectée(s) (⚠ hors couleur bleue = jamais détecté), à vérifier :`;
 		}
 	}
 	// Deterministic (no AI, no language model) opening detector: finds blue/cyan-colored rectangular
@@ -2262,7 +2262,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureState.candidates = merged;
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
-		toast(merged.length ? `${merged.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer.` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
+		// Confirmed on a real plan: a stairwell's glazing drawn in white instead of the usual blue was
+		// completely invisible to this color-based detection - never silently implied as "found everything"
+		// here, since the same thing could happen to any element that isn't drawn in that blue convention.
+		toast(merged.length ? `${merged.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer. ⚠ Les éléments d'une autre couleur (ex. cage d'escalier) ne sont jamais détectés - tracez-les à la main avec « + Ouverture à déduire ».` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
 	}
 	function planMeasureMergeAdjacentCandidates(boxes) {
 		let list = boxes.map((box) => ({ ...box, parts: 1 }));
