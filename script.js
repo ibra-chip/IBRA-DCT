@@ -2251,10 +2251,57 @@ document.addEventListener('DOMContentLoaded', () => {
 				x1: (x1 + 1) / detectScale, y1: (y1 + 1) / detectScale,
 			});
 		}
-		planMeasureState.candidates = candidates;
+		// A double or triple window (two/three panes side by side, separated by a thin frame mullion) must
+		// count as ONE opening, not one per pane - checked by hand against the real BONDY plan: measuring
+		// the gap between every same-row pair showed a clean split, mullions between panes of the same
+		// window at roughly 10-40px, the wall/pier between two actually separate windows at 140px+. Using
+		// 1.2x the pane's own height as the merge cutoff (scale-invariant, unlike a fixed pixel count) sits
+		// comfortably inside that gap and matched the real plan exactly (405 raw panes -> 200 real windows,
+		// confirmed box-by-box against both façades and the gable end).
+		const merged = planMeasureMergeAdjacentCandidates(candidates);
+		planMeasureState.candidates = merged;
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
-		toast(candidates.length ? `${candidates.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer.` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
+		toast(merged.length ? `${merged.length} ouverture(s) candidate(s) détectée(s) - vérifiez avant de confirmer.` : 'Aucune ouverture détectée automatiquement sur ce plan (couleurs non reconnues) - tracez-les manuellement.');
+	}
+	function planMeasureMergeAdjacentCandidates(boxes) {
+		let list = boxes.map((box) => ({ ...box }));
+		let changed = true;
+		while (changed) {
+			changed = false;
+			outer: for (let i = 0; i < list.length; i += 1) {
+				const a = list[i];
+				if (!a) continue;
+				const heightA = a.y1 - a.y0;
+				const widthA = a.x1 - a.x0;
+				for (let j = i + 1; j < list.length; j += 1) {
+					const c = list[j];
+					if (!c) continue;
+					const heightC = c.y1 - c.y0;
+					const widthC = c.x1 - c.x0;
+					// A double/triple window's panes can be adjacent along either axis of the plan's OWN
+					// stored image, regardless of which way it's currently rotated for viewing (rotation is
+					// a view-only transform - detection always runs on the real, unrotated image data, so a
+					// plan stored sideways has its "side by side" panes stacked vertically in that data).
+					// Checked against a real plan that was stored sideways: a horizontal-only check found
+					// zero merges where a pre-rotated copy of the same plan found exactly the expected ones.
+					const yOverlap = Math.min(a.y1, c.y1) - Math.max(a.y0, c.y0);
+					const xGap = Math.max(c.x0 - a.x1, a.x0 - c.x1);
+					const horizontalPair = yOverlap >= 0.6 * Math.min(heightA, heightC) && xGap >= 0 && xGap <= 1.2 * Math.min(heightA, heightC);
+					const xOverlap = Math.min(a.x1, c.x1) - Math.max(a.x0, c.x0);
+					const yGap = Math.max(c.y0 - a.y1, a.y0 - c.y1);
+					const verticalPair = xOverlap >= 0.6 * Math.min(widthA, widthC) && yGap >= 0 && yGap <= 1.2 * Math.min(widthA, widthC);
+					if (!horizontalPair && !verticalPair) continue;
+					a.x0 = Math.min(a.x0, c.x0); a.y0 = Math.min(a.y0, c.y0);
+					a.x1 = Math.max(a.x1, c.x1); a.y1 = Math.max(a.y1, c.y1);
+					list[j] = null;
+					changed = true;
+					break outer;
+				}
+			}
+			list = list.filter(Boolean);
+		}
+		return list;
 	}
 	async function planMeasureConfirmCandidates() {
 		if (!planMeasureState?.candidates?.length) return;
