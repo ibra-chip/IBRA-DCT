@@ -2465,6 +2465,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// (discrete item like a window, bracket or platine) - then bridges each line's own real breaks (label
 	// boxes, crossing elements drawn over it in the source plan) back into one candidate per physical run,
 	// exactly like the ossature-rail detector this was originally built for.
+	// Shared across every color-based detector below: a color shared by hatching, antialiasing or dense
+	// repeating text (common on a real, information-heavy facade plan) can classify into many thousands of
+	// "lines"/"blobs" - not a real distinct element, and rendering that many individual candidate boxes on
+	// the canvas would freeze the browser (confirmed directly on a real calepinage plan: over 6000
+	// candidates for one color). 1500 comfortably covers the largest confirmed real case (538 vertical + 582
+	// horizontal rails on a real A0 plan) while refusing anything past what a gérant could plausibly review.
+	const PLAN_MEASURE_MAX_COLOR_CANDIDATES = 1500;
 	function planMeasureClassifyMask(mask, natW, natH) {
 		const labelOf = new Int32Array(natW * natH).fill(-1);
 		const stack = [];
@@ -2535,6 +2542,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		// below is the general answer to that).
 		const result = planMeasureDetectRegionsOfColor(planMeasureState.image, { r: 173, g: 221, b: 247 });
 		if (!result) { toast('Plan trop grand pour détecter les rails à pleine résolution - tracez-les à la main.'); return; }
+		// Same guard as the custom-color flow (see planMeasureApplyCustomColorResult) - this sky-blue
+		// convention is this project's own, but a different plan could still happen to use a near-identical
+		// shade somewhere dense (hatching, text), and rendering thousands of candidate boxes would freeze
+		// the canvas the same way an unbounded detection pass used to.
+		if (result.verticals.length + result.horizontals.length > PLAN_MEASURE_MAX_COLOR_CANDIDATES) {
+			toast('Détection annulée : trop de candidats pour cette couleur sur ce plan (probablement pas des rails) - tracez-les manuellement avec « + Ligne (ml) ».');
+			return;
+		}
 		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'rail-v' }));
 		const mergedH = result.horizontals.map((box) => ({ ...box, kind: 'rail-h' }));
 		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH];
@@ -2558,6 +2573,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// than accumulating, so the review/chain/count actions stay unambiguous (always "the last color picked"),
 	// and never silently mixes candidates from two different elements together.
 	function planMeasureApplyCustomColorResult(result, label) {
+		const totalCount = result.verticals.length + result.horizontals.length + result.blobs.length;
+		if (totalCount > PLAN_MEASURE_MAX_COLOR_CANDIDATES) {
+			toast(`« ${label} » : ${totalCount} occurrences de cette couleur - trop nombreuses et probablement pas un élément unique (texture, hachures, texte dense). Cliquez un exemple plus précis, ou une couleur moins utilisée sur ce plan.`);
+			return;
+		}
 		planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'custom-h' && box.kind !== 'custom-v' && box.kind !== 'custom-blob');
 		planMeasureState.customColorLabel = label;
 		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'custom-v' }));
@@ -2653,7 +2673,12 @@ document.addEventListener('DOMContentLoaded', () => {
 					if (Math.abs(r - color.r) <= 22 && Math.abs(g - color.g) <= 22 && Math.abs(b - color.b) <= 22) mask[p] = 1;
 				}
 				const classified = planMeasureClassifyMask(mask, natW, natH);
-				if (classified.verticals.length + classified.horizontals.length + classified.blobs.length === 0) continue;
+				const classifiedTotal = classified.verticals.length + classified.horizontals.length + classified.blobs.length;
+				// Zero means nothing line/blob-shaped matched (pure noise/background for this color) - and an
+				// implausibly large count means the opposite extreme: hatching, antialiasing or dense text
+				// sharing this color, not one real distinct element. Neither belongs in a list of "pick which
+				// color to use" choices - see PLAN_MEASURE_MAX_COLOR_CANDIDATES for why that specific ceiling.
+				if (classifiedTotal === 0 || classifiedTotal > PLAN_MEASURE_MAX_COLOR_CANDIDATES) continue;
 				results.push({ color, ...classified });
 			}
 			planMeasureState.colorScanResults = results;
@@ -2733,50 +2758,59 @@ document.addEventListener('DOMContentLoaded', () => {
 	// never merge with each other regardless of this threshold. 1.2m comfortably covers the ~1m recurring
 	// gaps measured by hand on the real plan while staying far short of a typical floor height, so it can't
 	// bridge two rails that are genuinely separate pieces either side of a floor break.
+	// Bucket-sort based (O(n log n)) rather than pairwise comparison - a straightforward "compare every
+	// candidate to every other, restart the whole scan after each merge" check is only cheap for the few
+	// hundred candidates a sparse rail plan produces. On a dense real calepinage (hundreds of windows, each
+	// carrying several small repeating color-coded labels) a single color can produce many thousands of
+	// candidates, and that pairwise approach's true worst case is cubic in the candidate count - confirmed
+	// directly: it hung a real browser tab for minutes on exactly this kind of plan before this rewrite.
+	// Bucketing first by rounded cross-axis position (same real-world column/row -> same bucket) turns that
+	// into one sort per bucket instead, with no behavior change for the sparse case this was built for.
 	function planMeasureMergeCollinearRailSegments(boxes, axis) {
 		const pixelsPerMeter = planMeasureState.calibration.pixelsPerMeter;
 		const gapPx = 1.2 * pixelsPerMeter;
 		const bandTolPx = Math.max(3, 0.03 * pixelsPerMeter);
-		let list = boxes.map((box) => ({ ...box, parts: 1 }));
-		let changed = true;
-		while (changed) {
-			changed = false;
-			outer: for (let i = 0; i < list.length; i += 1) {
-				const a = list[i];
-				if (!a) continue;
-				for (let j = i + 1; j < list.length; j += 1) {
-					const c = list[j];
-					if (!c) continue;
-					// Caps how many fragments one candidate can absorb - a real rail realistically crosses a
-					// handful of labels/crossings per floor, never dozens; stops a pathological run of tiny
-					// specks from chaining into one implausibly long candidate.
-					if (a.parts + c.parts > 8) continue;
-					const sameBand = axis === 'v'
-						? Math.abs(a.x0 - c.x0) <= bandTolPx && Math.abs(a.x1 - c.x1) <= bandTolPx
-						: Math.abs(a.y0 - c.y0) <= bandTolPx && Math.abs(a.y1 - c.y1) <= bandTolPx;
-					if (!sameBand) continue;
-					const gap = axis === 'v' ? Math.max(c.y0 - a.y1, a.y0 - c.y1) : Math.max(c.x0 - a.x1, a.x0 - c.x1);
-					if (gap > gapPx) continue;
-					a.x0 = Math.min(a.x0, c.x0); a.y0 = Math.min(a.y0, c.y0);
-					a.x1 = Math.max(a.x1, c.x1); a.y1 = Math.max(a.y1, c.y1);
-					a.parts += c.parts;
-					list[j] = null;
-					changed = true;
-					break outer;
+		const maxSpanPx = 20 * pixelsPerMeter;
+		const bands = new Map();
+		for (const box of boxes) {
+			// Rounding to the tolerance bucket can occasionally split two candidates that would have merged
+			// right at a bucket boundary into separate bands - the only cost of that is one extra fragment
+			// shown for review instead of one, never a wrong length on whichever fragments DO merge, so it's
+			// a safe trade for turning an O(n²)-per-pass scan into an O(1) bucket lookup.
+			const key = axis === 'v' ? Math.round(box.x0 / bandTolPx) : Math.round(box.y0 / bandTolPx);
+			if (!bands.has(key)) bands.set(key, []);
+			bands.get(key).push({ ...box, parts: 1 });
+		}
+		const result = [];
+		for (const bandBoxes of bands.values()) {
+			bandBoxes.sort((a, b) => (axis === 'v' ? a.y0 - b.y0 : a.x0 - b.x0));
+			let current = null;
+			for (const box of bandBoxes) {
+				if (!current) { current = box; continue; }
+				const gap = axis === 'v' ? box.y0 - current.y1 : box.x0 - current.x1;
+				// Caps how many fragments one candidate can absorb - a real rail realistically crosses a
+				// handful of labels/crossings per floor, never dozens; stops a pathological run of tiny
+				// specks from chaining into one implausibly long candidate.
+				if (gap <= gapPx && current.parts + box.parts <= 8) {
+					current.x0 = Math.min(current.x0, box.x0); current.y0 = Math.min(current.y0, box.y0);
+					current.x1 = Math.max(current.x1, box.x1); current.y1 = Math.max(current.y1, box.y1);
+					current.parts += box.parts;
+				} else {
+					result.push(current);
+					current = box;
 				}
 			}
-			list = list.filter(Boolean);
+			if (current) result.push(current);
 		}
 		// A merged run longer than this is implausible for one physical rail piece on a residential/mid-rise
 		// facade (would span many floors uninterrupted) - rather than guess which part of such a chain is
 		// real, it's dropped from auto-detection entirely so nothing implausible is ever silently presented
 		// as one measurement; trace it by hand in sections with "+ Ligne (ml)" instead.
-		const maxSpanPx = 20 * pixelsPerMeter;
 		// `parts` is kept on the returned box (not stripped) - a value >1 means this run was reconstructed
 		// from more than one raw fragment, i.e. it was genuinely broken/dashed in the source drawing, not
 		// drawn as one continuous line. Callers that describe a detection result to the gérant (the scan-all
 		// list, a manual color pick's toast) read it to report that honestly instead of staying silent on it.
-		return list.filter((box) => (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0) <= maxSpanPx);
+		return result.filter((box) => (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0) <= maxSpanPx);
 	}
 	// Turns a set of detected line boxes into a short, honest physical description - average thickness in
 	// mm (computed straight from the calibrated scale, never a visual guess) and whether the run was
