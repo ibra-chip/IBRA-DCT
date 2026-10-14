@@ -2181,7 +2181,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureState.calibratePoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 4, 0, Math.PI * 2); ctx.fill(); });
 			if (planMeasureState.calibratePoints.length === 2) { ctx.strokeStyle = '#31d3a4'; ctx.setLineDash([5, 5]); strokePath(planMeasureState.calibratePoints, false); ctx.stroke(); ctx.setLineDash([]); }
 		}
-		if ((planMeasureState.mode === 'line' || planMeasureState.mode === 'polygon') && planMeasureState.drawPoints.length) {
+		if ((planMeasureState.mode === 'line' || planMeasureState.mode === 'polygon' || planMeasureState.mode === 'chain') && planMeasureState.drawPoints.length) {
 			ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 2;
 			strokePath(planMeasureState.drawPoints, false); ctx.stroke();
 			ctx.fillStyle = '#ffffff';
@@ -2212,6 +2212,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'calibrate-region') { status.textContent = `Délimitation de la zone : cliquez 2 coins opposés (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
+		if (planMeasureState.mode === 'chain') {
+			const points = planMeasureState.drawPoints;
+			const segments = Math.max(0, points.length - 1);
+			const lastSegment = segments > 0 ? planMeasureLengthM(points.slice(-2)).toFixed(2) : null;
+			status.textContent = `Chaîne en cours : ${points.length} point(s) → ${segments} segment(s)${lastSegment ? ` · dernier segment ${lastSegment} ml` : ''} — cliquez chaque point successif (départ, puis chaque recoupement/bando), « Terminer » crée un segment mesuré entre chaque paire.`;
+			return;
+		}
 		if (planMeasureState.mode === 'polygon') { const kind = planMeasureState.drawRole === 'opening' ? 'Ouverture à déduire' : 'Surface'; status.textContent = `${kind} en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
 		if (!planMeasureState.calibration) { status.textContent = 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.'; return; }
 		const zoneSuffix = planMeasureState.calibration.label ? ` (zone : ${planMeasureState.calibration.label})` : '';
@@ -2786,7 +2793,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		// Drawing without a calibration would only ever produce 0.00 (planMeasureLengthM/AreaM2 refuse to
 		// guess a px/m ratio that doesn't exist yet) - block entering that mode at all instead of letting
 		// someone trace a whole shape only to find out silently at the end that nothing was measured.
-		if ((mode === 'line' || mode === 'polygon') && !planMeasureState.calibration) {
+		if ((mode === 'line' || mode === 'polygon' || mode === 'chain') && !planMeasureState.calibration) {
 			toast('Calibrez d’abord l’échelle (bouton « Calibrer l’échelle ») avant de tracer une mesure.');
 			return;
 		}
@@ -2798,8 +2805,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('.plan-measure-toolbar button[id^="plan-measure-"]').forEach((button) => button.classList.remove('active'));
 		if (mode === 'calibrate') document.querySelector('#plan-measure-calibrate')?.classList.add('active');
 		if (mode === 'line') document.querySelector('#plan-measure-line')?.classList.add('active');
+		if (mode === 'chain') document.querySelector('#plan-measure-chain')?.classList.add('active');
 		if (mode === 'polygon') document.querySelector(role === 'opening' ? '#plan-measure-opening' : '#plan-measure-polygon')?.classList.add('active');
-		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon';
+		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon' && mode !== 'chain';
 		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
 		document.querySelector('#plan-measure-undo-point').hidden = !mode;
 		planMeasureUpdateStatus();
@@ -2886,6 +2894,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		} catch { toast('Changement de zone échoué.'); }
 	});
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
+	document.querySelector('#plan-measure-chain')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'chain' ? null : 'chain'));
 	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
 	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
 	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
@@ -2905,6 +2914,37 @@ document.addEventListener('DOMContentLoaded', () => {
 		const { mode, drawPoints, drawRole } = planMeasureState;
 		const minPoints = mode === 'polygon' ? 3 : 2;
 		if (drawPoints.length < minPoints) { toast(`Il faut au moins ${minPoints} points.`); return; }
+		// A chain is for a sequence of real-world reference points on one axis (rail de départ, then each
+		// recoupement/bando up a facade, or any other succession) where what's actually wanted is the
+		// distance of EACH segment, not one combined total - so instead of one polyline measurement, each
+		// consecutive pair of clicked points becomes its OWN line measurement, labeled with its position in
+		// the sequence. Exact geometry either way - this only changes how the same clicks get split into
+		// measurements, never guesses a position the gérant didn't click.
+		if (mode === 'chain') {
+			const startName = window.prompt('Nom du point de départ (ex. « DEP », « Rail de départ ») :', 'Départ');
+			if (startName === null) return;
+			const segmentName = window.prompt('Nom des points suivants (ex. « Recoupement », « Bando ») :', 'Recoupement');
+			if (segmentName === null) return;
+			const startLabel = startName.trim() || 'Départ';
+			const segLabel = segmentName.trim() || 'Point';
+			let created = 0; let failed = 0;
+			for (let i = 0; i < drawPoints.length - 1; i += 1) {
+				const fromLabel = i === 0 ? startLabel : `${segLabel} ${i}`;
+				const toLabel = `${segLabel} ${i + 1}`;
+				const segmentPoints = [drawPoints[i], drawPoints[i + 1]];
+				const lengthM = planMeasureLengthM(segmentPoints);
+				const label = `${fromLabel} → ${toLabel} (${lengthM.toFixed(2)} ml)`;
+				try {
+					const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'line', role: 'surface', label, points: segmentPoints, repeatCount: 1, calibrationId: planMeasureState.currentShapeCalibrationId }) });
+					planMeasureState.measurements.push(measurement);
+					created += 1;
+				} catch { failed += 1; }
+			}
+			planMeasureRenderList();
+			planMeasureSetMode(null);
+			toast(failed ? `${created} segment(s) enregistré(s), ${failed} échoué(s).` : `${created} segment(s) de la chaîne enregistrés.`);
+			return;
+		}
 		const defaultLabel = mode === 'polygon' ? (drawRole === 'opening' ? 'Fenêtre' : 'Surface') : 'Ligne';
 		const label = window.prompt('Nom de cette mesure (ex. Façade Nord, Fenêtre salon) :', defaultLabel);
 		if (!label?.trim()) return;
