@@ -827,6 +827,9 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box{padding:10px 12px;border:1px solid var(--roster-line);border-radius:10px;background:#ffffff05;font-size:.84rem;display:grid;gap:4px}
 .plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
+.plan-measure-color-scan-list{flex-direction:column;gap:6px}
+.plan-measure-color-scan-entry{display:flex;align-items:center;gap:8px}
+.plan-measure-color-swatch{width:16px;height:16px;border-radius:4px;border:1px solid var(--roster-line);flex-shrink:0}
 .plan-measure-body{display:grid;grid-template-columns:1fr 280px;grid-template-rows:1fr;gap:10px;flex:1;min-height:0}
 /* display:flex + margin:auto on the canvas (not justify/align-items:center on the wrap) centers it when it's
    smaller than the available space - e.g. a landscape plan fit to a narrow phone screen, width-bound with

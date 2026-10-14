@@ -261,6 +261,7 @@
 						<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
 						<button type="button" class="secondary" id="plan-measure-chain" title="Cliquez une suite de points (départ, puis chaque recoupement/bando) - chaque paire successive devient sa propre mesure en ml">+ Chaîne de segments</button>
 						<button type="button" class="secondary" id="plan-measure-pick-color" title="Cliquez un exemple de l’élément à reconnaître - sa couleur exacte sera cherchée partout sur CE plan">🎯 Reconnaître une couleur (bêta)</button>
+						<button type="button" class="secondary" id="plan-measure-scan-colors" title="Pas besoin de savoir où cliquer : l’app liste elle-même toutes les couleurs du plan qui forment des lignes ou éléments nets">🔍 Pitaj app : toutes les couleurs (bêta)</button>
 						<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
 						<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
 						<button type="button" class="secondary" id="plan-measure-detect-openings">🔍 Détecter les ouvertures (bêta)</button>
@@ -278,6 +279,7 @@
 				</div>
 				<div id="plan-measure-scale-suggestion" class="plan-measure-info-box" hidden><strong>Échelle détectée sur le plan PDF</strong><span id="plan-measure-scale-suggestion-text"></span><div><button type="button" class="secondary" id="plan-measure-scale-accept">Utiliser cette échelle</button><button type="button" class="secondary" id="plan-measure-scale-dismiss">Non, je calibre manuellement</button></div></div>
 				<div id="plan-measure-info-box" class="plan-measure-info-box" hidden></div>
+				<div id="plan-measure-color-scan" class="plan-measure-info-box" hidden></div>
 				<div class="plan-measure-body">
 					<div class="plan-measure-canvas-wrap"><canvas id="plan-measure-canvas"></canvas><canvas id="plan-measure-magnifier" class="plan-measure-magnifier" hidden></canvas></div>
 					<div class="plan-measure-list-wrap">

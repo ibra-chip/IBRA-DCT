@@ -2254,6 +2254,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-detect-openings')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-detect-rails')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-pick-color')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-scan-colors')?.toggleAttribute('disabled', disabled);
 		const actions = document.querySelector('#plan-measure-candidates-actions');
 		const candidates = planMeasureState?.candidates || [];
 		if (actions) {
@@ -2442,20 +2443,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// across every future plan is the ENGINE, not any one hardcoded color. Full resolution (no downscale),
 	// because a thin line can be only 1px wide on a big A0 sheet at this app's actual raster DPI, and
 	// downscaling can erase it outright (confirmed on a real plan).
-	function planMeasureDetectRegionsOfColor(image, targetColor, tol = 22) {
-		const natW = image.naturalWidth;
-		const natH = image.naturalHeight;
-		if (natW * natH > 60_000_000) return null;
-		const offscreen = document.createElement('canvas');
-		offscreen.width = natW; offscreen.height = natH;
-		const octx = offscreen.getContext('2d', { willReadFrequently: true });
-		octx.drawImage(image, 0, 0, natW, natH);
-		const { data } = octx.getImageData(0, 0, natW, natH);
-		const mask = new Uint8Array(natW * natH);
-		for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
-			const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
-			if (Math.abs(r - targetColor.r) <= tol && Math.abs(g - targetColor.g) <= tol && Math.abs(b - targetColor.b) <= tol) mask[p] = 1;
-		}
+	// Shared by the single-click "sample one color" detector and the "Pitaj app" scan-all-colors tool: given
+	// a boolean mask (one flag per pixel, already matched to some target color) at natural resolution, finds
+	// connected regions and classifies each into a vertical line, a horizontal line, or a compact "blob"
+	// (discrete item like a window, bracket or platine) - then bridges each line's own real breaks (label
+	// boxes, crossing elements drawn over it in the source plan) back into one candidate per physical run,
+	// exactly like the ossature-rail detector this was originally built for.
+	function planMeasureClassifyMask(mask, natW, natH) {
 		const labelOf = new Int32Array(natW * natH).fill(-1);
 		const stack = [];
 		const verticals = [];
@@ -2501,6 +2495,22 @@ document.addEventListener('DOMContentLoaded', () => {
 			blobs,
 		};
 	}
+	function planMeasureDetectRegionsOfColor(image, targetColor, tol = 22) {
+		const natW = image.naturalWidth;
+		const natH = image.naturalHeight;
+		if (natW * natH > 60_000_000) return null;
+		const offscreen = document.createElement('canvas');
+		offscreen.width = natW; offscreen.height = natH;
+		const octx = offscreen.getContext('2d', { willReadFrequently: true });
+		octx.drawImage(image, 0, 0, natW, natH);
+		const { data } = octx.getImageData(0, 0, natW, natH);
+		const mask = new Uint8Array(natW * natH);
+		for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+			const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+			if (Math.abs(r - targetColor.r) <= tol && Math.abs(g - targetColor.g) <= tol && Math.abs(b - targetColor.b) <= tol) mask[p] = 1;
+		}
+		return planMeasureClassifyMask(mask, natW, natH);
+	}
 	function planMeasureDetectRails() {
 		if (!planMeasureState?.image || !planMeasureState.calibration) return;
 		// Sky blue (~173/221/247) is this one project's own "Ossature L acier galva" convention, sampled by
@@ -2527,6 +2537,30 @@ document.addEventListener('DOMContentLoaded', () => {
 	// read-the-legend-automatically approach would need to be right about an unbounded variety of drawing
 	// conventions to be trustworthy, while "the gérant points, the tool matches that exact color" never
 	// has to guess what a label means).
+	// Shared tail for both ways of picking a color to search for (manual click-and-sample below, or choosing
+	// an entry already found by "Pitaj app" / scan-all-colors): replaces any previous custom-color run rather
+	// than accumulating, so the review/chain/count actions stay unambiguous (always "the last color picked"),
+	// and never silently mixes candidates from two different elements together.
+	function planMeasureApplyCustomColorResult(result, label) {
+		planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'custom-h' && box.kind !== 'custom-v' && box.kind !== 'custom-blob');
+		planMeasureState.customColorLabel = label;
+		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'custom-v' }));
+		const mergedH = result.horizontals.map((box) => ({ ...box, kind: 'custom-h' }));
+		// A compact blob (window, équerre, platine, any discrete item) is reviewed and counted differently
+		// from a line (see planMeasureSyncToolbar) - not forced into the horizontal/vertical chain actions,
+		// which only make sense for a sequence of positions along one axis.
+		const blobs = result.blobs.map((box) => ({ ...box, kind: 'custom-blob' }));
+		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH, ...blobs];
+		planMeasureSyncToolbar();
+		planMeasureRedraw();
+		const parts = [];
+		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux)`);
+		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux)`);
+		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
+		toast(parts.length
+			? `« ${label} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
+			: `Aucune autre occurrence de cette couleur trouvée sur ce plan - c’est peut-être un élément unique, ou le clic est tombé sur un bord antialiasé : réessayez en cliquant plus au centre du trait.`);
+	}
 	async function planMeasureDetectCustomColor(point) {
 		if (!planMeasureState?.image || !planMeasureState.calibration) return;
 		const canvas = document.createElement('canvas');
@@ -2550,27 +2584,89 @@ document.addEventListener('DOMContentLoaded', () => {
 		toast(`Recherche de la couleur rgb(${targetColor.r},${targetColor.g},${targetColor.b}) sur tout le plan…`);
 		const result = planMeasureDetectRegionsOfColor(planMeasureState.image, targetColor);
 		if (!result) { toast('Plan trop grand pour détecter à pleine résolution - tracez à la main.'); return; }
-		// Replaces any previous custom-color run rather than accumulating - keeps the review/chain/count
-		// actions below unambiguous (always "the last color picked"), instead of silently mixing candidates
-		// from two different elements together.
-		planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'custom-h' && box.kind !== 'custom-v' && box.kind !== 'custom-blob');
-		planMeasureState.customColorLabel = label.trim();
-		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'custom-v' }));
-		const mergedH = result.horizontals.map((box) => ({ ...box, kind: 'custom-h' }));
-		// A compact blob (window, équerre, platine, any discrete item) is reviewed and counted differently
-		// from a line (see planMeasureSyncToolbar) - not forced into the horizontal/vertical chain actions,
-		// which only make sense for a sequence of positions along one axis.
-		const blobs = result.blobs.map((box) => ({ ...box, kind: 'custom-blob' }));
-		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH, ...blobs];
-		planMeasureSyncToolbar();
-		planMeasureRedraw();
-		const parts = [];
-		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux)`);
-		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux)`);
-		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
-		toast(parts.length
-			? `« ${label.trim()} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
-			: `Aucune autre occurrence de cette couleur trouvée sur ce plan - c’est peut-être un élément unique, ou le clic est tombé sur un bord antialiasé : réessayez en cliquant plus au centre du trait.`);
+		planMeasureApplyCustomColorResult(result, label.trim());
+	}
+	// "Pitaj app" (demander à l'app) - instead of the gérant having to already know which single example to
+	// click, this decodes the plan once, buckets every color actually used in a meaningful amount (ignoring
+	// the white/near-white background and anything too faint to ever form even one minimal line or blob at
+	// this plan's own calibrated scale), and runs the exact same classification used for a manually-sampled
+	// color on each bucket. The result is only ever "what geometrically exists on this plan, grouped by
+	// color" - nothing is guessed about what any of it MEANS. The gérant still looks at the list, picks
+	// whichever entries are real (a "Recoupement", a "Bando", a fixation...), and names them before anything
+	// is measured or added to the devis - same review step as the manual single-color flow, just offered as
+	// a shortcut for someone who wouldn't know where on the plan to click first.
+	async function planMeasureScanAllColors() {
+		if (!planMeasureState?.image || !planMeasureState.calibration) return;
+		const image = planMeasureState.image;
+		const natW = image.naturalWidth;
+		const natH = image.naturalHeight;
+		if (natW * natH > 60_000_000) { toast('Plan trop grand pour analyser toutes les couleurs à pleine résolution - utilisez « Reconnaître une couleur » sur un exemple précis.'); return; }
+		const button = document.querySelector('#plan-measure-scan-colors');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		toast('Analyse de toutes les couleurs du plan en cours…');
+		try {
+			const offscreen = document.createElement('canvas');
+			offscreen.width = natW; offscreen.height = natH;
+			const octx = offscreen.getContext('2d', { willReadFrequently: true });
+			octx.drawImage(image, 0, 0, natW, natH);
+			const { data } = octx.getImageData(0, 0, natW, natH);
+			// Quantize to 32-level buckets per channel (8 bits -> 5 bits) so near-identical antialiased shades
+			// of the same drawn color collapse into one bucket, without merging genuinely different colors;
+			// the near-white background (the plan's paper, not a drawn element) is excluded outright.
+			const buckets = new Map();
+			for (let i = 0; i < data.length; i += 4) {
+				const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+				if (r > 235 && g > 235 && b > 235) continue;
+				const key = ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3);
+				const entry = buckets.get(key);
+				if (entry) { entry.count += 1; entry.rSum += r; entry.gSum += g; entry.bSum += b; }
+				else buckets.set(key, { count: 1, rSum: r, gSum: g, bSum: b });
+			}
+			// A color with too few pixels can never form even one minimal line/blob at this plan's own scale -
+			// skip it outright instead of running a full classification pass (and cluttering the list) for
+			// what's almost certainly text or antialiasing noise.
+			const minPixels = Math.max(40, 0.15 * planMeasureState.calibration.pixelsPerMeter * 2);
+			const topBuckets = [...buckets.values()].filter((entry) => entry.count >= minPixels).sort((a, b) => b.count - a.count).slice(0, 10);
+			const results = [];
+			for (const entry of topBuckets) {
+				const color = { r: Math.round(entry.rSum / entry.count), g: Math.round(entry.gSum / entry.count), b: Math.round(entry.bSum / entry.count) };
+				const mask = new Uint8Array(natW * natH);
+				for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
+					const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
+					if (Math.abs(r - color.r) <= 22 && Math.abs(g - color.g) <= 22 && Math.abs(b - color.b) <= 22) mask[p] = 1;
+				}
+				const classified = planMeasureClassifyMask(mask, natW, natH);
+				if (classified.verticals.length + classified.horizontals.length + classified.blobs.length === 0) continue;
+				results.push({ color, ...classified });
+			}
+			planMeasureState.colorScanResults = results;
+			planMeasureRenderColorScan();
+			toast(results.length
+				? `${results.length} couleur(s) avec des lignes/éléments reconnaissables trouvée(s) - choisissez laquelle utiliser ci-dessous.`
+				: 'Aucune couleur avec des lignes ou éléments nets trouvée sur ce plan - utilisez « Reconnaître une couleur » en cliquant un exemple précis.');
+		} finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
+	}
+	function planMeasureRenderColorScan() {
+		const box = document.querySelector('#plan-measure-color-scan');
+		if (!box) return;
+		const results = planMeasureState?.colorScanResults || [];
+		box.hidden = results.length === 0;
+		if (!results.length) { box.innerHTML = ''; return; }
+		box.innerHTML = `<strong>Couleurs trouvées sur ce plan</strong><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
+			const { color, verticals, horizontals, blobs } = entry;
+			const parts = [];
+			if (verticals.length) parts.push(`${verticals.length} vertical(aux)`);
+			if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux)`);
+			if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
+			return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
+		}).join('')}</div>`;
+	}
+	function planMeasureChooseColorScanResult(index) {
+		const entry = planMeasureState?.colorScanResults?.[index];
+		if (!entry) return;
+		const label = window.prompt('Nom de cet élément (ex. « Recoupement », « Bando », « Couvertine ») :', '');
+		if (!label?.trim()) return;
+		planMeasureApplyCustomColorResult(entry, label.trim());
 	}
 	// Bridges a rail's own real breaks (label boxes, crossing elements drawn over it in the source plan)
 	// back into one candidate per physical rail run, without bridging two genuinely different rails
@@ -3002,6 +3098,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		const titleEl = document.querySelector('#plan-measure-title');
 		if (titleEl) titleEl.textContent = `Mesurer le plan — ${projectName} — ${docItem.originalName}`;
 		document.querySelector('#plan-measure-info-box').hidden = true;
+		const colorScanBox = document.querySelector('#plan-measure-color-scan');
+		if (colorScanBox) { colorScanBox.hidden = true; colorScanBox.innerHTML = ''; }
 		document.querySelector('#plan-measure-status').textContent = 'Chargement du plan...';
 		try {
 			const response = await fetch(`${api}/documents/${documentId}/plan-image`, { headers: { Authorization: `Bearer ${token()}` } });
@@ -3068,6 +3166,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
 	document.querySelector('#plan-measure-chain')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'chain' ? null : 'chain'));
 	document.querySelector('#plan-measure-pick-color')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'pick-color' ? null : 'pick-color'));
+	document.querySelector('#plan-measure-scan-colors')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureScanAllColors());
+	document.querySelector('#plan-measure-color-scan')?.addEventListener('click', (event) => {
+		const button = event.target.closest('[data-color-scan-choose]');
+		if (!button) return;
+		planMeasureChooseColorScanResult(Number(button.dataset.colorScanChoose));
+	});
 	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
 	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
 	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
