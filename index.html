@@ -260,12 +260,13 @@
 						<select id="plan-measure-calibration-zone" class="secondary" hidden aria-label="Zone de calibration active"></select>
 						<button type="button" class="secondary" id="plan-measure-line">+ Ligne (ml)</button>
 						<button type="button" class="secondary" id="plan-measure-chain" title="Cliquez une suite de points (départ, puis chaque recoupement/bando) - chaque paire successive devient sa propre mesure en ml">+ Chaîne de segments</button>
+						<button type="button" class="secondary" id="plan-measure-pick-color" title="Cliquez un exemple de l’élément à reconnaître - sa couleur exacte sera cherchée partout sur CE plan">🎯 Reconnaître une couleur (bêta)</button>
 						<button type="button" class="secondary" id="plan-measure-polygon">+ Surface (m²)</button>
 						<button type="button" class="secondary" id="plan-measure-opening">+ Ouverture à déduire</button>
 						<button type="button" class="secondary" id="plan-measure-detect-openings">🔍 Détecter les ouvertures (bêta)</button>
 						<button type="button" class="secondary" id="plan-measure-detect-rails">🔍 Détecter les rails ossature (bêta)</button>
 					</span>
-					<span id="plan-measure-candidates-actions" class="plan-measure-candidates-actions" hidden><span id="plan-measure-candidates-count"></span><button type="button" class="secondary" id="plan-measure-candidates-confirm" hidden>✓ Confirmer les ouvertures</button><button type="button" class="secondary" id="plan-measure-candidates-rails-v" hidden>+ Total rails verticaux au devis</button><button type="button" class="secondary" id="plan-measure-candidates-rails-h" hidden>+ Total rails horizontaux au devis</button><button type="button" class="secondary" id="plan-measure-candidates-clear">✕ Effacer</button></span>
+					<span id="plan-measure-candidates-actions" class="plan-measure-candidates-actions" hidden><span id="plan-measure-candidates-count"></span><button type="button" class="secondary" id="plan-measure-candidates-confirm" hidden>✓ Confirmer les ouvertures</button><button type="button" class="secondary" id="plan-measure-candidates-rails-v" hidden>+ Total rails verticaux au devis</button><button type="button" class="secondary" id="plan-measure-candidates-rails-h" hidden>+ Total rails horizontaux au devis</button><button type="button" class="secondary" id="plan-measure-candidates-custom-chain-v" hidden></button><button type="button" class="secondary" id="plan-measure-candidates-custom-chain-h" hidden></button><button type="button" class="secondary" id="plan-measure-candidates-custom-blob" hidden></button><button type="button" class="secondary" id="plan-measure-candidates-clear">✕ Effacer</button></span>
 					<span class="plan-measure-tool-group">
 						<button type="button" class="secondary" id="plan-measure-undo-point" hidden>↺ Annuler le dernier point</button>
 						<button type="button" class="secondary" id="plan-measure-finish" hidden>Terminer la forme</button>

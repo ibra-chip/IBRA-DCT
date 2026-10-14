@@ -2188,7 +2188,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureState.drawPoints.forEach((p) => { ctx.beginPath(); ctx.arc(p.x * scale, p.y * scale, 3, 0, Math.PI * 2); ctx.fill(); });
 		}
 		if (planMeasureState.candidates?.length) {
-			const candidateColor = { opening: '#f39a4a', 'rail-v': '#72b9ff', 'rail-h': '#c879ff' };
+			const candidateColor = { opening: '#f39a4a', 'rail-v': '#72b9ff', 'rail-h': '#c879ff', 'custom-v': '#5bd68a', 'custom-h': '#ffd166', 'custom-blob': '#ff6b9d' };
 			ctx.lineWidth = 2; ctx.setLineDash([6, 4]);
 			ctx.font = 'bold 12px sans-serif';
 			planMeasureState.candidates.forEach((box, index) => {
@@ -2211,6 +2211,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!status || !planMeasureState) return;
 		if (planMeasureState.mode === 'calibrate') { status.textContent = `Calibration : cliquez 2 points d’une distance connue (${planMeasureState.calibratePoints.length}/2)`; return; }
 		if (planMeasureState.mode === 'calibrate-region') { status.textContent = `Délimitation de la zone : cliquez 2 coins opposés (${planMeasureState.calibratePoints.length}/2)`; return; }
+		if (planMeasureState.mode === 'pick-color') { status.textContent = 'Cliquez une fois sur un exemple de l’élément à reconnaître (ex. un trait de recoupement) - sa couleur exacte sera cherchée partout sur le plan.'; return; }
 		if (planMeasureState.mode === 'line') { status.textContent = `Ligne en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureLengthM(planMeasureState.drawPoints).toFixed(2)} ml`; return; }
 		if (planMeasureState.mode === 'chain') {
 			const points = planMeasureState.drawPoints;
@@ -2252,6 +2253,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-detect-openings')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-detect-rails')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-pick-color')?.toggleAttribute('disabled', disabled);
 		const actions = document.querySelector('#plan-measure-candidates-actions');
 		const candidates = planMeasureState?.candidates || [];
 		if (actions) {
@@ -2259,6 +2261,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			const openingBoxes = candidates.filter((box) => box.kind === 'opening');
 			const railV = candidates.filter((box) => box.kind === 'rail-v');
 			const railH = candidates.filter((box) => box.kind === 'rail-h');
+			const customV = candidates.filter((box) => box.kind === 'custom-v');
+			const customH = candidates.filter((box) => box.kind === 'custom-h');
+			const customBlob = candidates.filter((box) => box.kind === 'custom-blob');
 			// A rail candidate is only a few pixels thick - too thin to reliably click-to-reject one at a time
 			// among what's often hundreds of them across a whole facade (confirmed on a real plan: 500+ rail
 			// segments). So unlike openings (confirmed one by one, each a genuinely distinct real-world item),
@@ -2268,17 +2273,27 @@ document.addEventListener('DOMContentLoaded', () => {
 			const pxPerM = planMeasureState?.calibration?.pixelsPerMeter || 1;
 			const totalV = railV.reduce((sum, box) => sum + (box.y1 - box.y0) / pxPerM, 0);
 			const totalH = railH.reduce((sum, box) => sum + (box.x1 - box.x0) / pxPerM, 0);
+			const customLabel = planMeasureState?.customColorLabel || 'élément';
 			const countLabel = document.querySelector('#plan-measure-candidates-count');
 			if (countLabel) {
 				const parts = [];
 				if (openingBoxes.length) parts.push(`${openingBoxes.length} ouverture(s)`);
 				if (railV.length) parts.push(`${railV.length} rail(aux) vertical(aux) = ${totalV.toFixed(1)} ml`);
 				if (railH.length) parts.push(`${railH.length} rail(aux) horizontal(aux) = ${totalH.toFixed(1)} ml`);
+				if (customV.length) parts.push(`${customV.length} « ${customLabel} » vertical(aux)`);
+				if (customH.length) parts.push(`${customH.length} « ${customLabel} » horizontal(aux)`);
+				if (customBlob.length) parts.push(`${customBlob.length} « ${customLabel} » (élément compact)`);
 				countLabel.textContent = `${parts.join(', ')} détecté(s) (⚠ hors couleur reconnue = jamais détecté), à vérifier :`;
 			}
 			document.querySelector('#plan-measure-candidates-confirm')?.toggleAttribute('hidden', openingBoxes.length === 0);
 			document.querySelector('#plan-measure-candidates-rails-v')?.toggleAttribute('hidden', railV.length === 0);
 			document.querySelector('#plan-measure-candidates-rails-h')?.toggleAttribute('hidden', railH.length === 0);
+			const chainVButton = document.querySelector('#plan-measure-candidates-custom-chain-v');
+			const chainHButton = document.querySelector('#plan-measure-candidates-custom-chain-h');
+			const blobButton = document.querySelector('#plan-measure-candidates-custom-blob');
+			if (chainVButton) { chainVButton.hidden = customV.length < 2; chainVButton.textContent = `+ Chaîne « ${customLabel} » verticale (${customV.length} points)`; }
+			if (chainHButton) { chainHButton.hidden = customH.length < 2; chainHButton.textContent = `+ Chaîne « ${customLabel} » horizontale (${customH.length} points)`; }
+			if (blobButton) { blobButton.hidden = customBlob.length === 0; blobButton.textContent = `+ Quantité « ${customLabel} » au devis (${customBlob.length})`; }
 		}
 	}
 	// Deterministic (no AI, no language model) opening detector: finds blue/cyan-colored rectangular
@@ -2418,39 +2433,43 @@ document.addEventListener('DOMContentLoaded', () => {
 	// confirmed by sampling the real plan pixel by pixel. A 1px feature can vanish entirely under the
 	// opening detector's downscale step, so this runs at full resolution (no downscale) even though that
 	// costs more time on a huge A0 sheet.
-	function planMeasureDetectRails() {
-		if (!planMeasureState?.image || !planMeasureState.calibration) return;
-		const image = planMeasureState.image;
+	// Finds thin elongated regions of ONE given color (classified horizontal/vertical by aspect ratio,
+	// merged back across each element's own real breaks - see planMeasureMergeCollinearRailSegments) -
+	// the shared engine behind both the hardcoded "ossature rails" detector below and the gérant-driven
+	// custom-color detector (planMeasureDetectCustomColor): a color convention is specific to whichever
+	// architect drew THIS plan (confirmed directly: two real plans from the same project used a thick
+	// black line for one detail and a thin colored axis for another), so the one thing that generalizes
+	// across every future plan is the ENGINE, not any one hardcoded color. Full resolution (no downscale),
+	// because a thin line can be only 1px wide on a big A0 sheet at this app's actual raster DPI, and
+	// downscaling can erase it outright (confirmed on a real plan).
+	function planMeasureDetectRegionsOfColor(image, targetColor, tol = 22) {
 		const natW = image.naturalWidth;
 		const natH = image.naturalHeight;
-		if (natW * natH > 60_000_000) { toast('Plan trop grand pour détecter les rails à pleine résolution - tracez-les à la main.'); return; }
+		if (natW * natH > 60_000_000) return null;
 		const offscreen = document.createElement('canvas');
 		offscreen.width = natW; offscreen.height = natH;
 		const octx = offscreen.getContext('2d', { willReadFrequently: true });
 		octx.drawImage(image, 0, 0, natW, natH);
 		const { data } = octx.getImageData(0, 0, natW, natH);
-		// A generous +-22 per channel absorbs antialiasing without drifting into this same sheet's other
-		// colors (checked against both the window blue (0,0,255)/(0,137,182) and the plaque/pattes colors -
-		// no collision on either real plan tested).
-		const tol = 22;
-		const isRail = new Uint8Array(natW * natH);
+		const mask = new Uint8Array(natW * natH);
 		for (let i = 0, p = 0; i < data.length; i += 4, p += 1) {
 			const r = data[i]; const g = data[i + 1]; const b = data[i + 2];
-			if (Math.abs(r - 173) <= tol && Math.abs(g - 221) <= tol && Math.abs(b - 247) <= tol) isRail[p] = 1;
+			if (Math.abs(r - targetColor.r) <= tol && Math.abs(g - targetColor.g) <= tol && Math.abs(b - targetColor.b) <= tol) mask[p] = 1;
 		}
 		const labelOf = new Int32Array(natW * natH).fill(-1);
 		const stack = [];
 		const verticals = [];
 		const horizontals = [];
-		// A dimension label, crossing rail, or window frame drawn over a rail line breaks it into pieces in
-		// the SOURCE drawing itself, not just at render time - confirmed by tracing one real rail column
-		// pixel by pixel: small ~2-3px gaps (antialiasing) alongside repeated ~80px (~1m) gaps lining up
-		// exactly where label boxes cross it. Raw fragments are merged back below; the length/aspect checks
-		// here only filter the tiny corner specks where a vertical and horizontal rail nearly touch.
+		const blobs = [];
+		// A dimension label, crossing element, or frame drawn over a line breaks it into pieces in the
+		// SOURCE drawing itself, not just at render time - confirmed by tracing a real rail column pixel
+		// by pixel: small ~2-3px gaps (antialiasing) alongside repeated ~80px (~1m) gaps lining up exactly
+		// where label boxes cross it. Raw fragments are merged back below; the length/aspect checks here
+		// only filter the tiny corner specks where a vertical and horizontal element nearly touch.
 		const minLengthPx = 0.15 * planMeasureState.calibration.pixelsPerMeter;
 		for (let start = 0; start < natW * natH; start += 1) {
-			if (!isRail[start] || labelOf[start] !== -1) continue;
-			let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity;
+			if (!mask[start] || labelOf[start] !== -1) continue;
+			let x0 = Infinity; let y0 = Infinity; let x1 = -Infinity; let y1 = -Infinity; let count = 0;
 			stack.length = 0;
 			stack.push(start);
 			labelOf[start] = 1;
@@ -2459,24 +2478,99 @@ document.addEventListener('DOMContentLoaded', () => {
 				const px = p % natW; const py = (p - px) / natW;
 				if (px < x0) x0 = px; if (px > x1) x1 = px;
 				if (py < y0) y0 = py; if (py > y1) y1 = py;
-				if (px > 0 && isRail[p - 1] && labelOf[p - 1] === -1) { labelOf[p - 1] = 1; stack.push(p - 1); }
-				if (px < natW - 1 && isRail[p + 1] && labelOf[p + 1] === -1) { labelOf[p + 1] = 1; stack.push(p + 1); }
-				if (p - natW >= 0 && isRail[p - natW] && labelOf[p - natW] === -1) { labelOf[p - natW] = 1; stack.push(p - natW); }
-				if (p + natW < natW * natH && isRail[p + natW] && labelOf[p + natW] === -1) { labelOf[p + natW] = 1; stack.push(p + natW); }
+				count += 1;
+				if (px > 0 && mask[p - 1] && labelOf[p - 1] === -1) { labelOf[p - 1] = 1; stack.push(p - 1); }
+				if (px < natW - 1 && mask[p + 1] && labelOf[p + 1] === -1) { labelOf[p + 1] = 1; stack.push(p + 1); }
+				if (p - natW >= 0 && mask[p - natW] && labelOf[p - natW] === -1) { labelOf[p - natW] = 1; stack.push(p - natW); }
+				if (p + natW < natW * natH && mask[p + natW] && labelOf[p + natW] === -1) { labelOf[p + natW] = 1; stack.push(p + natW); }
 			}
 			const bw = x1 - x0 + 1; const bh = y1 - y0 + 1;
 			const aspect = bh ? bw / bh : 0;
-			if (aspect <= 0.35 && bh >= minLengthPx) verticals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 });
-			else if (aspect >= 3 && bw >= minLengthPx) horizontals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 });
+			if (aspect <= 0.35 && bh >= minLengthPx) { verticals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 }); continue; }
+			if (aspect >= 3 && bw >= minLengthPx) { horizontals.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 }); continue; }
+			// Not line-shaped - a COMPACT region of this color instead (a window, an équerre bracket, a
+			// platine, any discrete item), same "roughly solid, not a stray speck" check the window-opening
+			// detector uses: extent close to 1 means the pixels actually fill their own bounding box, ruling
+			// out a diagonal scribble or a thin diagonal hatch line that happens to span a square-ish area.
+			const extent = count / (bw * bh);
+			if (count >= 12 && extent >= 0.55) blobs.push({ x0, y0, x1: x1 + 1, y1: y1 + 1 });
 		}
-		const mergedV = planMeasureMergeCollinearRailSegments(verticals, 'v').map((box) => ({ ...box, kind: 'rail-v' }));
-		const mergedH = planMeasureMergeCollinearRailSegments(horizontals, 'h').map((box) => ({ ...box, kind: 'rail-h' }));
+		return {
+			verticals: planMeasureMergeCollinearRailSegments(verticals, 'v'),
+			horizontals: planMeasureMergeCollinearRailSegments(horizontals, 'h'),
+			blobs,
+		};
+	}
+	function planMeasureDetectRails() {
+		if (!planMeasureState?.image || !planMeasureState.calibration) return;
+		// Sky blue (~173/221/247) is this one project's own "Ossature L acier galva" convention, sampled by
+		// hand from its real legend - kept as a one-click shortcut since it's this app's single most-tested
+		// detector, not because every future plan will use the same color (planMeasureDetectCustomColor
+		// below is the general answer to that).
+		const result = planMeasureDetectRegionsOfColor(planMeasureState.image, { r: 173, g: 221, b: 247 });
+		if (!result) { toast('Plan trop grand pour détecter les rails à pleine résolution - tracez-les à la main.'); return; }
+		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'rail-v' }));
+		const mergedH = result.horizontals.map((box) => ({ ...box, kind: 'rail-h' }));
 		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH];
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
 		toast(mergedV.length || mergedH.length
 			? `${mergedV.length} rail(aux) vertical(aux) + ${mergedH.length} rail(aux) horizontal(aux) détecté(s) - vérifiez avant de confirmer. ⚠ Seule la couleur bleu ciel « Ossature L acier galva » est reconnue - tout autre profilé (plaque pliée, pattes, équerres) doit être tracé à la main.`
 			: 'Aucun rail détecté automatiquement sur ce plan (couleur non reconnue) - tracez-les manuellement avec « + Ligne (ml) ».');
+	}
+	// The general answer to "every plan's legend uses its own colors": the gérant clicks one real instance
+	// of the element on the plan (its color is sampled on the spot, not typed or guessed), names it once,
+	// and this runs the SAME detection engine as the rails button above against that exact color - so it
+	// works on any future plan regardless of which color a particular architect happened to use, with zero
+	// risk of misreading a legend's text (no OCR involved at all, deliberately - confirmed today that this
+	// project alone already draws its own reference lines two different ways, which is exactly why a
+	// read-the-legend-automatically approach would need to be right about an unbounded variety of drawing
+	// conventions to be trustworthy, while "the gérant points, the tool matches that exact color" never
+	// has to guess what a label means).
+	async function planMeasureDetectCustomColor(point) {
+		if (!planMeasureState?.image || !planMeasureState.calibration) return;
+		const canvas = document.createElement('canvas');
+		canvas.width = planMeasureState.image.naturalWidth;
+		canvas.height = planMeasureState.image.naturalHeight;
+		const ctx = canvas.getContext('2d', { willReadFrequently: true });
+		ctx.drawImage(planMeasureState.image, 0, 0, canvas.width, canvas.height);
+		// Median of a small neighbourhood around the click, not the single pixel under the cursor - a click
+		// landing exactly on an antialiased edge would otherwise sample a blended color that matches nothing
+		// else on the plan.
+		const half = 2;
+		const x0 = Math.max(0, Math.round(point.x) - half); const y0 = Math.max(0, Math.round(point.y) - half);
+		const w = Math.min(canvas.width - x0, half * 2 + 1); const h = Math.min(canvas.height - y0, half * 2 + 1);
+		const { data } = ctx.getImageData(x0, y0, Math.max(1, w), Math.max(1, h));
+		const rs = []; const gs = []; const bs = [];
+		for (let i = 0; i < data.length; i += 4) { rs.push(data[i]); gs.push(data[i + 1]); bs.push(data[i + 2]); }
+		const median = (arr) => { const sorted = [...arr].sort((a, b2) => a - b2); return sorted[Math.floor(sorted.length / 2)]; };
+		const targetColor = { r: median(rs), g: median(gs), b: median(bs) };
+		const label = window.prompt('Nom de cet élément (ex. « Recoupement », « Bando », « Couvertine ») - le ton exact cliqué sera recherché partout sur ce plan :', '');
+		if (!label?.trim()) return;
+		toast(`Recherche de la couleur rgb(${targetColor.r},${targetColor.g},${targetColor.b}) sur tout le plan…`);
+		const result = planMeasureDetectRegionsOfColor(planMeasureState.image, targetColor);
+		if (!result) { toast('Plan trop grand pour détecter à pleine résolution - tracez à la main.'); return; }
+		// Replaces any previous custom-color run rather than accumulating - keeps the review/chain/count
+		// actions below unambiguous (always "the last color picked"), instead of silently mixing candidates
+		// from two different elements together.
+		planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'custom-h' && box.kind !== 'custom-v' && box.kind !== 'custom-blob');
+		planMeasureState.customColorLabel = label.trim();
+		const mergedV = result.verticals.map((box) => ({ ...box, kind: 'custom-v' }));
+		const mergedH = result.horizontals.map((box) => ({ ...box, kind: 'custom-h' }));
+		// A compact blob (window, équerre, platine, any discrete item) is reviewed and counted differently
+		// from a line (see planMeasureSyncToolbar) - not forced into the horizontal/vertical chain actions,
+		// which only make sense for a sequence of positions along one axis.
+		const blobs = result.blobs.map((box) => ({ ...box, kind: 'custom-blob' }));
+		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH, ...blobs];
+		planMeasureSyncToolbar();
+		planMeasureRedraw();
+		const parts = [];
+		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux)`);
+		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux)`);
+		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
+		toast(parts.length
+			? `« ${label.trim()} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
+			: `Aucune autre occurrence de cette couleur trouvée sur ce plan - c’est peut-être un élément unique, ou le clic est tombé sur un bord antialiasé : réessayez en cliquant plus au centre du trait.`);
 	}
 	// Bridges a rail's own real breaks (label boxes, crossing elements drawn over it in the source plan)
 	// back into one candidate per physical rail run, without bridging two genuinely different rails
@@ -2561,6 +2655,34 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}
 	}
+	// Splits a sequence of points into one line measurement PER CONSECUTIVE PAIR, each resolved against its
+	// OWN zone (not one shared calibration) so a chain that happens to cross a delimited zone boundary - a
+	// façade's recoupement run continuing past a pignon's different scale, say - still gets every segment
+	// right. Shared by the manual "+ Chaîne de segments" tool and by confirming an auto-detected custom-color
+	// run (planMeasureDetectCustomColor) - same output shape either way, because splitting a click sequence
+	// into segments and splitting a sorted detection list into segments are the same operation.
+	async function planMeasureCreateChainSegments(points, startLabel, segLabel) {
+		let created = 0; let failed = 0;
+		for (let i = 0; i < points.length - 1; i += 1) {
+			const fromLabel = i === 0 ? startLabel : `${segLabel} ${i}`;
+			const toLabel = `${segLabel} ${i + 1}`;
+			const segmentPoints = [points[i], points[i + 1]];
+			const center = { x: (segmentPoints[0].x + segmentPoints[1].x) / 2, y: (segmentPoints[0].y + segmentPoints[1].y) / 2 };
+			const zone = planMeasureZoneForPoint(center) || planMeasureState.calibration;
+			// Computed from the RESOLVED zone's own scale, not the generic planMeasureLengthM helper (which
+			// always reads the currently active zone) - on a plan with more than one calibrated scale, those
+			// two can differ, and showing a label that doesn't match what the server actually stored would be
+			// exactly the kind of silent, hard-to-notice wrong number this tool exists to prevent.
+			const lengthM = Math.hypot(segmentPoints[1].x - segmentPoints[0].x, segmentPoints[1].y - segmentPoints[0].y) / zone.pixelsPerMeter;
+			const label = `${fromLabel} → ${toLabel} (${lengthM.toFixed(2)} ml)`;
+			try {
+				const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'line', role: 'surface', label, points: segmentPoints, repeatCount: 1, calibrationId: zone.id }) });
+				planMeasureState.measurements.push(measurement);
+				created += 1;
+			} catch { failed += 1; }
+		}
+		return { created, failed };
+	}
 	// A rail candidate is only a couple of pixels thick on screen - too thin to click-to-reject one at a
 	// time among what's routinely hundreds of them across a whole facade (538 verticals + 582 horizontals,
 	// measured on a real plan). So unlike an opening (confirmed individually, each a genuinely distinct
@@ -2591,6 +2713,53 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureSyncToolbar();
 			planMeasureRedraw();
 			toast(`${orientationLabel} (${totalM.toFixed(2)} ml) ajouté au devis.`);
+		} catch { toast('Stavka nije dodana.'); }
+		finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
+	}
+	// A custom-color chain works exactly like the manual "+ Chaîne de segments" tool, except the point
+	// sequence comes from auto-detected same-color regions instead of clicks. Sorted along the axis the
+	// elements actually run across - left to right for a row of vertical elements (e.g. "bando" boundaries
+	// spaced across a facade), top to bottom for a column of horizontal elements (e.g. "recoupement" lines
+	// stacked one per floor) - since that is the only reading order the gérant could mean by "the next one
+	// along the facade / up the building". Exact geometry of what was detected either way; this only changes
+	// how the same detected boxes get split into segments, same as the manual chain tool.
+	async function planMeasureConfirmCustomChain(kind) {
+		const boxes = (planMeasureState?.candidates || []).filter((box) => box.kind === kind);
+		if (boxes.length < 2) return;
+		const button = document.querySelector(kind === 'custom-v' ? '#plan-measure-candidates-custom-chain-v' : '#plan-measure-candidates-custom-chain-h');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			const centered = boxes.map((box) => ({ x: (box.x0 + box.x1) / 2, y: (box.y0 + box.y1) / 2 }));
+			centered.sort((a, b) => (kind === 'custom-v' ? a.x - b.x : a.y - b.y));
+			const segLabel = planMeasureState.customColorLabel || 'Point';
+			const { created, failed } = await planMeasureCreateChainSegments(centered, `${segLabel} 0`, segLabel);
+			planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== kind);
+			planMeasureRenderList();
+			planMeasureSyncToolbar();
+			planMeasureRedraw();
+			toast(failed ? `${created} segment(s) enregistré(s), ${failed} échoué(s).` : `${created} segment(s) « ${segLabel} » enregistrés.`);
+		} finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
+	}
+	// A compact "blob" candidate (a discrete item like a bracket, plate or fixing - as opposed to a line) is
+	// counted and added to the devis as a quantity, same one-line-item-for-many-instances reasoning as the
+	// rail totals above: a real facade can have dozens of these and nobody would want one devis line per
+	// instance confirmed by hand.
+	async function planMeasureAddCustomBlobToDevis() {
+		const boxes = (planMeasureState?.candidates || []).filter((box) => box.kind === 'custom-blob');
+		if (!boxes.length) return;
+		const button = document.querySelector('#plan-measure-candidates-custom-blob');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			const matchDescription = planMeasureState.customColorLabel || 'Élément';
+			if (!(await planMeasureConfirmAgainstExistingLineItem(matchDescription, boxes.length, 'unité'))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(matchDescription, 'unité');
+			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'} : ${boxes.length} détecté(s)`;
+			await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: boxes.length, unit: 'unité', unitPrice, lineTotal: Number((boxes.length * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
+			planMeasureState.candidates = planMeasureState.candidates.filter((box) => box.kind !== 'custom-blob');
+			planMeasureSyncToolbar();
+			planMeasureRedraw();
+			toast(`${matchDescription} (${boxes.length} unité(s)) ajouté au devis.`);
 		} catch { toast('Stavka nije dodana.'); }
 		finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 	}
@@ -2793,7 +2962,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		// Drawing without a calibration would only ever produce 0.00 (planMeasureLengthM/AreaM2 refuse to
 		// guess a px/m ratio that doesn't exist yet) - block entering that mode at all instead of letting
 		// someone trace a whole shape only to find out silently at the end that nothing was measured.
-		if ((mode === 'line' || mode === 'polygon' || mode === 'chain') && !planMeasureState.calibration) {
+		if ((mode === 'line' || mode === 'polygon' || mode === 'chain' || mode === 'pick-color') && !planMeasureState.calibration) {
 			toast('Calibrez d’abord l’échelle (bouton « Calibrer l’échelle ») avant de tracer une mesure.');
 			return;
 		}
@@ -2806,10 +2975,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (mode === 'calibrate') document.querySelector('#plan-measure-calibrate')?.classList.add('active');
 		if (mode === 'line') document.querySelector('#plan-measure-line')?.classList.add('active');
 		if (mode === 'chain') document.querySelector('#plan-measure-chain')?.classList.add('active');
+		if (mode === 'pick-color') document.querySelector('#plan-measure-pick-color')?.classList.add('active');
 		if (mode === 'polygon') document.querySelector(role === 'opening' ? '#plan-measure-opening' : '#plan-measure-polygon')?.classList.add('active');
 		document.querySelector('#plan-measure-finish').hidden = mode !== 'line' && mode !== 'polygon' && mode !== 'chain';
+		// pick-color fires on a single click (see the canvas click handler) rather than accumulating points,
+		// so it has nothing to "finish" or "undo" - only cancelling out of the mode applies.
 		document.querySelector('#plan-measure-cancel-draw').hidden = !mode;
-		document.querySelector('#plan-measure-undo-point').hidden = !mode;
+		document.querySelector('#plan-measure-undo-point').hidden = !mode || mode === 'pick-color';
 		planMeasureUpdateStatus();
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
@@ -2895,6 +3067,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
 	document.querySelector('#plan-measure-chain')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'chain' ? null : 'chain'));
+	document.querySelector('#plan-measure-pick-color')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'pick-color' ? null : 'pick-color'));
 	document.querySelector('#plan-measure-polygon')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole !== 'opening' ? null : 'polygon', 'surface'));
 	document.querySelector('#plan-measure-opening')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'polygon' && planMeasureState.drawRole === 'opening' ? null : 'polygon', 'opening'));
 	document.querySelector('#plan-measure-cancel-draw')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(null));
@@ -2908,6 +3081,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-candidates-confirm')?.addEventListener('click', () => planMeasureConfirmCandidates());
 	document.querySelector('#plan-measure-candidates-rails-v')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-v'));
 	document.querySelector('#plan-measure-candidates-rails-h')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-h'));
+	document.querySelector('#plan-measure-candidates-custom-chain-v')?.addEventListener('click', () => planMeasureConfirmCustomChain('custom-v'));
+	document.querySelector('#plan-measure-candidates-custom-chain-h')?.addEventListener('click', () => planMeasureConfirmCustomChain('custom-h'));
+	document.querySelector('#plan-measure-candidates-custom-blob')?.addEventListener('click', () => planMeasureAddCustomBlobToDevis());
 	document.querySelector('#plan-measure-candidates-clear')?.addEventListener('click', () => { if (!planMeasureState) return; planMeasureState.candidates = []; planMeasureSyncToolbar(); planMeasureRedraw(); });
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
@@ -2925,21 +3101,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (startName === null) return;
 			const segmentName = window.prompt('Nom des points suivants (ex. « Recoupement », « Bando ») :', 'Recoupement');
 			if (segmentName === null) return;
-			const startLabel = startName.trim() || 'Départ';
-			const segLabel = segmentName.trim() || 'Point';
-			let created = 0; let failed = 0;
-			for (let i = 0; i < drawPoints.length - 1; i += 1) {
-				const fromLabel = i === 0 ? startLabel : `${segLabel} ${i}`;
-				const toLabel = `${segLabel} ${i + 1}`;
-				const segmentPoints = [drawPoints[i], drawPoints[i + 1]];
-				const lengthM = planMeasureLengthM(segmentPoints);
-				const label = `${fromLabel} → ${toLabel} (${lengthM.toFixed(2)} ml)`;
-				try {
-					const measurement = await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ type: 'line', role: 'surface', label, points: segmentPoints, repeatCount: 1, calibrationId: planMeasureState.currentShapeCalibrationId }) });
-					planMeasureState.measurements.push(measurement);
-					created += 1;
-				} catch { failed += 1; }
-			}
+			const { created, failed } = await planMeasureCreateChainSegments(drawPoints, startName.trim() || 'Départ', segmentName.trim() || 'Point');
 			planMeasureRenderList();
 			planMeasureSetMode(null);
 			toast(failed ? `${created} segment(s) enregistré(s), ${failed} échoué(s).` : `${created} segment(s) de la chaîne enregistrés.`);
@@ -3081,6 +3243,12 @@ document.addEventListener('DOMContentLoaded', () => {
 				planMeasureState.pendingRegionCalibrationId = null;
 				planMeasureSetMode(null);
 			} else { planMeasureUpdateStatus(); planMeasureRedraw(); }
+			return;
+		}
+		if (planMeasureState.mode === 'pick-color') {
+			const pickedPoint = point;
+			planMeasureSetMode(null);
+			await planMeasureDetectCustomColor(pickedPoint);
 			return;
 		}
 		// Resolve the right calibration zone automatically for the FIRST point of a new shape only - a shape
