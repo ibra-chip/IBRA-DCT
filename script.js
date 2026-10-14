@@ -2295,11 +2295,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (countLabel) {
 				const parts = [];
 				if (openingBoxes.length) parts.push(`${openingBoxes.length} ouverture(s)`);
-				if (railV.length) parts.push(`${railV.length} rail(aux) vertical(aux) = ${totalV.toFixed(1)} ml`);
-				if (railH.length) parts.push(`${railH.length} rail(aux) horizontal(aux) = ${totalH.toFixed(1)} ml`);
-				if (customV.length) parts.push(`${customV.length} « ${customLabel} » vertical(aux)`);
-				if (customH.length) parts.push(`${customH.length} « ${customLabel} » horizontal(aux)`);
-				if (customBlob.length) parts.push(`${customBlob.length} « ${customLabel} » (élément compact)`);
+				if (railV.length) parts.push(`${railV.length} rail(aux) vertical(aux) = ${totalV.toFixed(1)} ml (${planMeasureDescribeLineBoxes(railV, 'v', pxPerM)})`);
+				if (railH.length) parts.push(`${railH.length} rail(aux) horizontal(aux) = ${totalH.toFixed(1)} ml (${planMeasureDescribeLineBoxes(railH, 'h', pxPerM)})`);
+				if (customV.length) parts.push(`${customV.length} « ${customLabel} » vertical(aux) (${planMeasureDescribeLineBoxes(customV, 'v', pxPerM)})`);
+				if (customH.length) parts.push(`${customH.length} « ${customLabel} » horizontal(aux) (${planMeasureDescribeLineBoxes(customH, 'h', pxPerM)})`);
+				if (customBlob.length) parts.push(`${customBlob.length} « ${customLabel} » (élément compact) (${planMeasureDescribeBlobBoxes(customBlob, pxPerM)})`);
 				countLabel.textContent = `${parts.join(', ')} détecté(s) (⚠ hors couleur reconnue = jamais détecté), à vérifier :`;
 			}
 			document.querySelector('#plan-measure-candidates-confirm')?.toggleAttribute('hidden', openingBoxes.length === 0);
@@ -2569,10 +2569,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureState.candidates = [...planMeasureState.candidates, ...mergedV, ...mergedH, ...blobs];
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
+		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
 		const parts = [];
-		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux)`);
-		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux)`);
-		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
+		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux) (${planMeasureDescribeLineBoxes(result.verticals, 'v', pxPerM)})`);
+		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux) (${planMeasureDescribeLineBoxes(result.horizontals, 'h', pxPerM)})`);
+		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(result.blobs, pxPerM)})`);
 		toast(parts.length
 			? `« ${label} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
 			: `Aucune autre occurrence de cette couleur trouvée sur ce plan - c’est peut-être un élément unique, ou le clic est tombé sur un bord antialiasé : réessayez en cliquant plus au centre du trait.`);
@@ -2668,12 +2669,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		const results = planMeasureState?.colorScanResults || [];
 		box.hidden = results.length === 0;
 		if (!results.length) { box.innerHTML = ''; return; }
+		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
 		box.innerHTML = `<strong>Couleurs trouvées sur ce plan</strong><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
 			const { color, verticals, horizontals, blobs } = entry;
 			const parts = [];
-			if (verticals.length) parts.push(`${verticals.length} vertical(aux)`);
-			if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux)`);
-			if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s)`);
+			if (verticals.length) parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)})`);
+			if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)})`);
+			if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(blobs, pxPerM)})`);
 			return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
 		}).join('')}</div>`;
 	}
@@ -2730,7 +2732,32 @@ document.addEventListener('DOMContentLoaded', () => {
 		// real, it's dropped from auto-detection entirely so nothing implausible is ever silently presented
 		// as one measurement; trace it by hand in sections with "+ Ligne (ml)" instead.
 		const maxSpanPx = 20 * pixelsPerMeter;
-		return list.filter((box) => (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0) <= maxSpanPx).map(({ parts, ...rest }) => rest);
+		// `parts` is kept on the returned box (not stripped) - a value >1 means this run was reconstructed
+		// from more than one raw fragment, i.e. it was genuinely broken/dashed in the source drawing, not
+		// drawn as one continuous line. Callers that describe a detection result to the gérant (the scan-all
+		// list, a manual color pick's toast) read it to report that honestly instead of staying silent on it.
+		return list.filter((box) => (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0) <= maxSpanPx);
+	}
+	// Turns a set of detected line boxes into a short, honest physical description - average thickness in
+	// mm (computed straight from the calibrated scale, never a visual guess) and whether the run was
+	// continuous or reconstructed from dashes/gaps in the source drawing. Purely descriptive: it never
+	// renames or reclassifies anything, just tells the gérant what the geometry itself already shows.
+	function planMeasureDescribeLineBoxes(boxes, axis, pixelsPerMeter) {
+		if (!boxes.length || !pixelsPerMeter) return '';
+		const thicknessesMm = boxes.map((box) => ((axis === 'v' ? box.x1 - box.x0 : box.y1 - box.y0) / pixelsPerMeter) * 1000);
+		const avgThicknessMm = thicknessesMm.reduce((sum, v) => sum + v, 0) / thicknessesMm.length;
+		const dashedCount = boxes.filter((box) => (box.parts || 1) > 1).length;
+		const dashedNote = dashedCount === 0 ? 'trait continu' : dashedCount === boxes.length ? 'en pointillés' : `${dashedCount}/${boxes.length} en pointillés`;
+		return `~${avgThicknessMm.toFixed(1)}mm, ${dashedNote}`;
+	}
+	// Same idea for compact "blob" shapes (not lines) - an average physical size in cm instead of a
+	// thickness/dashed note, since those concepts don't apply to a discrete item.
+	function planMeasureDescribeBlobBoxes(boxes, pixelsPerMeter) {
+		if (!boxes.length || !pixelsPerMeter) return '';
+		const sizesCm = boxes.map((box) => ({ w: ((box.x1 - box.x0) / pixelsPerMeter) * 100, h: ((box.y1 - box.y0) / pixelsPerMeter) * 100 }));
+		const avgW = sizesCm.reduce((sum, s) => sum + s.w, 0) / sizesCm.length;
+		const avgH = sizesCm.reduce((sum, s) => sum + s.h, 0) / sizesCm.length;
+		return `~${avgW.toFixed(1)}×${avgH.toFixed(1)}cm`;
 	}
 	async function planMeasureConfirmCandidates() {
 		const openingBoxes = (planMeasureState?.candidates || []).filter((box) => box.kind === 'opening');
