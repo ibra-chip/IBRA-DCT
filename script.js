@@ -2825,7 +2825,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureSyncToolbar();
 			planMeasureRedraw();
 			toast(`${orientationLabel} (${totalM.toFixed(2)} ml) ajouté au devis.`);
-		} catch { toast('Stavka nije dodana.'); }
+		} catch { toast('Ligne de devis non ajoutée.'); }
 		finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 	}
 	// A custom-color chain works exactly like the manual "+ Chaîne de segments" tool, except the point
@@ -2872,7 +2872,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureSyncToolbar();
 			planMeasureRedraw();
 			toast(`${matchDescription} (${boxes.length} unité(s)) ajouté au devis.`);
-		} catch { toast('Stavka nije dodana.'); }
+		} catch { toast('Ligne de devis non ajoutée.'); }
 		finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 	}
 	function planMeasureApplyZoom(newScale) {
@@ -3012,8 +3012,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const category = planMeasureState.planType === 'existant' ? 'Démolition (plan existant)' : planMeasureState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit, unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
-				toast('Stavka dodana u devis.');
-			} catch { toast('Stavka nije dodana.'); }
+				toast('Ligne ajoutée au devis.');
+			} catch { toast('Ligne de devis non ajoutée.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
 		// The description passed to planMeasureConfirmAgainstExistingLineItem must stay the plain, stable
@@ -3034,8 +3034,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${totalGrossM2.toFixed(2)} m² brut − ${totalOpeningsM2.toFixed(2)} m² ouvertures (${openingsCount}) = ${totalNetM2.toFixed(2)} m² net`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'm²', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
-				toast('Total net dodat u devis.');
-			} catch { toast('Stavka nije dodana.'); }
+				toast('Total net ajouté au devis.');
+			} catch { toast('Ligne de devis non ajoutée.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
 		totals.querySelector('.add-openings-unit-to-devis')?.addEventListener('click', async (event) => {
@@ -3049,8 +3049,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${openingsCount} unité(s), pourtour total ${openingsPerimeterMl.toFixed(2)} ml`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: openingsCount, unit: 'unité', unitPrice, lineTotal: Number((openingsCount * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
-				toast('Ouvertures (unité) dodate u devis.');
-			} catch { toast('Stavka nije dodana.'); }
+				toast('Ouvertures (unité) ajoutées au devis.');
+			} catch { toast('Ligne de devis non ajoutée.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
 		totals.querySelector('.add-openings-ml-to-devis')?.addEventListener('click', async (event) => {
@@ -3065,8 +3065,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			const description = `${matchDescription} — ${planMeasureState.originalName || 'plan'}${zoneNote} : ${openingsCount} ouverture(s)`;
 			try {
 				await request(`/projects/${planMeasureState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity, unit: 'ml', unitPrice, lineTotal: Number((quantity * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
-				toast('Pourtour ouvertures (ml) dodat u devis.');
-			} catch { toast('Stavka nije dodana.'); }
+				toast('Pourtour ouvertures (ml) ajouté au devis.');
+			} catch { toast('Ligne de devis non ajoutée.'); }
 			finally { button.disabled = false; button.removeAttribute('aria-busy'); }
 		});
 	}
