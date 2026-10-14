@@ -20,7 +20,7 @@ import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProject
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
-import { cleanExtractedPdfText } from './lib/pdf-text-grounding.js';
+import { cleanExtractedPdfText, extractPlanTextCallouts } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -3019,6 +3019,25 @@ app.get('/api/documents/:id/plan-scale-suggestion', auth, async (request, respon
 		response.json({ scaleDenominator: extractPlanScaleDenominator(parsed.text) });
 	} catch {
 		response.json({ scaleDenominator: null });
+	}
+});
+// Same deterministic parsePdf + cleanExtractedPdfText grounding already trusted for the scale
+// auto-detect above, extended to list every technical spec callout and every "not finalized yet" note
+// already printed in the plan's own PDF text - see extractPlanTextCallouts for why it never tries to
+// reconstruct which name a spec belongs to. Works on any plan with a real text layer, any trade.
+app.get('/api/documents/:id/plan-text-callouts', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ callouts: [], openItems: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json(extractPlanTextCallouts(parsed.text));
+	} catch {
+		response.json({ callouts: [], openItems: [] });
 	}
 });
 // Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,

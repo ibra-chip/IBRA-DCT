@@ -2657,27 +2657,50 @@ document.addEventListener('DOMContentLoaded', () => {
 				results.push({ color, ...classified });
 			}
 			planMeasureState.colorScanResults = results;
+			// Alongside the color/shape scan above (pure geometry), also pull whatever the plan's own PDF
+			// text already says - never OCR, never a guess: if this document has no real text layer (a scan/
+			// photo), the endpoint itself returns nothing rather than inventing anything. Both are shown
+			// together as "everything the app can tell you about this plan without you pointing at it".
+			try {
+				const textResult = await request(`/documents/${planMeasureState.documentId}/plan-text-callouts`);
+				planMeasureState.textCallouts = textResult.callouts || [];
+				planMeasureState.textOpenItems = textResult.openItems || [];
+			} catch { planMeasureState.textCallouts = []; planMeasureState.textOpenItems = []; }
 			planMeasureRenderColorScan();
-			toast(results.length
+			const textNote = planMeasureState.textOpenItems.length ? ` ⚠ ${planMeasureState.textOpenItems.length} élément(s) non finalisé(s) trouvé(s) dans le texte du plan.` : '';
+			toast((results.length
 				? `${results.length} couleur(s) avec des lignes/éléments reconnaissables trouvée(s) - choisissez laquelle utiliser ci-dessous.`
-				: 'Aucune couleur avec des lignes ou éléments nets trouvée sur ce plan - utilisez « Reconnaître une couleur » en cliquant un exemple précis.');
+				: 'Aucune couleur avec des lignes ou éléments nets trouvée sur ce plan - utilisez « Reconnaître une couleur » en cliquant un exemple précis.') + textNote);
 		} finally { if (button) { button.disabled = false; button.removeAttribute('aria-busy'); } }
 	}
 	function planMeasureRenderColorScan() {
 		const box = document.querySelector('#plan-measure-color-scan');
 		if (!box) return;
 		const results = planMeasureState?.colorScanResults || [];
-		box.hidden = results.length === 0;
-		if (!results.length) { box.innerHTML = ''; return; }
 		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
-		box.innerHTML = `<strong>Couleurs trouvées sur ce plan</strong><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
-			const { color, verticals, horizontals, blobs } = entry;
-			const parts = [];
-			if (verticals.length) parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)})`);
-			if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)})`);
-			if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(blobs, pxPerM)})`);
-			return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
-		}).join('')}</div>`;
+		const openItems = planMeasureState?.textOpenItems || [];
+		const callouts = planMeasureState?.textCallouts || [];
+		const openItemsHtml = openItems.length
+			? `<strong>⚠ Éléments non finalisés (texte du plan)</strong><div class="plan-measure-color-scan-list">${openItems.map((line) => `<span class="plan-measure-color-scan-entry">${escapeHtml(line)}</span>`).join('')}</div>`
+			: '';
+		// Raw text found on the plan, exactly as printed - never paired back to a product name (see
+		// extractPlanTextCallouts for why), so labeled as an index to cross-check against the drawing, not
+		// a parsed materials list.
+		const calloutsHtml = callouts.length
+			? `<strong>Texte technique trouvé sur ce plan (à vérifier sur le dessin)</strong><div class="plan-measure-color-scan-list">${callouts.map((entry) => `<span class="plan-measure-color-scan-entry">${escapeHtml(entry.text)}${entry.count > 1 ? ` <small>(×${entry.count})</small>` : ''}</span>`).join('')}</div>`
+			: '';
+		const colorsHtml = results.length
+			? `<strong>Couleurs trouvées sur ce plan</strong><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
+				const { color, verticals, horizontals, blobs } = entry;
+				const parts = [];
+				if (verticals.length) parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)})`);
+				if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)})`);
+				if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(blobs, pxPerM)})`);
+				return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
+			}).join('')}</div>`
+			: '';
+		box.hidden = results.length === 0 && openItems.length === 0 && callouts.length === 0;
+		box.innerHTML = openItemsHtml + colorsHtml + calloutsHtml;
 	}
 	function planMeasureChooseColorScanResult(index) {
 		const entry = planMeasureState?.colorScanResults?.[index];
@@ -3176,6 +3199,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			const colorScanBox = document.querySelector('#plan-measure-color-scan');
 			if (colorScanBox) { colorScanBox.hidden = true; colorScanBox.innerHTML = ''; }
+			planMeasureState.colorScanResults = []; planMeasureState.textCallouts = []; planMeasureState.textOpenItems = [];
 			document.querySelector('#plan-measure-info-box').hidden = true;
 			planMeasureRenderList();
 			planMeasureSetMode(null);
