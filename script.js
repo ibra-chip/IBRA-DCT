@@ -2666,6 +2666,13 @@ document.addEventListener('DOMContentLoaded', () => {
 				planMeasureState.textCallouts = textResult.callouts || [];
 				planMeasureState.textOpenItems = textResult.openItems || [];
 			} catch { planMeasureState.textCallouts = []; planMeasureState.textOpenItems = []; }
+			// A "carnet de détails" style multi-page plan (one construction detail per page) reads as a real
+			// index of what each page actually says - see extractPlanDetailIndex server-side for why this
+			// never guesses which page a code/title/note belongs to.
+			try {
+				const detailResult = await request(`/documents/${planMeasureState.documentId}/plan-detail-index`);
+				planMeasureState.textDetailIndex = detailResult.entries || [];
+			} catch { planMeasureState.textDetailIndex = []; }
 			planMeasureRenderColorScan();
 			const textNote = planMeasureState.textOpenItems.length ? ` ⚠ ${planMeasureState.textOpenItems.length} élément(s) non finalisé(s) trouvé(s) dans le texte du plan.` : '';
 			toast((results.length
@@ -2680,8 +2687,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
 		const openItems = planMeasureState?.textOpenItems || [];
 		const callouts = planMeasureState?.textCallouts || [];
+		const detailIndex = planMeasureState?.textDetailIndex || [];
 		const openItemsHtml = openItems.length
 			? `<strong>⚠ Éléments non finalisés (texte du plan)</strong><div class="plan-measure-color-scan-list">${openItems.map((line) => `<span class="plan-measure-color-scan-entry">${escapeHtml(line)}</span>`).join('')}</div>`
+			: '';
+		// One entry per page of a "carnet de détails" style plan, under whatever code/title that SAME page
+		// already prints - never guessed, never reordered (see extractPlanDetailIndex server-side).
+		const detailIndexHtml = detailIndex.length
+			? `<strong>Index des détails de ce plan (texte du plan)</strong><div class="plan-measure-color-scan-list">${detailIndex.map((entry) => {
+				const heading = [entry.code, entry.title].filter(Boolean).join(' — ') || `Page ${entry.page}`;
+				const notesHtml = entry.notes.length ? `<ul>${entry.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join('')}</ul>` : '';
+				return `<span class="plan-measure-color-scan-entry plan-measure-detail-entry"><strong>${escapeHtml(heading)}</strong> <small>(p.${entry.page})</small>${notesHtml}</span>`;
+			}).join('')}</div>`
 			: '';
 		// Raw text found on the plan, exactly as printed - never paired back to a product name (see
 		// extractPlanTextCallouts for why), so labeled as an index to cross-check against the drawing, not
@@ -2699,8 +2716,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
 			}).join('')}</div>`
 			: '';
-		box.hidden = results.length === 0 && openItems.length === 0 && callouts.length === 0;
-		box.innerHTML = openItemsHtml + colorsHtml + calloutsHtml;
+		box.hidden = results.length === 0 && openItems.length === 0 && callouts.length === 0 && detailIndex.length === 0;
+		box.innerHTML = openItemsHtml + colorsHtml + calloutsHtml + detailIndexHtml;
 	}
 	function planMeasureChooseColorScanResult(index) {
 		const entry = planMeasureState?.colorScanResults?.[index];
@@ -3199,7 +3216,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 			const colorScanBox = document.querySelector('#plan-measure-color-scan');
 			if (colorScanBox) { colorScanBox.hidden = true; colorScanBox.innerHTML = ''; }
-			planMeasureState.colorScanResults = []; planMeasureState.textCallouts = []; planMeasureState.textOpenItems = [];
+			planMeasureState.colorScanResults = []; planMeasureState.textCallouts = []; planMeasureState.textOpenItems = []; planMeasureState.textDetailIndex = [];
 			document.querySelector('#plan-measure-info-box').hidden = true;
 			planMeasureRenderList();
 			planMeasureSetMode(null);

@@ -20,7 +20,7 @@ import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProject
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
-import { cleanExtractedPdfText, extractPlanTextCallouts } from './lib/pdf-text-grounding.js';
+import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
@@ -3038,6 +3038,24 @@ app.get('/api/documents/:id/plan-text-callouts', auth, async (request, response)
 		response.json(extractPlanTextCallouts(parsed.text));
 	} catch {
 		response.json({ callouts: [], openItems: [] });
+	}
+});
+// Same grounding again, this time grouped per page under whatever sheet code/title that page's own
+// title block already prints - see extractPlanDetailIndex for why a multi-page "details booklet" style
+// plan reads as a real index instead of 20+ pages nobody has time to open one by one.
+app.get('/api/documents/:id/plan-detail-index', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ entries: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json({ entries: extractPlanDetailIndex(parsed.pages) });
+	} catch {
+		response.json({ entries: [] });
 	}
 });
 // Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,

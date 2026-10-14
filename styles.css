@@ -829,6 +829,8 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
 .plan-measure-color-scan-list{flex-direction:column;gap:6px}
 .plan-measure-color-scan-entry{display:flex;align-items:center;gap:8px}
+.plan-measure-detail-entry{display:block}
+.plan-measure-detail-entry ul{margin:4px 0 0;padding-left:18px}
 .plan-measure-color-swatch{width:16px;height:16px;border-radius:4px;border:1px solid var(--roster-line);flex-shrink:0}
 .plan-measure-body{display:grid;grid-template-columns:1fr 280px;grid-template-rows:1fr;gap:10px;flex:1;min-height:0}
 /* display:flex + margin:auto on the canvas (not justify/align-items:center on the wrap) centers it when it's
