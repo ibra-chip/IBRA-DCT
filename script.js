@@ -616,11 +616,45 @@ document.addEventListener('DOMContentLoaded', () => {
 			list.querySelectorAll('[data-attention-action]').forEach((button) => button.addEventListener('click', () => sections[Number(button.dataset.attentionAction)].action()));
 		} catch { panel.hidden = true; }
 	}
+	// Cross-chantier, like loadAttentionItems above: a gérant managing several chantiers shouldn't have to
+	// open every worker's own calendar one by one just to see who's out today, or dig into the chat panel
+	// to notice an unread message exists.
+	async function loadTodayPanel() {
+		const panel = document.querySelector('#today-panel');
+		const list = document.querySelector('#today-list');
+		if (!panel || !list || !isOwner()) { if (panel) panel.hidden = true; return; }
+		try {
+			const [rendezvous, messages] = await Promise.all([request('/rendezvous'), request('/messages')]);
+			const today = new Date().toISOString().slice(0, 10);
+			const todays = rendezvous.filter((item) => item.date === today);
+			const currentUserId = currentUser?.id || currentUser?.sub;
+			const unread = messages.filter((item) => item.recipientId === currentUserId && !item.read && item.type !== 'rendezvous-notification');
+			const sections = [];
+			if (todays.length) {
+				sections.push({
+					title: `Absences et RDV aujourd’hui (${todays.length})`,
+					items: todays.map((item) => `${escapeHtml(item.workerName || 'Ouvrier')} — ${item.type === 'absence' ? 'Absence' : `RDV ${escapeHtml(item.time || '')}`}${item.projectName ? ` · ${escapeHtml(item.projectName)}` : ''}${item.reason ? ` · ${escapeHtml(item.reason)}` : ''}`),
+				});
+			}
+			if (unread.length) {
+				sections.push({
+					title: `Message(s) non lu(s) (${unread.length})`,
+					items: unread.slice(0, 5).map((item) => `${escapeHtml(item.senderName || 'Expéditeur')} : ${escapeHtml(item.text)}`),
+					action: () => showView('tasks-view'),
+					actionLabel: 'Voir les messages',
+				});
+			}
+			panel.hidden = !sections.length;
+			if (!sections.length) return;
+			list.innerHTML = sections.map((section, index) => `<div class="list-item attention-item"><strong>${section.title}</strong><small>${section.items.slice(0, 5).map((line) => `<div>${line}</div>`).join('')}${section.items.length > 5 ? `<div>… et ${section.items.length - 5} autre(s)</div>` : ''}</small>${section.action ? `<button type="button" class="secondary" data-today-action="${index}">${section.actionLabel}</button>` : ''}</div>`).join('');
+			list.querySelectorAll('[data-today-action]').forEach((button) => button.addEventListener('click', () => sections[Number(button.dataset.todayAction)].action()));
+		} catch { panel.hidden = true; }
+	}
 	async function loadDashboard() {
 		// loadAttentionItems() is cross-chantier (its own /attention-items call, no dependency on which
 		// project loadProjectOptions() ends up selecting) - was waiting for projectOptions to finish for no
 		// reason, adding a full extra round trip to every dashboard open.
-		await Promise.all([loadProjectOptions(), loadAttentionItems()]);
+		await Promise.all([loadProjectOptions(), loadAttentionItems(), loadTodayPanel()]);
 		const projectId = currentProjectId();
 		const project = currentProject();
 		if (!projectId) {
