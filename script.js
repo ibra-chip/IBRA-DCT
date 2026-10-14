@@ -2110,7 +2110,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Only when there is more than one regionless zone (genuinely ambiguous) do we fall back to the active
 	// zone, same as a plain single-scale plan where no zone has ever had a region defined at all.
 	function planMeasureZoneForPoint(point) {
-		const zones = planMeasureState?.calibrations || [];
+		// A plan can be many PDF pages (a cover sheet, then each facade on its own page) - a zone calibrated
+		// on page 2 must never resolve for a point being clicked on page 5, even if page 5 happens to have no
+		// zone of its own yet. Scoping to the current page FIRST, before the region/fallback logic below,
+		// keeps that the same hard rule the region system already enforces for zones on the same page.
+		const zones = (planMeasureState?.calibrations || []).filter((zone) => (zone.page || 1) === (planMeasureState?.page || 1));
 		const match = zones.find((zone) => zone.region && point.x >= zone.region.x0 && point.x <= zone.region.x1 && point.y >= zone.region.y0 && point.y <= zone.region.y1);
 		if (match) return match;
 		const undelimited = zones.filter((zone) => !zone.region);
@@ -2149,14 +2153,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		const naturalDrawHeight = planMeasureState.image.naturalHeight * scale;
 		ctx.drawImage(planMeasureState.image, 0, 0, naturalDrawWidth, naturalDrawHeight);
 		const strokePath = (points, close) => { ctx.beginPath(); points.forEach((p, i) => { const x = p.x * scale; const y = p.y * scale; if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y); }); if (close) ctx.closePath(); };
-		if (planMeasureState.calibration?.pointA && planMeasureState.calibration?.pointB) {
+		const currentPage = planMeasureState.page || 1;
+		if (planMeasureState.calibration?.pointA && planMeasureState.calibration?.pointB && (planMeasureState.calibration.page || 1) === currentPage) {
 			ctx.strokeStyle = '#31d3a4'; ctx.lineWidth = 2; ctx.setLineDash([]);
 			strokePath([planMeasureState.calibration.pointA, planMeasureState.calibration.pointB], false); ctx.stroke();
 		}
 		// Shows exactly where each delimited zone applies, so a mixed-scale plan (façade at one zone, pignon
 		// at another) is visually self-explanatory instead of relying on memory - matches what the automatic
-		// per-shape zone resolution already uses under the hood.
-		(planMeasureState.calibrations || []).forEach((zone) => {
+		// per-shape zone resolution already uses under the hood. Only zones for the page actually on screen -
+		// a page-2 zone's rectangle would otherwise be drawn over completely unrelated page-1 geometry.
+		(planMeasureState.calibrations || []).filter((zone) => (zone.page || 1) === currentPage).forEach((zone) => {
 			if (!zone.region) return;
 			ctx.strokeStyle = zone.id === planMeasureState.calibration?.id ? '#72b9ff' : '#72b9ff80';
 			ctx.lineWidth = 2; ctx.setLineDash([10, 6]);
@@ -2165,7 +2171,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			ctx.fillStyle = '#72b9ff'; ctx.font = 'bold 13px sans-serif';
 			ctx.fillText(zone.label || 'Zone', zone.region.x0 * scale + 4, zone.region.y0 * scale + 16);
 		});
-		planMeasureState.measurements.forEach((item) => {
+		// Only this page's own measurements are drawn over it - a measurement traced on a different page of
+		// the same PDF would otherwise appear as stray, meaningless geometry floating over whatever this page
+		// actually shows. The full list (every page) still totals correctly in the devis - see planMeasureRenderList.
+		planMeasureState.measurements.filter((item) => (item.page || 1) === currentPage).forEach((item) => {
 			const isOpening = item.type === 'polygon' && item.role === 'opening';
 			ctx.strokeStyle = isOpening ? '#f77d7d' : item.type === 'polygon' ? '#f4c86f' : '#72b9ff';
 			ctx.fillStyle = isOpening ? '#f77d7d33' : item.type === 'polygon' ? '#f4c86f2e' : 'transparent';
@@ -2223,7 +2232,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (planMeasureState.mode === 'polygon') { const kind = planMeasureState.drawRole === 'opening' ? 'Ouverture à déduire' : 'Surface'; status.textContent = `${kind} en cours : ${planMeasureState.drawPoints.length} point(s) · ${planMeasureAreaM2(planMeasureState.drawPoints).toFixed(2)} m²`; return; }
 		if (!planMeasureState.calibration) { status.textContent = 'Échelle non calibrée — cliquez « Calibrer l’échelle » avant de mesurer.'; return; }
 		const zoneSuffix = planMeasureState.calibration.label ? ` (zone : ${planMeasureState.calibration.label})` : '';
-		const zones = planMeasureState.calibrations || [];
+		// Only THIS page's own zones are relevant here - a zone calibrated on another page of the same PDF
+		// is never ambiguous with one on this page (planMeasureZoneForPoint already scopes to the current
+		// page the same way), so it must never trigger this warning either.
+		const zones = (planMeasureState.calibrations || []).filter((zone) => (zone.page || 1) === (planMeasureState.page || 1));
 		// With at most one regionless zone, planMeasureZoneForPoint always resolves deterministically (see its
 		// own comment) - the tool genuinely applies the right scale on its own, so no manual check is needed.
 		// Only 2+ regionless zones are truly ambiguous (the tool can't tell them apart) and need the gérant's eye.
@@ -2240,7 +2252,11 @@ document.addEventListener('DOMContentLoaded', () => {
 	function planMeasureRenderCalibrationZones() {
 		const select = document.querySelector('#plan-measure-calibration-zone');
 		if (!select) return;
-		const zones = planMeasureState?.calibrations || [];
+		// Only the CURRENT page's own zones - switching to a zone calibrated on a different page would point
+		// planMeasureState.calibration at a scale (and a pointA/pointB reference line) that belongs to an
+		// image the gérant isn't even looking at right now.
+		const currentPage = planMeasureState?.page || 1;
+		const zones = (planMeasureState?.calibrations || []).filter((zone) => (zone.page || 1) === currentPage);
 		select.hidden = zones.length < 2;
 		if (zones.length < 2) return;
 		select.innerHTML = zones.map((zone, index) => `<option value="${escapeHtml(zone.id)}">${escapeHtml(zone.label || `Zone ${index + 1}`)} (${zone.pixelsPerMeter.toFixed(1)} px/m)</option>`).join('');
@@ -3082,6 +3098,75 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureSyncToolbar();
 		planMeasureRedraw();
 	}
+	// Loads (or switches to) one page's raster image into the already-open modal - shared by the initial
+	// open and by the page-navigation arrows, so both go through the exact same "fit to screen" sizing and
+	// the exact same page-scoped calibration resolution. Re-fetches the document's measurements/calibrations
+	// too (cheap, and keeps a freshly-added zone/measurement from a moment ago always current).
+	async function planMeasureLoadPage(pageNumber) {
+		if (!planMeasureState) return;
+		const canvas = document.querySelector('#plan-measure-canvas');
+		if (!canvas) return;
+		document.querySelector('#plan-measure-status').textContent = 'Chargement du plan...';
+		try {
+			const response = await fetch(`${api}/documents/${planMeasureState.documentId}/plan-image?page=${pageNumber}`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const image = new Image();
+			const objectUrl = URL.createObjectURL(blob);
+			await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = objectUrl; });
+			const canvasWrap = document.querySelector('.plan-measure-canvas-wrap');
+			const maxWidth = canvasWrap?.clientWidth || 900;
+			const maxHeight = canvasWrap?.clientHeight || 600;
+			// baseScale is the "fit to screen" size - uses the real available space in both directions (not
+			// a fixed cap), so a wide full-screen layout actually gets used instead of leaving the plan small
+			// in a mostly-empty canvas area. On a narrow phone this can still shrink a large plan enough that
+			// a small window's corners are a few blurry pixels apart, too imprecise to tap accurately - zoom
+			// in/out (below) lets the user scale up past this before placing a point; the canvas-wrap already
+			// scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
+			const baseScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+			canvas.width = Math.round(image.naturalWidth * baseScale);
+			canvas.height = Math.round(image.naturalHeight * baseScale);
+			const measurementsResult = await request(`/documents/${planMeasureState.documentId}/measurements`);
+			if (planMeasureState.objectUrl) URL.revokeObjectURL(planMeasureState.objectUrl);
+			const zones = measurementsResult.calibrations || [];
+			// The "active" zone must belong to THIS page - a zone that was active on the page just left behind
+			// would otherwise keep being used to resolve clicks on an image it was never calibrated against.
+			// Prefers the server's own active pointer when it already matches, else the first zone saved for
+			// this page, else null (meaning: not calibrated yet on this page, exactly as if it had never been
+			// calibrated at all).
+			const activeForPage = (measurementsResult.calibration && (measurementsResult.calibration.page || 1) === pageNumber) ? measurementsResult.calibration : zones.find((zone) => (zone.page || 1) === pageNumber) || null;
+			planMeasureState = { ...planMeasureState, image, scale: baseScale, baseScale, rotation: 0, page: pageNumber, calibration: activeForPage, calibrations: zones, measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], pendingRegionCalibrationId: null, currentShapeCalibrationId: null, customColorLabel: null, objectUrl };
+			planMeasureRenderCalibrationZones();
+			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
+			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
+			const pageLabel = document.querySelector('#plan-measure-page-label');
+			if (pageLabel) pageLabel.textContent = `Page ${pageNumber}/${planMeasureState.pageCount || 1}`;
+			const pageNav = document.querySelector('#plan-measure-page-nav');
+			if (pageNav) {
+				pageNav.hidden = (planMeasureState.pageCount || 1) < 2;
+				document.querySelector('#plan-measure-page-prev')?.toggleAttribute('disabled', pageNumber <= 1);
+				document.querySelector('#plan-measure-page-next')?.toggleAttribute('disabled', pageNumber >= (planMeasureState.pageCount || 1));
+			}
+			const colorScanBox = document.querySelector('#plan-measure-color-scan');
+			if (colorScanBox) { colorScanBox.hidden = true; colorScanBox.innerHTML = ''; }
+			document.querySelector('#plan-measure-info-box').hidden = true;
+			planMeasureRenderList();
+			planMeasureSetMode(null);
+			const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
+			if (!planMeasureState.calibration && suggestionBox) {
+				try {
+					const suggestion = await request(`/documents/${planMeasureState.documentId}/plan-scale-suggestion`);
+					if (suggestion.scaleDenominator) {
+						suggestionBox.hidden = false;
+						document.querySelector('#plan-measure-scale-suggestion-text').textContent = `Échelle 1:${suggestion.scaleDenominator} lue dans le texte du PDF (pas une estimation visuelle) - vérifiez qu’elle correspond bien à CETTE page avant de l’utiliser.`;
+						suggestionBox.dataset.scaleDenominator = String(suggestion.scaleDenominator);
+					} else { suggestionBox.hidden = true; }
+				} catch { suggestionBox.hidden = true; }
+			} else if (suggestionBox) { suggestionBox.hidden = true; }
+		} catch {
+			document.querySelector('#plan-measure-status').textContent = 'Impossible de charger le plan.';
+		}
+	}
 	async function openPlanMeasure(documentId) {
 		const modal = document.querySelector('#plan-measure-modal');
 		const canvas = document.querySelector('#plan-measure-canvas');
@@ -3100,47 +3185,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-info-box').hidden = true;
 		const colorScanBox = document.querySelector('#plan-measure-color-scan');
 		if (colorScanBox) { colorScanBox.hidden = true; colorScanBox.innerHTML = ''; }
-		document.querySelector('#plan-measure-status').textContent = 'Chargement du plan...';
-		try {
-			const response = await fetch(`${api}/documents/${documentId}/plan-image`, { headers: { Authorization: `Bearer ${token()}` } });
-			if (!response.ok) throw new Error();
-			const blob = await response.blob();
-			const image = new Image();
-			const objectUrl = URL.createObjectURL(blob);
-			await new Promise((resolve, reject) => { image.onload = resolve; image.onerror = reject; image.src = objectUrl; });
-			const canvasWrap = document.querySelector('.plan-measure-canvas-wrap');
-			const maxWidth = canvasWrap?.clientWidth || 900;
-			const maxHeight = canvasWrap?.clientHeight || 600;
-			// baseScale is the "fit to screen" size - uses the real available space in both directions (not
-			// a fixed cap), so a wide full-screen layout actually gets used instead of leaving the plan small
-			// in a mostly-empty canvas area. On a narrow phone this can still shrink a large plan enough that
-			// a small window's corners are a few blurry pixels apart, too imprecise to tap accurately - zoom
-			// in/out (below) lets the user scale up past this before placing a point; the canvas-wrap already
-			// scrolls (overflow:auto in CSS), so zooming in just makes it pannable instead of resizing.
-			const baseScale = Math.min(maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
-			canvas.width = Math.round(image.naturalWidth * baseScale);
-			canvas.height = Math.round(image.naturalHeight * baseScale);
-			const measurementsResult = await request(`/documents/${documentId}/measurements`);
-			planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, originalName: docItem.originalName, image, scale: baseScale, baseScale, rotation: 0, calibration: measurementsResult.calibration, calibrations: measurementsResult.calibrations || [], measurements: measurementsResult.measurements, mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], pendingRegionCalibrationId: null, currentShapeCalibrationId: null, objectUrl };
-			planMeasureRenderCalibrationZones();
-			const zoomLabel = document.querySelector('#plan-measure-zoom-level');
-			if (zoomLabel) zoomLabel.textContent = `${Math.round(baseScale * 100)}%`;
-			planMeasureRenderList();
-			planMeasureSetMode(null);
-			const suggestionBox = document.querySelector('#plan-measure-scale-suggestion');
-			if (!planMeasureState.calibration && suggestionBox) {
-				try {
-					const suggestion = await request(`/documents/${documentId}/plan-scale-suggestion`);
-					if (suggestion.scaleDenominator) {
-						suggestionBox.hidden = false;
-						document.querySelector('#plan-measure-scale-suggestion-text').textContent = `Échelle 1:${suggestion.scaleDenominator} lue dans le texte du PDF (pas une estimation visuelle).`;
-						suggestionBox.dataset.scaleDenominator = String(suggestion.scaleDenominator);
-					} else { suggestionBox.hidden = true; }
-				} catch { suggestionBox.hidden = true; }
-			} else if (suggestionBox) { suggestionBox.hidden = true; }
-		} catch {
-			document.querySelector('#plan-measure-status').textContent = 'Impossible de charger le plan.';
-		}
+		// A real architectural PDF set is routinely many pages (a cover sheet, then each facade/floor/detail
+		// on its own page) - fetched once up front so the page-nav arrows know their bounds immediately,
+		// instead of discovering the count only after trying to go past the last page.
+		let pageCount = 1;
+		try { pageCount = (await request(`/documents/${documentId}/plan-page-count`)).pageCount || 1; } catch { pageCount = 1; }
+		planMeasureState = { documentId, projectId: docItem.projectId, planType: docItem.planType || null, originalName: docItem.originalName, pageCount, page: 1, image: null, scale: 1, baseScale: 1, rotation: 0, calibration: null, calibrations: [], measurements: [], mode: null, drawRole: 'surface', drawPoints: [], calibratePoints: [], candidates: [], pendingRegionCalibrationId: null, currentShapeCalibrationId: null, objectUrl: null };
+		await planMeasureLoadPage(1);
 	}
 	function closePlanMeasure() {
 		const modal = document.querySelector('#plan-measure-modal');
@@ -3179,6 +3230,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-zoom-in')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale * 1.25));
 	document.querySelector('#plan-measure-zoom-out')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.scale / 1.25));
 	document.querySelector('#plan-measure-zoom-reset')?.addEventListener('click', () => planMeasureState && planMeasureApplyZoom(planMeasureState.baseScale));
+	document.querySelector('#plan-measure-page-prev')?.addEventListener('click', () => { if (planMeasureState && planMeasureState.page > 1) planMeasureLoadPage(planMeasureState.page - 1); });
+	document.querySelector('#plan-measure-page-next')?.addEventListener('click', () => { if (planMeasureState && planMeasureState.page < (planMeasureState.pageCount || 1)) planMeasureLoadPage(planMeasureState.page + 1); });
 	document.querySelector('#plan-measure-rotate')?.addEventListener('click', () => planMeasureState && planMeasureRotate());
 	document.querySelector('#plan-measure-detect-openings')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectOpenings());
 	document.querySelector('#plan-measure-detect-rails')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectRails());
@@ -3189,6 +3242,12 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-candidates-custom-chain-h')?.addEventListener('click', () => planMeasureConfirmCustomChain('custom-h'));
 	document.querySelector('#plan-measure-candidates-custom-blob')?.addEventListener('click', () => planMeasureAddCustomBlobToDevis());
 	document.querySelector('#plan-measure-candidates-clear')?.addEventListener('click', () => { if (!planMeasureState) return; planMeasureState.candidates = []; planMeasureSyncToolbar(); planMeasureRedraw(); });
+	// Every tool lives behind one "🛠️ Outils" dropdown so the plan itself gets almost the whole screen at
+	// rest (desktop and mobile alike) - picking any tool inside it closes the dropdown right back up, so the
+	// gérant is looking at the plan, not the menu, the moment they've made their choice.
+	document.querySelector('#plan-measure-tools-menu')?.addEventListener('click', (event) => {
+		if (event.target.closest('button')) document.querySelector('#plan-measure-tools-menu').open = false;
+	});
 	document.querySelector('#plan-measure-finish')?.addEventListener('click', async () => {
 		if (!planMeasureState) return;
 		const { mode, drawPoints, drawRole } = planMeasureState;
@@ -3314,16 +3373,19 @@ document.addEventListener('DOMContentLoaded', () => {
 					// just becomes "Zone N".
 					const label = window.prompt('Nom de cette zone de calibration (ex. « Façade », « Pignon ») - laissez vide si le plan n’a qu’une seule échelle :', '');
 					try {
-						const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pointA: planMeasureState.calibratePoints[0], pointB: planMeasureState.calibratePoints[1], realDistanceM, label }) });
+						const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pointA: planMeasureState.calibratePoints[0], pointB: planMeasureState.calibratePoints[1], realDistanceM, label, page: planMeasureState.page || 1 }) });
 						planMeasureState.calibration = result.calibration;
 						planMeasureState.calibrations = result.calibrations || [];
 						planMeasureRenderCalibrationZones();
 						toast('Échelle calibrée.');
-						// From the second zone onward, offer to mark where it applies - once a zone has a region,
-						// the tool resolves the right scale on its own for anything drawn inside it, instead of
-						// depending on the gérant remembering to switch zones first. A single-scale plan never
-						// sees this prompt (nothing to disambiguate yet with only one zone).
-						if (planMeasureState.calibrations.length > 1 && window.confirm(`Délimiter la zone « ${label || 'sans nom'} » sur le plan ? Cliquez OK puis cliquez 2 coins opposés de la zone où cette échelle s’applique.`)) {
+						// From the second zone onward ON THIS SAME PAGE, offer to mark where it applies - once a
+						// zone has a region, the tool resolves the right scale on its own for anything drawn
+						// inside it, instead of depending on the gérant remembering to switch zones first. A
+						// single-scale plan (or a zone that's the first one calibrated on its own page, even if
+						// other pages already have zones of their own) never sees this prompt - there is nothing
+						// to disambiguate on THIS page's image yet.
+						const zonesOnThisPage = planMeasureState.calibrations.filter((zone) => (zone.page || 1) === (planMeasureState.page || 1));
+						if (zonesOnThisPage.length > 1 && window.confirm(`Délimiter la zone « ${label || 'sans nom'} » sur le plan ? Cliquez OK puis cliquez 2 coins opposés de la zone où cette échelle s’applique.`)) {
 							planMeasureState.pendingRegionCalibrationId = result.calibration.id;
 							planMeasureSetMode('calibrate-region');
 							return;
@@ -3422,7 +3484,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const button = event.currentTarget;
 		button.disabled = true; button.setAttribute('aria-busy', 'true');
 		try {
-			const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scaleDenominator }) });
+			const result = await request(`/documents/${planMeasureState.documentId}/calibration`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scaleDenominator, page: planMeasureState.page || 1 }) });
 			planMeasureState.calibration = result.calibration;
 			suggestionBox.hidden = true;
 			planMeasureUpdateStatus();

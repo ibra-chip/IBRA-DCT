@@ -18,7 +18,7 @@ import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
-import { compressUpload, rasterizePdfFirstPage } from './lib/compress-upload.js';
+import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { cleanExtractedPdfText } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
@@ -2958,6 +2958,10 @@ const extractPlanScaleDenominator = (rawText) => {
 	const common = text.match(/\b1\s*[/:]\s*(20|25|50|75|100|125|150|200|250|500|1000)\b/);
 	return common ? Number(common[1]) : null;
 };
+// A real architectural PDF set is routinely many pages (a cover sheet, then each facade/floor/detail on
+// its own page) - defaults to page 1 (unchanged behavior for the common single-page or "just open it"
+// case) but ?page=N lets the client fetch and measure any other page. Clamped to a sane range so a typo
+// in the query string can't make Ghostscript try to rasterize a page number that doesn't exist.
 app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
@@ -2969,18 +2973,37 @@ app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
 			response.setHeader('Content-Type', item.mimeType);
 			return response.send(buffer);
 		}
-		const rasterKey = `${item.storedName}.page1.png`;
+		const pageNumber = Math.max(1, Math.min(500, Math.round(Number(request.query.page)) || 1));
+		const rasterKey = `${item.storedName}.page${pageNumber}.png`;
 		let png;
 		try { png = await downloadFile(UPLOADS_BUCKET, rasterKey); }
 		catch {
 			const pdfBuffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
-			png = await rasterizePdfFirstPage(pdfBuffer, PLAN_RASTER_DPI);
+			png = await rasterizePdfPage(pdfBuffer, PLAN_RASTER_DPI, pageNumber);
 			await uploadFile(UPLOADS_BUCKET, rasterKey, png, 'image/png').catch(() => {});
 		}
 		response.setHeader('Content-Type', 'image/png');
 		response.send(png);
 	} catch (error) {
 		response.status(502).json({ error: 'Plan image unavailable: ' + error.message });
+	}
+});
+// Cheap page count (reads the PDF's own page tree via pdf-lib, no rasterization) so the client can show
+// page navigation only when a document actually has more than one page - the common case (a single-page
+// plan, or a photo) never needs it.
+app.get('/api/documents/:id/plan-page-count', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ pageCount: 1 });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+		response.json({ pageCount: pdfDoc.getPageCount() });
+	} catch {
+		response.json({ pageCount: 1 });
 	}
 });
 app.get('/api/documents/:id/plan-scale-suggestion', auth, async (request, response) => {
@@ -3129,8 +3152,11 @@ const isFinitePoint = (point) => point && Number.isFinite(point.x) && Number.isF
 // of relying on the gérant to remember to switch the active zone before clicking. A zone with no region is
 // the fallback that matches anywhere, so a single-scale plan (the common case) never needs one.
 const isFiniteRegion = (region) => region && [region.x0, region.y0, region.x1, region.y1].every(Number.isFinite);
-function addCalibrationZone(item, calibration, label, region) {
-	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null, region: isFiniteRegion(region) ? region : null };
+// Each zone remembers which PAGE of the (possibly multi-page) PDF it was calibrated against - a scale
+// clicked on page 2 must never get silently applied to a shape measured on page 5. Defaults to 1 so every
+// single-page plan (still the common case) behaves exactly as before.
+function addCalibrationZone(item, calibration, label, region, page) {
+	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null, region: isFiniteRegion(region) ? region : null, page: Math.max(1, Math.round(Number(page)) || 1) };
 	item.calibrations = [...(item.calibrations || []), named];
 	item.calibration = named;
 	return named;
@@ -3140,11 +3166,12 @@ app.patch('/api/documents/:id/calibration', auth, manager, async (request, respo
 	const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const page = Math.max(1, Math.min(500, Math.round(Number(request.body?.page)) || 1));
 	const scaleDenominator = Number(request.body?.scaleDenominator);
 	if (Number.isFinite(scaleDenominator) && scaleDenominator > 0) {
 		const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
 		if (!isPdf) return response.status(400).json({ error: 'Scale-based calibration only applies to a PDF plan (it needs the page to be true paper-space, not a photo)' });
-		const calibration = addCalibrationZone(item, { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label);
+		const calibration = addCalibrationZone(item, { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label, null, page);
 		await writeData(data);
 		return response.json({ calibration, calibrations: item.calibrations });
 	}
@@ -3153,7 +3180,7 @@ app.patch('/api/documents/:id/calibration', auth, manager, async (request, respo
 	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m), or a PDF scaleDenominator, are required' });
 	const pixelDistance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
 	if (pixelDistance < 2) return response.status(400).json({ error: 'The two reference points are too close together to calibrate accurately' });
-	const calibration = addCalibrationZone(item, { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label);
+	const calibration = addCalibrationZone(item, { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label, null, page);
 	await writeData(data);
 	response.json({ calibration, calibrations: item.calibrations });
 });
@@ -3193,12 +3220,15 @@ app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
-	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
+	// Backward-compatible: a zone/measurement saved before multi-page support existed has no `page` field -
+	// defaults to 1 here (never written back to disk unless re-saved), matching how it already behaved when
+	// every plan was implicitly "page 1".
+	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id).map((measurement) => ({ ...measurement, page: measurement.page || 1 }));
 	// Backward-compatible: a document calibrated before per-zone calibrations existed has item.calibration
 	// but no item.calibrations array yet - synthesize a one-entry list so the client's zone switcher always
 	// has something consistent to show, without needing to touch old documents on disk.
-	const calibrations = item.calibrations || (item.calibration ? [item.calibration] : []);
-	response.json({ calibration: item.calibration || null, calibrations, measurements });
+	const calibrations = (item.calibrations || (item.calibration ? [item.calibration] : [])).map((calibration) => ({ ...calibration, page: calibration.page || 1 }));
+	response.json({ calibration: item.calibration ? { ...item.calibration, page: item.calibration.page || 1 } : null, calibrations, measurements });
 });
 app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, response) => {
 	const data = await readData();
@@ -3270,7 +3300,12 @@ app.post('/api/documents/:id/measurements', auth, manager, async (request, respo
 	// pattern-matching the image. Clamped to a sane range so a typo (or a stray huge number) can't silently
 	// multiply a total by something absurd.
 	const repeatCount = Math.max(1, Math.min(999, Math.round(Number(request.body.repeatCount)) || 1));
-	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', calibrationId: (explicitCalibration || item.calibration).id, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	// The measurement's page is always INHERITED from whichever zone actually calibrated it, never taken
+	// from a separate client-sent field - a client claiming "page 3" while its points/calibrationId resolve
+	// to a page-1 zone would otherwise be exactly the silent mismatch this whole zone system exists to rule
+	// out.
+	const resolvedCalibration = explicitCalibration || item.calibration;
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', calibrationId: resolvedCalibration.id, page: resolvedCalibration.page || 1, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.planMeasurements = [...(data.planMeasurements || []), measurement];
 	await writeData(data);
 	response.status(201).json(measurement);
