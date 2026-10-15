@@ -19,6 +19,7 @@ import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } f
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
+import { convertDwgToDxf } from './lib/dwg-convert.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
@@ -574,13 +575,18 @@ function workerSelf(request, response, next) {
 	next();
 }
 const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
+function isDwgFile(file) {
+	return file.originalname.toLowerCase().endsWith('.dwg');
+}
 function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
 	const isImage = file.mimetype.startsWith('image/');
 	// A plan/fiche-technique is very often a photographed page (a "carnet de détail" shot on a phone,
 	// not scanned to PDF) - it needs the same PDF-or-photo tolerance as devis/facture uploads.
-	if (['plan', 'fiche-technique'].includes(type)) return isPdf || isImage;
+	// A plan can also be a native AutoCAD .dwg - converted to .dxf server-side before storage, below.
+	if (type === 'plan') return isPdf || isImage || isDwgFile(file);
+	if (type === 'fiche-technique') return isPdf || isImage;
 	return allowedWorkEvidenceTypes.includes(type) && isImage;
 }
 function isAllowedPersonalDocument(file) {
@@ -2896,19 +2902,33 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 	const data = await readData();
 	let context;
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	// Hashed from the original bytes (before compression, which can vary run to run) so re-uploading
-	// the exact same photo or plan is caught even though evidenceType or the chosen phase differs.
+	// Hashed from the original bytes (before compression or DWG conversion, both of which can vary
+	// run to run) so re-uploading the exact same photo or plan is caught even though evidenceType,
+	// the chosen phase, or the stored format differs.
 	const fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
 	const duplicate = (data.documents || []).find((doc) => doc.projectId === projectId && doc.fileHash === fileHash);
-	const storedName = storageKeyFor(request.file.originalname);
-	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
-	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+	let storageMimeType = request.file.mimetype;
+	let storageName = request.file.originalname;
+	const convertedFromDwg = isDwgFile(request.file);
+	if (convertedFromDwg) {
+		// A .dwg can't be read by anything downstream (plan viewer, measurement tool) - it must become
+		// a usable .dxf before storage, never stored raw as if the upload had succeeded.
+		try { request.file.buffer = await convertDwgToDxf(request.file.buffer); }
+		catch (conversionError) { return response.status(502).json({ error: 'DWG conversion failed: ' + conversionError.message }); }
+		storageMimeType = 'application/dxf';
+		storageName = request.file.originalname.replace(/\.dwg$/i, '.dxf');
+	}
+	const storedName = storageKeyFor(storageName);
+	request.file.buffer = await compressUpload(request.file.buffer, storageMimeType);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, storageMimeType); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
 	// Only meaningful for evidenceType=plan: lets the owner upload an "existant" and a "nouveau" plan for
 	// the same chantier and trace démolition vs construction on each separately with the measurement
 	// tool - no AI comparison between the two drawings, just a label so a devis line item built from a
 	// measurement on either one lands in the right category automatically.
 	const planType = evidenceType === 'plan' && ['existant', 'nouveau'].includes(request.body.planType) ? request.body.planType : null;
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: { status: 'pending' } };
+	// originalName keeps the ".dwg" the user actually uploaded (for display); mimeType/storedName
+	// reflect the converted .dxf that is what's actually in storage from here on.
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: storageMimeType, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, convertedFromDwg, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: { status: 'pending' } };
 	data.documents.push(item);
 	await writeData(data);
 	// The file and the document record are both durably saved at this point - respond now. The AI
@@ -2969,12 +2989,16 @@ app.get('/api/documents/:id/download', auth, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	try {
-		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		// A converted DWG is stored as .dxf text - the downloaded file must be named .dxf too, or a
+		// user opening "plan.dwg" in AutoCAD (or any tool trusting the extension) hits a format
+		// mismatch with no indication why.
+		const downloadName = item.convertedFromDwg ? item.originalName.replace(/\.dwg$/i, '.dxf') : item.originalName;
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, downloadName).catch(() => null);
 		if (request.query.resolve === 'url') return response.json({ url: url || null });
 		if (url) return response.redirect(302, url);
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
-		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
+		response.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/["\r\n]/g, '_')}"`);
 		response.send(buffer);
 	} catch (error) {
 		response.status(502).json({ error: 'Document download failed: ' + error.message });
@@ -3014,6 +3038,12 @@ app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
 			const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 			response.setHeader('Content-Type', item.mimeType);
 			return response.send(buffer);
+		}
+		// A converted DWG is stored as .dxf text, not a PDF - Ghostscript below can't rasterize it, and
+		// the on-screen measurement tool has no DXF renderer yet, so fail with a clear message instead
+		// of letting a Ghostscript error on non-PDF bytes look like an unrelated crash.
+		if (item.convertedFromDwg || item.mimeType === 'application/dxf') {
+			return response.status(501).json({ error: 'Ce plan DWG a été converti en DXF mais l\'aperçu/mesure sur canvas pour ce format n\'est pas encore disponible. Téléchargez le fichier DXF converti en attendant.' });
 		}
 		const pageNumber = Math.max(1, Math.min(500, Math.round(Number(request.query.page)) || 1));
 		const rasterKey = `${item.storedName}.page${pageNumber}.png`;
