@@ -3482,6 +3482,26 @@ app.delete('/api/measurements/:id', auth, manager, async (request, response) => 
 	await writeData(data);
 	response.json({ deleted: true, id: item.id });
 });
+// Bulk-clear every measurement on one document, or just one page of it with ?page=N - the owner's
+// escape hatch after a bad auto-detect run (a color scan that locked onto windows instead of rails,
+// say) added dozens of wrong lines: deleting those one at a time via the single-measurement route
+// above is impractical, and the only other way to recover was to re-upload the whole document.
+app.delete('/api/documents/:id/measurements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const document = data.documents.find((item) => item.id === request.params.id);
+	if (!document) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, document.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const page = request.query.page !== undefined ? Math.max(1, Math.round(Number(request.query.page)) || 1) : null;
+	const before = (data.planMeasurements || []).length;
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => {
+		if (measurement.documentId !== request.params.id) return true;
+		if (page !== null && (measurement.page || 1) !== page) return true;
+		return false;
+	});
+	const deleted = before - data.planMeasurements.length;
+	await writeData(data);
+	response.json({ deleted });
+});
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });

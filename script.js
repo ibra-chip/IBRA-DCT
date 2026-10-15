@@ -3156,6 +3156,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				: `${effectiveValue.toFixed(2)} ml${perUnit}`;
 			return `<div class="list-item"><strong>${escapeHtml(item.label)}${repeatTag}${isOpening ? ' <span class="production-method-tag plan-type-existant-tag">Ouverture (déduite)</span>' : ''}</strong><small>${detail}</small><div>${isOpening ? '' : `<button type="button" class="secondary add-measurement-to-devis" data-measurement="${item.id}">Ajouter au devis</button>`}<button type="button" class="secondary danger delete-measurement" data-measurement="${item.id}">Supprimer</button></div></div>`;
 		}).join('') : '<small>Aucune mesure pour ce plan.</small>';
+		const clearAllButton = document.querySelector('#plan-measure-clear-all');
+		if (clearAllButton) clearAllButton.hidden = planMeasureState.measurements.length === 0;
 		list.querySelectorAll('.delete-measurement').forEach((button) => button.addEventListener('click', async () => {
 			button.disabled = true;
 			try { await request(`/measurements/${button.dataset.measurement}`, { method: 'DELETE' }); planMeasureState.measurements = planMeasureState.measurements.filter((item) => item.id !== button.dataset.measurement); planMeasureRenderList(); planMeasureRedraw(); }
@@ -3453,6 +3455,29 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (titleEl) titleEl.textContent = 'Mesurer le plan';
 	}
 	document.querySelector('#plan-measure-close')?.addEventListener('click', closePlanMeasure);
+	// Recovery from a bad auto-detect run (color scan locking onto the wrong element, e.g. windows
+	// instead of rails) - deleting dozens of wrong lines one at a time via "Supprimer" was the only
+	// option before this. Clears every measurement on the whole document (matching what the totals/
+	// list panel already shows - it spans all pages, not just the one currently open), never silent:
+	// always confirmed first, same pattern as deleting a document.
+	document.querySelector('#plan-measure-clear-all')?.addEventListener('click', async () => {
+		if (!planMeasureState || !planMeasureState.measurements.length) return;
+		const count = planMeasureState.measurements.length;
+		if (!window.confirm(`Supprimer les ${count} mesure(s) de ce plan ? Cette action est irréversible.`)) return;
+		const button = document.querySelector('#plan-measure-clear-all');
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			await request(`/documents/${planMeasureState.documentId}/measurements`, { method: 'DELETE' });
+			planMeasureState.measurements = [];
+			planMeasureRenderList();
+			planMeasureRedraw();
+			toast('Toutes les mesures ont été supprimées.');
+		} catch {
+			toast('Suppression échouée.');
+		} finally {
+			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+		}
+	});
 	document.querySelector('#plan-measure-modal')?.addEventListener('click', (event) => { if (event.target.id === 'plan-measure-modal') closePlanMeasure(); });
 	document.querySelector('#plan-measure-calibrate')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'calibrate' ? null : 'calibrate'));
 	document.querySelector('#plan-measure-calibration-zone')?.addEventListener('change', async (event) => {
