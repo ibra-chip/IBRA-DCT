@@ -814,7 +814,11 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
    away entirely rather than leaving an empty box in the bar. */
 .plan-measure-tool-group{display:inline-flex;flex-wrap:wrap;align-items:center;gap:6px;padding:5px;border:1px solid var(--border-soft,#ffffff14);border-radius:11px;background:#00000020}
 .plan-measure-tool-group:not(:has(button:not([hidden]))){display:none}
-.plan-measure-more{display:inline-flex;flex-wrap:wrap;gap:6px;align-items:center}
+.plan-measure-more{position:relative;display:inline-flex;align-items:center}
+/* Was pushing the canvas down by wrapping its 10 buttons inline in the toolbar when opened - floats over
+   the plan instead now, same "⋯ Plus" floating-dropdown pattern already used for document-actions, so the
+   plan keeps its full height whether the tools panel is open or closed. */
+.plan-measure-more-menu{position:absolute;z-index:6;top:calc(100% + 6px);left:0;display:flex;flex-wrap:wrap;gap:6px;align-items:center;width:max(520px,90vw);max-width:80vw;padding:10px;border-radius:12px;border:1px solid var(--border-soft,#ffffff18);background:var(--panel,#102235);box-shadow:0 18px 40px #0008}
 .plan-measure-more summary{display:inline-flex;align-items:center;gap:4px;min-height:44px;padding:11px 14px;border:1px solid var(--border-soft,#ffffff18);border-radius:10px;background:#ffffff08;color:var(--text);font:inherit;font-weight:700;cursor:pointer;list-style:none}
 .plan-measure-more summary::-webkit-details-marker{display:none}
 .plan-measure-more summary::after{content:'▾';font-size:.7em}
