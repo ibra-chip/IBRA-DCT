@@ -2101,10 +2101,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		// A converted DWG is stored as .dxf text - the canvas measurement tool (calibration, color scan)
 		// has no DXF renderer yet, so "Mesurer" is hidden rather than shown and failing with an error.
 		const dwgTag = (item) => item.convertedFromDwg ? `<span class="production-method-tag" title="Fichier DWG converti automatiquement en DXF">DWG → DXF</span>` : '';
-		const renderItem = (item) => `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !item.convertedFromDwg ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${explainable(item) ? `<button class="secondary explain-document" data-document="${item.id}">Objasni jednostavnim jezikom</button>` : ''}${canManage ? `<button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
+		const renderItem = (item) => `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !item.convertedFromDwg ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${canManage && item.convertedFromDwg ? `<button class="secondary dxf-analyze" data-document="${item.id}">Analyser l’ossature (DWG)</button>` : ''}${explainable(item) ? `<button class="secondary explain-document" data-document="${item.id}">Objasni jednostavnim jezikom</button>` : ''}${canManage ? `<button class="secondary rename-document" data-document="${item.id}">Renommer</button><button class="secondary copy-document" data-document="${item.id}">Copier</button><button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button><button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
 		const groups = documentGroupOrder.map((type) => ({ type, items: documents.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length);
 		document.querySelector('#documents').innerHTML = groups.length ? groups.map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('') : '<small>Aucun document enregistré.</small>';
 		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); document.querySelectorAll('.view-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/documents/${button.dataset.document}/download`, button))); document.querySelectorAll('.measure-plan').forEach((button) => button.addEventListener('click', () => openPlanMeasure(button.dataset.document)));
+		document.querySelectorAll('.dxf-analyze').forEach((button) => button.addEventListener('click', () => openDxfAnalyze(button.dataset.document)));
 			document.querySelectorAll('.document-thumb').forEach((img) => {
 				const documentId = img.dataset.thumbDoc;
 				const downloadPath = `/documents/${documentId}/download`;
@@ -2134,6 +2135,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// image pixel space (not the possibly-scaled canvas display size) so measurements stay correct
 	// regardless of zoom/window size; planMeasureState.scale converts natural space -> canvas display space.
 	let planMeasureState = null;
+	let dxfAnalyzeState = null;
 	// Canvas pixel size for the CURRENT scale + rotation - width/height swap at 90/270 since the plan is
 	// turned on its side. Exact integer math (Math.round only here, never trig) so rotating never shifts
 	// an already-placed point by even a fraction of a pixel.
@@ -3327,6 +3329,95 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.querySelector('#plan-measure-status').textContent = error?.message || 'Impossible de charger le plan.';
 		}
 	}
+	// Reads real geometry (layer names, block positions) straight out of the DWG's converted .dxf -
+	// no AI, no OCR, no pixel/color guessing. Every number here is an exact DXF coordinate, same
+	// mechanism as the calibrated plan-measure tool's own "no AI" line/surface tracing, just reading
+	// CAD entities instead of clicked points. Only meaningful for a DWG-converted plan (see
+	// item.convertedFromDwg) - a scanned or drawn PDF has no DXF layers to read.
+	async function openDxfAnalyze(documentId) {
+		const modal = document.querySelector('#dxf-analyze-modal');
+		if (!modal) return;
+		modal.hidden = false; modal.setAttribute('aria-hidden', 'false');
+		dxfAnalyzeState = { documentId, layers: [] };
+		const statusEl = document.querySelector('#dxf-analyze-status');
+		const layerSelect = document.querySelector('#dxf-analyze-layer');
+		const resultsEl = document.querySelector('#dxf-analyze-results');
+		if (statusEl) statusEl.textContent = 'Chargement des calques...';
+		if (layerSelect) layerSelect.innerHTML = '';
+		if (resultsEl) resultsEl.innerHTML = '';
+		try {
+			const result = await request(`/documents/${documentId}/dxf-layers`);
+			dxfAnalyzeState.layers = result.layers || [];
+			if (!dxfAnalyzeState.layers.length) {
+				if (statusEl) statusEl.textContent = 'Aucun calque trouvé (le plan a-t-il bien été converti depuis un DWG ?).';
+				return;
+			}
+			if (layerSelect) {
+				// Layers made only of INSERT (block placements - équerres, ossature segments) are what this
+				// tool's spacing math understands; layers that are mostly dimension lines/hatches/text are kept
+				// in the list (so nothing is hidden) but sorted after, since picking one there would just
+				// come back empty.
+				const sorted = [...dxfAnalyzeState.layers].sort((a, b) => (b.byType?.INSERT || 0) - (a.byType?.INSERT || 0));
+				layerSelect.innerHTML = sorted.map((entry) => `<option value="${escapeHtml(entry.layer)}">${escapeHtml(entry.layer)} (${entry.byType?.INSERT || 0} blocs / ${entry.total} total)</option>`).join('');
+			}
+			if (statusEl) statusEl.textContent = '';
+			await dxfAnalyzeRefresh();
+		} catch (error) {
+			if (statusEl) statusEl.textContent = error?.message || 'Lecture du DWG impossible.';
+		}
+	}
+	async function dxfAnalyzeRefresh() {
+		if (!dxfAnalyzeState) return;
+		const layerSelect = document.querySelector('#dxf-analyze-layer');
+		const axisSelect = document.querySelector('#dxf-analyze-axis');
+		const modeSelect = document.querySelector('#dxf-analyze-mode');
+		const statusEl = document.querySelector('#dxf-analyze-status');
+		const resultsEl = document.querySelector('#dxf-analyze-results');
+		const layer = layerSelect?.value;
+		if (!layer) { if (resultsEl) resultsEl.innerHTML = ''; return; }
+		const axis = axisSelect?.value === 'x' ? 'x' : 'y';
+		const mode = modeSelect?.value === 'along-row' ? 'along-row' : 'per-wall';
+		if (statusEl) statusEl.textContent = 'Calcul...';
+		if (resultsEl) resultsEl.innerHTML = '';
+		// Switching layer/axis/mode quickly (e.g. picking a layer right after the page's own initial
+		// refresh, or trying a couple of axes back to back) fires several of these calls before the
+		// first one resolves - the DWG's .dxf is re-read and re-parsed server-side on every call, so
+		// an earlier, slower request can resolve AFTER a later one and overwrite correct results with
+		// stale ones for a different layer/axis/mode than what's currently selected. Tagging each call
+		// and only rendering the most recent one is the fix - never let a late response win.
+		const requestId = (dxfAnalyzeState.requestSeq = (dxfAnalyzeState.requestSeq || 0) + 1);
+		try {
+			const params = new URLSearchParams({ layer, axis, mode });
+			const result = await request(`/documents/${dxfAnalyzeState.documentId}/dxf-spacing?${params.toString()}`);
+			if (!dxfAnalyzeState || dxfAnalyzeState.requestSeq !== requestId) return;
+			const groups = mode === 'along-row' ? (result.rows || []) : (result.zones || []);
+			if (statusEl) statusEl.textContent = '';
+			if (!groups.length) { if (resultsEl) resultsEl.innerHTML = '<small>Aucune position trouvée pour ce calque.</small>'; return; }
+			const fmtM = (mm) => (mm / 1000).toFixed(3);
+			resultsEl.innerHTML = groups.map((group, index) => {
+				const rangeLabel = mode === 'along-row'
+					? `mur [${fmtM(group.wallMin)}–${fmtM(group.wallMax)}m], rangée ≈ ${fmtM(group.rowMin)}m`
+					: `mur [${fmtM(group.zoneMin)}–${fmtM(group.zoneMax)}m]`;
+				const positions = group.positions.map((p) => fmtM(p)).join(', ');
+				const gaps = group.gaps.map((g) => (g / 1000).toFixed(3)).join(', ');
+				return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points<br><small>Positions (m): ${escapeHtml(positions)}</small><br><small>Écarts (m): ${escapeHtml(gaps)}</small></div>`;
+			}).join('');
+		} catch (error) {
+			if (!dxfAnalyzeState || dxfAnalyzeState.requestSeq !== requestId) return;
+			if (statusEl) statusEl.textContent = error?.message || 'Calcul impossible.';
+		}
+	}
+	function closeDxfAnalyze() {
+		const modal = document.querySelector('#dxf-analyze-modal');
+		if (modal) { modal.hidden = true; modal.setAttribute('aria-hidden', 'true'); }
+		dxfAnalyzeState = null;
+	}
+	document.querySelector('#dxf-analyze-close')?.addEventListener('click', closeDxfAnalyze);
+	document.querySelector('#dxf-analyze-modal')?.addEventListener('click', (event) => { if (event.target.id === 'dxf-analyze-modal') closeDxfAnalyze(); });
+	document.querySelector('#dxf-analyze-layer')?.addEventListener('change', dxfAnalyzeRefresh);
+	document.querySelector('#dxf-analyze-axis')?.addEventListener('change', dxfAnalyzeRefresh);
+	document.querySelector('#dxf-analyze-mode')?.addEventListener('change', dxfAnalyzeRefresh);
+
 	async function openPlanMeasure(documentId) {
 		const modal = document.querySelector('#plan-measure-modal');
 		const canvas = document.querySelector('#plan-measure-canvas');

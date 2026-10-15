@@ -20,6 +20,7 @@ import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProject
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { convertDwgToDxf } from './lib/dwg-convert.js';
+import { parseDxfEntities, extractInserts, summarizeLayers, axisSpacing, rowSpacing } from './lib/dxf-parse.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
@@ -3128,6 +3129,59 @@ app.get('/api/documents/:id/plan-detail-index', auth, async (request, response) 
 		response.json({ entries: extractPlanDetailIndex(parsed.pages) });
 	} catch {
 		response.json({ entries: [] });
+	}
+});
+// Only meaningful for a plan converted from DWG (stored as .dxf text) - no OCR, no AI, just the
+// same deterministic group-code parse used for the PDF text features above, applied to real CAD
+// entities instead: every number comes directly from the plan's own geometry, verified against this
+// exact approach's hand-run Python equivalent on a real project file before being wired in here.
+function isDxfDocument(item) {
+	return item.convertedFromDwg || item.mimeType === 'application/dxf';
+}
+app.get('/api/documents/:id/dxf-layers', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!isDxfDocument(item)) return response.json({ layers: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const entities = parseDxfEntities(buffer.toString('utf8'));
+		response.json({ layers: summarizeLayers(entities) });
+	} catch (error) {
+		response.status(502).json({ error: 'DXF read failed: ' + error.message });
+	}
+});
+// Groups one layer's block-placement positions into zones (same wall/bay) along one axis and
+// reports the gap between each consecutive pair - the exact "razmak" (spacing) calculation this
+// session's manual plan analysis did by hand for ossature/équerre spacing, now generic to any layer.
+// mode=per-wall (default): which position along `axis` each row/rail sits at, one list per wall/bay
+// (axisSpacing - e.g. "which height does each horizontal rail go at, per wall").
+// mode=along-row: spacing BETWEEN points within one row/rail, not across wall-to-wall rows - needs
+// its own two-level clustering (rowSpacing), since the same approximate height repeats across many
+// unrelated walls and would otherwise merge into one meaningless row (e.g. "how far apart are the
+// brackets left-to-right along one specific rail").
+app.get('/api/documents/:id/dxf-spacing', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!isDxfDocument(item)) return response.json({ zones: [] });
+	const layer = String(request.query.layer || '');
+	const axis = request.query.axis === 'x' ? 'x' : 'y';
+	const mode = request.query.mode === 'along-row' ? 'along-row' : 'per-wall';
+	if (!layer) return response.status(400).json({ error: 'layer is required' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const entities = parseDxfEntities(buffer.toString('utf8'));
+		const inserts = extractInserts(entities).filter((point) => point.layer === layer);
+		if (mode === 'along-row') {
+			response.json({ rows: rowSpacing(inserts, { wallAxis: axis }) });
+		} else {
+			response.json({ zones: axisSpacing(inserts, { spacingAxis: axis }) });
+		}
+	} catch (error) {
+		response.status(502).json({ error: 'DXF read failed: ' + error.message });
 	}
 });
 // Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,
