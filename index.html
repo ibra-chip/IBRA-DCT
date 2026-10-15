@@ -257,6 +257,7 @@
 					</span>
 					<span class="plan-measure-zoom" id="plan-measure-page-nav" hidden><button type="button" class="secondary" id="plan-measure-page-prev" aria-label="Page précédente">‹</button><span id="plan-measure-page-label">Page 1/1</span><button type="button" class="secondary" id="plan-measure-page-next" aria-label="Page suivante">›</button></span>
 					<span class="plan-measure-zoom"><button type="button" class="secondary" id="plan-measure-zoom-out" aria-label="Zoom arrière">−</button><span id="plan-measure-zoom-level">100%</span><button type="button" class="secondary" id="plan-measure-zoom-in" aria-label="Zoom avant">+</button><button type="button" class="secondary" id="plan-measure-zoom-reset">Ajuster</button><button type="button" class="secondary" id="plan-measure-rotate" aria-label="Pivoter le plan">⟳ Pivoter</button></span>
+					<button type="button" class="secondary" id="plan-measure-toggle-list" aria-expanded="true" aria-controls="plan-measure-list-wrap" title="Masquer/afficher la liste des mesures pour donner toute la largeur au plan">📋 Mesures</button>
 					<span id="plan-measure-status" class="plan-measure-status"></span>
 				</div>
 				<div id="plan-measure-scale-suggestion" class="plan-measure-info-box" hidden><strong>Échelle détectée sur le plan PDF</strong><span id="plan-measure-scale-suggestion-text"></span><div><button type="button" class="secondary" id="plan-measure-scale-accept">Utiliser cette échelle</button><button type="button" class="secondary" id="plan-measure-scale-dismiss">Non, je calibre manuellement</button></div></div>
@@ -264,7 +265,7 @@
 				<div id="plan-measure-color-scan" class="plan-measure-info-box" hidden></div>
 				<div class="plan-measure-body">
 					<div class="plan-measure-canvas-wrap"><canvas id="plan-measure-canvas"></canvas><canvas id="plan-measure-magnifier" class="plan-measure-magnifier" hidden></canvas></div>
-					<div class="plan-measure-list-wrap">
+					<div class="plan-measure-list-wrap" id="plan-measure-list-wrap">
 						<div id="plan-measure-totals" class="plan-measure-totals"></div>
 						<button type="button" class="secondary danger" id="plan-measure-clear-all" hidden>✕ Supprimer toutes les mesures de ce plan</button>
 						<div id="plan-measure-list" class="list"></div>

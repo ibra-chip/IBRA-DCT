@@ -3731,6 +3731,28 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-page-prev')?.addEventListener('click', () => { if (planMeasureState && planMeasureState.page > 1) planMeasureLoadPage(planMeasureState.page - 1); });
 	document.querySelector('#plan-measure-page-next')?.addEventListener('click', () => { if (planMeasureState && planMeasureState.page < (planMeasureState.pageCount || 1)) planMeasureLoadPage(planMeasureState.page + 1); });
 	document.querySelector('#plan-measure-rotate')?.addEventListener('click', () => planMeasureState && planMeasureRotate());
+	// Hiding the measurements list hands its 280px to the canvas (CSS alone does that). The canvas itself
+	// doesn't auto-resize though - same reason planMeasureRotate() recomputes baseScale from the wrap's
+	// new clientWidth/clientHeight after a layout change, requestAnimationFrame here waits for the CSS
+	// grid-column change to actually reflow before reading those dimensions, otherwise they'd still report
+	// the pre-toggle size.
+	document.querySelector('#plan-measure-toggle-list')?.addEventListener('click', (event) => {
+		const button = event.currentTarget;
+		const body = document.querySelector('.plan-measure-body');
+		const collapsed = body?.classList.toggle('list-collapsed');
+		button.setAttribute('aria-expanded', String(!collapsed));
+		if (!planMeasureState?.image) return;
+		requestAnimationFrame(() => {
+			const canvasWrap = document.querySelector('.plan-measure-canvas-wrap');
+			const maxWidth = canvasWrap?.clientWidth || 900;
+			const maxHeight = canvasWrap?.clientHeight || 600;
+			const swapped = planMeasureState.rotation === 90 || planMeasureState.rotation === 270;
+			const effectiveWidth = swapped ? planMeasureState.image.naturalHeight : planMeasureState.image.naturalWidth;
+			const effectiveHeight = swapped ? planMeasureState.image.naturalWidth : planMeasureState.image.naturalHeight;
+			planMeasureState.baseScale = Math.min(maxWidth / effectiveWidth, maxHeight / effectiveHeight);
+			planMeasureApplyZoom(planMeasureState.baseScale);
+		});
+	});
 	document.querySelector('#plan-measure-detect-openings')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectOpenings());
 	document.querySelector('#plan-measure-detect-rails')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectRails());
 	document.querySelector('#plan-measure-candidates-confirm')?.addEventListener('click', () => planMeasureConfirmCandidates());
