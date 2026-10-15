@@ -3368,6 +3368,67 @@ document.addEventListener('DOMContentLoaded', () => {
 			if (statusEl) statusEl.textContent = error?.message || 'Lecture du DWG impossible.';
 		}
 	}
+	// A real facade layer routinely produces 300+ "groups" (one per row-of-a-wall, or per wall-of-a-row) -
+	// rendering all of them as text was technically correct but unusable: a wall of numbers nobody could
+	// scan to find the one row they care about. Filters tiny 1-point noise groups out by default, renders
+	// only a first page of results with a "show more" button instead of all of them at once, and draws
+	// each kept group as a small ruler (tick per position, gap labelled between) instead of a comma list -
+	// same visual language already validated for this exact data shape in the artifacts built this session.
+	const DXF_ANALYZE_PAGE_SIZE = 25;
+	function dxfAnalyzeRenderGroup(group, mode, index) {
+		const fmtM = (mm) => (mm / 1000).toFixed(3);
+		const rangeLabel = mode === 'along-row'
+			? `mur [${fmtM(group.wallMin)}–${fmtM(group.wallMax)}m], rangée ≈ ${fmtM(group.rowMin)}m`
+			: `mur [${fmtM(group.zoneMin)}–${fmtM(group.zoneMax)}m]`;
+		const positions = group.positions;
+		const minP = positions[0];
+		const span = Math.max(1, positions[positions.length - 1] - minP);
+		const svgW = 640, padL = 10, padR = 10, usableW = svgW - padL - padR;
+		const xFor = (p) => padL + ((p - minP) / span) * usableW;
+		let svg = `<svg viewBox="0 0 ${svgW} 34" width="100%" height="34" preserveAspectRatio="none" style="display:block;overflow:visible">`;
+		svg += `<line x1="${padL}" y1="17" x2="${svgW - padR}" y2="17" stroke="var(--border, #ccc)" stroke-width="1"/>`;
+		positions.forEach((p, i) => {
+			const x = xFor(p);
+			svg += `<line x1="${x}" y1="6" x2="${x}" y2="28" stroke="#b0271f" stroke-width="1.6"/>`;
+			if (i > 0) {
+				const xPrev = xFor(positions[i - 1]);
+				const mid = (x + xPrev) / 2;
+				svg += `<text x="${mid}" y="34" font-size="8" fill="currentColor" text-anchor="middle">${((p - positions[i - 1]) / 1000).toFixed(2)}</text>`;
+			}
+		});
+		svg += '</svg>';
+		return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points${svg}</div>`;
+	}
+	function dxfAnalyzeRenderPage() {
+		const resultsEl = document.querySelector('#dxf-analyze-results');
+		const summaryEl = document.querySelector('#dxf-analyze-summary');
+		const moreButton = document.querySelector('#dxf-analyze-show-more');
+		if (!dxfAnalyzeState?.filteredGroups) return;
+		const { filteredGroups, mode, shown } = dxfAnalyzeState;
+		if (summaryEl) summaryEl.textContent = `${filteredGroups.length} groupe(s) (sur ${dxfAnalyzeState.allGroupsCount} au total, avant filtre)`;
+		if (resultsEl) {
+			resultsEl.innerHTML = filteredGroups.length
+				? filteredGroups.slice(0, shown).map((group, index) => dxfAnalyzeRenderGroup(group, mode, index)).join('')
+				: '<small>Aucun groupe avec au moins ce nombre de points.</small>';
+		}
+		if (moreButton) {
+			const remaining = filteredGroups.length - shown;
+			moreButton.hidden = remaining <= 0;
+			moreButton.textContent = `Afficher ${Math.min(remaining, DXF_ANALYZE_PAGE_SIZE)} de plus (${remaining} restant(s))`;
+		}
+	}
+	document.querySelector('#dxf-analyze-show-more')?.addEventListener('click', () => {
+		if (!dxfAnalyzeState) return;
+		dxfAnalyzeState.shown += DXF_ANALYZE_PAGE_SIZE;
+		dxfAnalyzeRenderPage();
+	});
+	document.querySelector('#dxf-analyze-min-count')?.addEventListener('input', () => {
+		if (!dxfAnalyzeState?.allGroups) return;
+		const minCount = Math.max(1, Math.round(Number(document.querySelector('#dxf-analyze-min-count')?.value)) || 1);
+		dxfAnalyzeState.filteredGroups = dxfAnalyzeState.allGroups.filter((group) => group.count >= minCount);
+		dxfAnalyzeState.shown = DXF_ANALYZE_PAGE_SIZE;
+		dxfAnalyzeRenderPage();
+	});
 	async function dxfAnalyzeRefresh() {
 		if (!dxfAnalyzeState) return;
 		const layerSelect = document.querySelector('#dxf-analyze-layer');
@@ -3375,12 +3436,16 @@ document.addEventListener('DOMContentLoaded', () => {
 		const modeSelect = document.querySelector('#dxf-analyze-mode');
 		const statusEl = document.querySelector('#dxf-analyze-status');
 		const resultsEl = document.querySelector('#dxf-analyze-results');
+		const summaryEl = document.querySelector('#dxf-analyze-summary');
+		const moreButton = document.querySelector('#dxf-analyze-show-more');
 		const layer = layerSelect?.value;
 		if (!layer) { if (resultsEl) resultsEl.innerHTML = ''; return; }
 		const axis = axisSelect?.value === 'x' ? 'x' : 'y';
 		const mode = modeSelect?.value === 'along-row' ? 'along-row' : 'per-wall';
 		if (statusEl) statusEl.textContent = 'Calcul...';
 		if (resultsEl) resultsEl.innerHTML = '';
+		if (summaryEl) summaryEl.textContent = '';
+		if (moreButton) moreButton.hidden = true;
 		// Switching layer/axis/mode quickly (e.g. picking a layer right after the page's own initial
 		// refresh, or trying a couple of axes back to back) fires several of these calls before the
 		// first one resolves - the DWG's .dxf is re-read and re-parsed server-side on every call, so
@@ -3395,15 +3460,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			const groups = mode === 'along-row' ? (result.rows || []) : (result.zones || []);
 			if (statusEl) statusEl.textContent = '';
 			if (!groups.length) { if (resultsEl) resultsEl.innerHTML = '<small>Aucune position trouvée pour ce calque.</small>'; return; }
-			const fmtM = (mm) => (mm / 1000).toFixed(3);
-			resultsEl.innerHTML = groups.map((group, index) => {
-				const rangeLabel = mode === 'along-row'
-					? `mur [${fmtM(group.wallMin)}–${fmtM(group.wallMax)}m], rangée ≈ ${fmtM(group.rowMin)}m`
-					: `mur [${fmtM(group.zoneMin)}–${fmtM(group.zoneMax)}m]`;
-				const positions = group.positions.map((p) => fmtM(p)).join(', ');
-				const gaps = group.gaps.map((g) => (g / 1000).toFixed(3)).join(', ');
-				return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points<br><small>Positions (m): ${escapeHtml(positions)}</small><br><small>Écarts (m): ${escapeHtml(gaps)}</small></div>`;
-			}).join('');
+			const minCount = Math.max(1, Math.round(Number(document.querySelector('#dxf-analyze-min-count')?.value)) || 1);
+			dxfAnalyzeState.mode = mode;
+			dxfAnalyzeState.allGroups = groups;
+			dxfAnalyzeState.allGroupsCount = groups.length;
+			dxfAnalyzeState.filteredGroups = groups.filter((group) => group.count >= minCount);
+			dxfAnalyzeState.shown = DXF_ANALYZE_PAGE_SIZE;
+			dxfAnalyzeRenderPage();
 		} catch (error) {
 			if (!dxfAnalyzeState || dxfAnalyzeState.requestSeq !== requestId) return;
 			if (statusEl) statusEl.textContent = error?.message || 'Calcul impossible.';

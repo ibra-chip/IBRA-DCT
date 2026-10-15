@@ -295,9 +295,12 @@
 						<label>Calque<select id="dxf-analyze-layer"></select></label>
 						<label>Axe de l’écart<select id="dxf-analyze-axis"><option value="y">Hauteur (y)</option><option value="x">Largeur (x)</option></select></label>
 						<label>Mode<select id="dxf-analyze-mode"><option value="per-wall">Par mur (où se trouve chaque rangée)</option><option value="along-row">Le long d’une rangée (écart entre points)</option></select></label>
+						<label>Points minimum<input type="number" id="dxf-analyze-min-count" value="2" min="1" style="width:5em" /></label>
 					</div>
 					<div id="dxf-analyze-status" class="plan-measure-status"></div>
+					<div id="dxf-analyze-summary" class="plan-measure-status"></div>
 					<div id="dxf-analyze-results" class="list"></div>
+					<button type="button" class="secondary" id="dxf-analyze-show-more" hidden></button>
 				</div>
 			</aside>
 		</div>
