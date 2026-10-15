@@ -3406,7 +3406,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		// rail, the first bracket) and work outward from there - so that first point is always labelled
 		// explicitly as the départ, never left implicit.
 		const relativeList = positions.map((p) => (p - minP) / 1000).map((m) => m.toFixed(3)).join(', ');
-		return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points · écart en ${axisWord}${svg}<small><b>Départ (0,000m) à la coordonnée réelle ${fmtM(minP)}m</b> — positions depuis le départ (m) : ${escapeHtml(relativeList)}</small></div>`;
+		const spanM = (span / 1000).toFixed(3);
+		return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.insertCount} pièces (${group.count} positions) · écart en ${axisWord}${svg}<small><b>Départ (0,000m) à la coordonnée réelle ${fmtM(minP)}m</b> — positions depuis le départ (m) : ${escapeHtml(relativeList)}</small><div><button type="button" class="secondary dxf-analyze-group-to-devis" data-group-index="${index}">Ajouter ce mur au devis (${group.insertCount} pièces, ${spanM} m)</button></div></div>`;
 	}
 	function dxfAnalyzeRenderPage() {
 		const resultsEl = document.querySelector('#dxf-analyze-results');
@@ -3419,6 +3420,9 @@ document.addEventListener('DOMContentLoaded', () => {
 			resultsEl.innerHTML = filteredGroups.length
 				? filteredGroups.slice(0, shown).map((group, index) => dxfAnalyzeRenderGroup(group, mode, index)).join('')
 				: '<small>Aucun groupe avec au moins ce nombre de points.</small>';
+			resultsEl.querySelectorAll('.dxf-analyze-group-to-devis').forEach((button) => {
+				button.addEventListener('click', () => dxfAnalyzeAddGroupToDevis(Number(button.dataset.groupIndex), button));
+			});
 		}
 		if (moreButton) {
 			const remaining = filteredGroups.length - shown;
@@ -3437,6 +3441,36 @@ document.addEventListener('DOMContentLoaded', () => {
 			const totalCount = layerEntry?.byType?.INSERT || 0;
 			devisButton.hidden = totalCount === 0 || !dxfAnalyzeState.projectId;
 			devisButton.textContent = `Ajouter au devis (${totalCount} unité(s) au total)`;
+		}
+	}
+	// Adds ONE devis line for a single wall/row's own count - unlike the whole-layer button below, this
+	// names WHICH wall (its exact range in metres), the départ point, and the piece count for just that
+	// one group, so the devis line answers "which wall, how many, from where" on its own instead of
+	// requiring the ossature tool to still be open to know what a bare total referred to.
+	async function dxfAnalyzeAddGroupToDevis(groupIndex, button) {
+		if (!dxfAnalyzeState?.projectId) return;
+		const group = dxfAnalyzeState.filteredGroups?.[groupIndex];
+		if (!group) return;
+		const layer = document.querySelector('#dxf-analyze-layer')?.value || '';
+		const mode = dxfAnalyzeState.mode === 'along-row' ? 'along-row' : 'per-wall';
+		const fmtM = (mm) => (mm / 1000).toFixed(3);
+		const minP = group.positions[0];
+		const spanM = fmtM(Math.max(0, group.positions[group.positions.length - 1] - minP));
+		const wallLabel = mode === 'along-row'
+			? `mur [${fmtM(group.wallMin)}–${fmtM(group.wallMax)}m], rangée ≈ ${fmtM(group.rowMin)}m`
+			: `mur [${fmtM(group.zoneMin)}–${fmtM(group.zoneMax)}m]`;
+		const description = `DWG — ${dxfAnalyzeState.originalName} : calque "${layer}", ${wallLabel}, départ à la coordonnée réelle ${fmtM(minP)}m, ${spanM}m de portée, ${group.insertCount} pièces`;
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, group.insertCount, 'unité', dxfAnalyzeState.projectId))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, 'unité');
+			const category = dxfAnalyzeState.planType === 'existant' ? 'Démolition (plan existant)' : dxfAnalyzeState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			await request(`/projects/${dxfAnalyzeState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: group.insertCount, unit: 'unité', unitPrice, lineTotal: Number((group.insertCount * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
+			toast(`${group.insertCount} unité(s) (${wallLabel}) ajoutées au devis.`);
+		} catch {
+			toast('Ligne de devis non ajoutée.');
+		} finally {
+			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
 		}
 	}
 	// Adds ONE devis line for the TRUE total count on the currently selected layer (every group, never
