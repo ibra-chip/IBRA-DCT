@@ -90,31 +90,16 @@
 				<div class="nav-section">
 					<div class="nav-section-head"><span class="nav-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span>Gestion</span></div>
 					<button class="nav active" data-view="dashboard-view" data-title="Tableau de bord"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg><span>Tableau de bord</span></button>
-					<div class="nav-item-group">
-						<button type="button" class="nav nav-group-toggle" data-group-toggle="chantier" aria-expanded="true"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V9l8-6 8 6v12"/><path d="M9 21v-7h6v7"/></svg><span>Chantier</span><svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg></button>
-						<div class="nav-submenu" data-group-items="chantier">
-							<button class="nav-sub" data-view="chantier-view" data-title="Chantier"><span>Chantier</span></button>
-							<button class="nav-sub" data-view="devis-view" data-title="Devis"><span>Devis</span></button>
-							<button class="nav-sub" data-view="line-items-view" data-title="Lignes de devis et assignation"><span>Lignes &amp; assignation</span></button>
-							<button class="nav-sub" data-view="purchases-view" data-title="Achats et dépenses"><span>Dépenses</span></button>
-							<button class="nav-sub" data-view="factures-view" data-title="Factures clients"><span>Factures clients</span></button>
-						</div>
-					</div>
-					<div class="nav-item-group">
-						<button type="button" class="nav nav-group-toggle" data-group-toggle="documents" aria-expanded="true"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Documents</span><svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg></button>
-						<div class="nav-submenu" data-group-items="documents">
-							<button class="nav-sub" data-view="documents-view" data-title="Documents et photos"><span>Documents</span></button>
-							<button class="nav-sub" data-view="evidence-summary-view" data-title="Dossier de preuves"><span>Dossier de preuves</span></button>
-							<button class="nav-sub" data-view="rge-help-view" data-title="Aide RGE / Qualibat"><span>Aide RGE</span></button>
-						</div>
-					</div>
-					<div class="nav-item-group">
-						<button type="button" class="nav nav-group-toggle" data-group-toggle="equipe" aria-expanded="true"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Équipe</span><svg class="nav-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="m6 9 6 6 6-6"/></svg></button>
-						<div class="nav-submenu" data-group-items="equipe">
-							<button class="nav-sub" data-view="tasks-view" data-title="Équipe et travail"><span>Équipe &amp; travail</span></button>
-							<button class="nav-sub" data-view="settings-view" data-title="Utilisateurs"><span>Utilisateurs</span></button>
-						</div>
-					</div>
+					<button class="nav-sub" data-view="chantier-view" data-title="Chantier"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21V9l8-6 8 6v12"/><path d="M9 21v-7h6v7"/></svg><span>Chantier</span></button>
+					<button class="nav-sub" data-view="devis-view" data-title="Devis"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5.5c0-1.9-2.2-3.5-5-3.5s-5 1.6-5 3.5S9.2 9 12 9s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5"/></svg><span>Devis</span></button>
+					<button class="nav-sub" data-view="line-items-view" data-title="Lignes de devis et assignation"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 6h11M9 12h11M9 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg><span>Lignes &amp; assignation</span></button>
+					<button class="nav-sub" data-view="purchases-view" data-title="Achats et dépenses"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><circle cx="12" cy="12.5" r="3"/><path d="M6 6V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v1"/></svg><span>Dépenses</span></button>
+					<button class="nav-sub" data-view="factures-view" data-title="Factures clients"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h10a1 1 0 0 1 1 1v16l-3-2-2 2-2-2-2 2-3-2V4a1 1 0 0 1 1-1Z"/><path d="M9 7h6M9 11h6"/></svg><span>Factures clients</span></button>
+					<button class="nav-sub" data-view="documents-view" data-title="Documents et photos"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg><span>Documents</span></button>
+					<button class="nav-sub" data-view="evidence-summary-view" data-title="Dossier de preuves"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5l-8-3Z"/></svg><span>Dossier de preuves</span></button>
+					<button class="nav-sub" data-view="rge-help-view" data-title="Aide RGE / Qualibat"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 0c0 1.5-2 2-2 3.5"/><path d="M12 17h.01"/></svg><span>Aide RGE</span></button>
+					<button class="nav-sub" data-view="tasks-view" data-title="Équipe et travail"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg><span>Équipe &amp; travail</span></button>
+					<button class="nav-sub" data-view="settings-view" data-title="Utilisateurs"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg><span>Utilisateurs</span></button>
 				</div>
 				<div class="nav-section">
 					<div class="nav-section-head"><span class="nav-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></span><span>Paramètres</span></div>
