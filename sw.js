@@ -1,4 +1,4 @@
-const CACHE_NAME = 'ibra-ba-v1';
+const CACHE_NAME = 'ibra-ba-v2';
 
 self.addEventListener('install', () => {
 	self.skipWaiting();
