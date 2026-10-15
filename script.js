@@ -650,11 +650,33 @@ document.addEventListener('DOMContentLoaded', () => {
 			list.querySelectorAll('[data-today-action]').forEach((button) => button.addEventListener('click', () => sections[Number(button.dataset.todayAction)].action()));
 		} catch { panel.hidden = true; }
 	}
+	// Same data as loadTodayPanel, but the next 6 days ahead (today itself is already covered there) - so
+	// a gérant planning the week's crew doesn't have to open each worker's own calendar one by one.
+	async function loadWeekPanel() {
+		const panel = document.querySelector('#week-panel');
+		const list = document.querySelector('#week-list');
+		if (!panel || !list || !isOwner()) { if (panel) panel.hidden = true; return; }
+		try {
+			const rendezvous = await request('/rendezvous');
+			const today = new Date(); today.setHours(0, 0, 0, 0);
+			const inWindow = rendezvous.filter((item) => {
+				const itemDate = new Date(`${item.date}T00:00:00`);
+				const diffDays = Math.round((itemDate - today) / 86400000);
+				return diffDays >= 1 && diffDays <= 6;
+			}).sort((a, b) => a.date.localeCompare(b.date) || (a.time || '').localeCompare(b.time || ''));
+			panel.hidden = !inWindow.length;
+			if (!inWindow.length) return;
+			list.innerHTML = inWindow.map((item) => {
+				const dateLabel = new Date(`${item.date}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+				return `<div class="list-item attention-item"><strong>${escapeHtml(dateLabel)} — ${escapeHtml(item.workerName || 'Ouvrier')}</strong><small>${item.type === 'absence' ? 'Absence' : `RDV ${escapeHtml(item.time || '')}`}${item.projectName ? ` · ${escapeHtml(item.projectName)}` : ''}${item.reason ? ` · ${escapeHtml(item.reason)}` : ''}</small></div>`;
+			}).join('');
+		} catch { panel.hidden = true; }
+	}
 	async function loadDashboard() {
 		// loadAttentionItems() is cross-chantier (its own /attention-items call, no dependency on which
 		// project loadProjectOptions() ends up selecting) - was waiting for projectOptions to finish for no
 		// reason, adding a full extra round trip to every dashboard open.
-		await Promise.all([loadProjectOptions(), loadAttentionItems(), loadTodayPanel()]);
+		await Promise.all([loadProjectOptions(), loadAttentionItems(), loadTodayPanel(), loadWeekPanel()]);
 		const projectId = currentProjectId();
 		const project = currentProject();
 		if (!projectId) {
@@ -1324,7 +1346,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				.then(() => { unreadFromPartner.forEach((item) => { item.read = true; }); }).catch(() => {});
 		}
 	}
-	async function loadMessages() { await loadProjectOptions(); latestChatMessages = await request('/messages'); renderChatThread(); await loadRendezvous(); }
+	async function loadMessages() { await loadProjectOptions(); latestChatMessages = await request('/messages'); renderChatThread(); await loadRendezvous(); document.querySelector('#broadcast-form')?.toggleAttribute('hidden', !isOwner()); }
 	let unreadMessageCount = 0;
 	let messagePollTimer = null;
 	function setChatBadge(count) {
@@ -3935,6 +3957,38 @@ document.addEventListener('DOMContentLoaded', () => {
 			renderChatThread();
 			toast('Poruka nije poslata.');
 		} finally { if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } }
+	});
+	document.querySelector('#broadcast-form')?.addEventListener('submit', async (event) => {
+		event.preventDefault();
+		const form = event.currentTarget;
+		const projectId = form.elements.projectId.value;
+		const text = form.elements.text.value.trim();
+		const feedback = document.querySelector('#broadcast-message');
+		if (feedback) feedback.textContent = '';
+		if (!projectId || !text) return;
+		const submitButton = form.querySelector('button[type="submit"]');
+		if (submitButton) { submitButton.disabled = true; submitButton.setAttribute('aria-busy', 'true'); }
+		try {
+			const result = await request('/messages/broadcast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId, text }) });
+			form.elements.text.value = '';
+			toast(`Message envoyé à ${result.sent} ouvrier(s).`);
+		} catch { if (feedback) feedback.textContent = 'Message non envoyé.'; }
+		finally { if (submitButton) { submitButton.disabled = false; submitButton.removeAttribute('aria-busy'); } }
+	});
+	document.querySelector('#week-ics-button')?.addEventListener('click', async (event) => {
+		const button = event.currentTarget;
+		button.disabled = true;
+		try {
+			const response = await fetch(`${api}/rendezvous/ics`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url; link.download = 'ibra-ba-rdv.ics';
+			document.body.appendChild(link); link.click(); link.remove();
+			URL.revokeObjectURL(url);
+		} catch { toast('Export .ics impossible.'); }
+		finally { button.disabled = false; }
 	});
 	document.querySelector('#recipient')?.addEventListener('change', renderChatThread);
 	document.querySelector('#messages')?.addEventListener('click', async (event) => {

@@ -2386,6 +2386,24 @@ app.post('/api/messages', auth, async (request, response) => {
 	await sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {});
 	response.status(201).json(message);
 });
+// One message to every worker assigned to a chantier (e.g. "pas de travail demain, météo") instead of
+// the gérant retyping the same text into each worker's own 1-to-1 thread.
+app.post('/api/messages/broadcast', auth, manager, async (request, response) => {
+	const data = await readData();
+	const text = String(request.body.text || '').trim();
+	const projectId = String(request.body.projectId || '').trim();
+	if (!text || !projectId) return response.status(400).json({ error: 'Message et chantier requis' });
+	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied' });
+	let context;
+	try { context = projectContextFor(data, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const recipients = data.users.filter((user) => isWorkerRole(user.role) && (user.projectIds || []).includes(projectId));
+	const now = new Date().toISOString();
+	const messages = recipients.map((recipient) => ({ id: `message-${Date.now()}-${recipient.id}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: now, read: false }));
+	data.messages = [...(data.messages || []), ...messages];
+	await writeData(data);
+	await Promise.all(recipients.map((recipient) => sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {})));
+	response.status(201).json({ sent: messages.length });
+});
 app.delete('/api/messages/:id', auth, async (request, response) => {
 	const data = await readData();
 	const message = (data.messages || []).find((item) => item.id === request.params.id);
@@ -2439,13 +2457,37 @@ const resolveRendezvousOwner = (data, worker) => {
 	const employerSiret = cleanSiret(worker.employerSiret);
 	return employerSiret ? data.users.find((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === employerSiret) || null : null;
 };
+const rendezvousVisibleTo = (data, requestUser) => (data.rendezvous || []).filter((item) => {
+	if (item.workerId === requestUser.sub) return true;
+	if (item.projectId) return canAccessProject(data, requestUser, item.projectId);
+	return ownerCanAccessWorkerRecord(data, requestUser, item.workerId);
+});
 app.get('/api/rendezvous', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.rendezvous || []).filter((item) => {
-		if (item.workerId === request.user.sub) return true;
-		if (item.projectId) return canAccessProject(data, request.user, item.projectId);
-		return ownerCanAccessWorkerRecord(data, request.user, item.workerId);
-	}));
+	response.json(rendezvousVisibleTo(data, request.user));
+});
+// A standard .ics file so a worker or gérant can add their RDV/absences into their own phone's calendar
+// app (Google/Apple) instead of only ever checking them inside IBRA-BA - same visibility rule as the
+// JSON listing above, just a different export format of the exact same data.
+const icsEscape = (text) => String(text || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+const icsDateTime = (dateStr, timeStr) => {
+	const [hours, minutes] = String(timeStr || '09:00').split(':');
+	return `${String(dateStr).replace(/-/g, '')}T${String(hours).padStart(2, '0')}${String(minutes).padStart(2, '0')}00`;
+};
+app.get('/api/rendezvous/ics', auth, async (request, response) => {
+	const data = await readData();
+	const items = rendezvousVisibleTo(data, request.user);
+	const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IBRA-BA//RDV//FR', 'CALSCALE:GREGORIAN'];
+	for (const item of items) {
+		const start = icsDateTime(item.date, item.time);
+		const summary = item.type === 'absence' ? `Absence — ${item.workerName || ''}` : `RDV — ${item.workerName || ''}`;
+		const description = [item.projectName, item.reason].filter(Boolean).join(' - ');
+		lines.push('BEGIN:VEVENT', `UID:${item.id}@ibra-ba`, `DTSTAMP:${icsDateTime(new Date().toISOString().slice(0, 10), '00:00')}Z`, `DTSTART:${start}`, `SUMMARY:${icsEscape(summary)}`, `DESCRIPTION:${icsEscape(description)}`, 'END:VEVENT');
+	}
+	lines.push('END:VCALENDAR');
+	response.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+	response.setHeader('Content-Disposition', 'attachment; filename="ibra-ba-rdv.ics"');
+	response.send(lines.join('\r\n'));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
 	const isOwnerActor = isOwnerRole(request.user.role);
