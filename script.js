@@ -3081,10 +3081,10 @@ document.addEventListener('DOMContentLoaded', () => {
 	// measurement to match the line they're verifying. Never blocks silently - on any failure to check
 	// (e.g. no devis exists yet), it fails OPEN (lets the add through) rather than silently failing closed,
 	// since this is a secondary safety net, not the only way to add a measurement to the devis.
-	async function planMeasureConfirmAgainstExistingLineItem(description, quantity, unit) {
+	async function planMeasureConfirmAgainstExistingLineItem(description, quantity, unit, projectId = planMeasureState?.projectId) {
 		const normalize = (value) => String(value || '').trim().toLowerCase().replace(/\s*\(×\d+\)\s*$/, '');
 		try {
-			const items = await request(`/projects/${planMeasureState.projectId}/budget/line-items`);
+			const items = await request(`/projects/${projectId}/budget/line-items`);
 			const target = normalize(description);
 			const match = items.find((item) => normalize(item.description) === target);
 			if (!match) return true;
@@ -3340,7 +3340,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		const modal = document.querySelector('#dxf-analyze-modal');
 		if (!modal) return;
 		modal.hidden = false; modal.setAttribute('aria-hidden', 'false');
-		dxfAnalyzeState = { documentId, layers: [] };
+		const documents = await request('/documents');
+		const docItem = documents.find((item) => item.id === documentId);
+		dxfAnalyzeState = { documentId, layers: [], projectId: docItem?.projectId || null, planType: docItem?.planType || null, originalName: docItem?.originalName || 'plan' };
 		const statusEl = document.querySelector('#dxf-analyze-status');
 		const layerSelect = document.querySelector('#dxf-analyze-layer');
 		const resultsEl = document.querySelector('#dxf-analyze-results');
@@ -3377,6 +3379,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	const DXF_ANALYZE_PAGE_SIZE = 25;
 	function dxfAnalyzeRenderGroup(group, mode, index) {
 		const fmtM = (mm) => (mm / 1000).toFixed(3);
+		const axisWord = group.spacingAxis === 'x' || group.wallAxis === 'x' ? 'largeur/longueur' : 'hauteur';
 		const rangeLabel = mode === 'along-row'
 			? `mur [${fmtM(group.wallMin)}–${fmtM(group.wallMax)}m], rangée ≈ ${fmtM(group.rowMin)}m`
 			: `mur [${fmtM(group.zoneMin)}–${fmtM(group.zoneMax)}m]`;
@@ -3397,7 +3400,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			}
 		});
 		svg += '</svg>';
-		return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points${svg}</div>`;
+		// "Où commencer" (point de départ = 0,000) is the whole point of giving BOTH the absolute DWG
+		// coordinate and a position relative to the group's own first point: on site nobody measures from
+		// the DWG's arbitrary world origin, they measure from one physical reference they pick (the lowest
+		// rail, the first bracket) and work outward from there - so that first point is always labelled
+		// explicitly as the départ, never left implicit.
+		const relativeList = positions.map((p) => (p - minP) / 1000).map((m) => m.toFixed(3)).join(', ');
+		return `<div class="list-item"><strong>Groupe ${index + 1}</strong> · ${rangeLabel} · ${group.count} points · écart en ${axisWord}${svg}<small><b>Départ (0,000m) à la coordonnée réelle ${fmtM(minP)}m</b> — positions depuis le départ (m) : ${escapeHtml(relativeList)}</small></div>`;
 	}
 	function dxfAnalyzeRenderPage() {
 		const resultsEl = document.querySelector('#dxf-analyze-results');
@@ -3416,7 +3425,54 @@ document.addEventListener('DOMContentLoaded', () => {
 			moreButton.hidden = remaining <= 0;
 			moreButton.textContent = `Afficher ${Math.min(remaining, DXF_ANALYZE_PAGE_SIZE)} de plus (${remaining} restant(s))`;
 		}
+		const devisButton = document.querySelector('#dxf-analyze-add-to-devis');
+		if (devisButton) {
+			// group.count is how many DISTINCT positions a group has (distinct heights per wall, or
+			// distinct along-row points) - never the number of physical pieces, since several inserts can
+			// legitimately share one rounded position (e.g. three rail segments at the same height, across
+			// a wide wall). Summing group.count for a devis quantity undercounts real hardware by exactly
+			// that multiple. The real physical count is the layer's own INSERT total, already read once in
+			// openDxfAnalyze - that's what belongs on an order, not a count of rows.
+			const layerEntry = (dxfAnalyzeState.layers || []).find((entry) => entry.layer === document.querySelector('#dxf-analyze-layer')?.value);
+			const totalCount = layerEntry?.byType?.INSERT || 0;
+			devisButton.hidden = totalCount === 0 || !dxfAnalyzeState.projectId;
+			devisButton.textContent = `Ajouter au devis (${totalCount} unité(s) au total)`;
+		}
 	}
+	// Adds ONE devis line for the TRUE total count on the currently selected layer (every group, never
+	// just the ones currently shown on screen) - same "review the pattern as a whole, not point by point"
+	// reasoning as the plan-measure tool's own rail-total button, since a real facade layer is routinely
+	// hundreds of points nobody would confirm one by one. The description spells out the layer, the
+	// document, the group count and the axis/mode read, so the devis line is self-explanatory later
+	// without needing to reopen this tool to remember what it was.
+	document.querySelector('#dxf-analyze-add-to-devis')?.addEventListener('click', async () => {
+		if (!dxfAnalyzeState?.projectId || !dxfAnalyzeState.allGroups?.length) return;
+		const button = document.querySelector('#dxf-analyze-add-to-devis');
+		const layer = document.querySelector('#dxf-analyze-layer')?.value || '';
+		const axis = document.querySelector('#dxf-analyze-axis')?.value === 'x' ? 'x' : 'y';
+		const axisLabel = axis === 'x' ? 'largeur' : 'hauteur';
+		const mode = dxfAnalyzeState.mode === 'along-row' ? 'along-row' : 'per-wall';
+		const modeLabel = mode === 'along-row' ? 'le long de chaque rangée' : 'par mur';
+		// Physical piece count (every INSERT block on this layer), not a sum of group.count - see the
+		// same note in dxfAnalyzeRenderPage on why those two numbers differ and which one an order needs.
+		const layerEntry = (dxfAnalyzeState.layers || []).find((entry) => entry.layer === layer);
+		const totalCount = layerEntry?.byType?.INSERT || 0;
+		if (!totalCount) return;
+		const groupCount = dxfAnalyzeState.allGroups.length;
+		const description = `DWG — ${dxfAnalyzeState.originalName} : calque "${layer}", ${totalCount} pièces (${groupCount} groupe(s) de positions, écart en ${axisLabel}, ${modeLabel})`;
+		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
+		try {
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, totalCount, 'unité', dxfAnalyzeState.projectId))) return;
+			const unitPrice = await planMeasureResolveLineItemPrice(description, 'unité');
+			const category = dxfAnalyzeState.planType === 'existant' ? 'Démolition (plan existant)' : dxfAnalyzeState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			await request(`/projects/${dxfAnalyzeState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: totalCount, unit: 'unité', unitPrice, lineTotal: Number((totalCount * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
+			toast(`${totalCount} unité(s) ajoutées au devis.`);
+		} catch {
+			toast('Ligne de devis non ajoutée.');
+		} finally {
+			if (button) { button.disabled = false; button.removeAttribute('aria-busy'); }
+		}
+	});
 	document.querySelector('#dxf-analyze-show-more')?.addEventListener('click', () => {
 		if (!dxfAnalyzeState) return;
 		dxfAnalyzeState.shown += DXF_ANALYZE_PAGE_SIZE;
