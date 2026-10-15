@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import compression from 'compression';
 import cors from 'cors';
 import crypto from 'node:crypto';
 import 'dotenv/config';
@@ -11,11 +12,64 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { analyzeConstructionDocument, analyzeConstructionPhoto, formatConstructionAnalysis } from './lib/document-auto-analysis.js';
 import { attachReferenceLinks } from './lib/reference-library.js';
+import { createDataCache } from './lib/data-cache.js';
+import { createDailyBackup } from './lib/daily-backup.js';
 import { extractPdfRules } from './lib/rule-extraction.js';
 import { findFacadeKnowledge, formatOfflineFacadeAnswer, loadFacadeKnowledge } from './lib/facade-knowledge.js';
 import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProjectIds } from './lib/workforce-domain.js';
-import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl } from './lib/storage.js';
+import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
+import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
+import { convertDwgToDxf } from './lib/dwg-convert.js';
+import { parseDxfEntities, extractInserts, summarizeLayers, axisSpacing, rowSpacing } from './lib/dxf-parse.js';
+import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
+import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
+import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
+import webpush from 'web-push';
+
+// Last-resort safety net for the whole process, not just one request: Express's own error-handling
+// middleware (further down) only catches what happens inside its request/response cycle - a synchronous
+// throw inside a raw Node callback that isn't part of that cycle (a child_process event handler, a timer,
+// a truly unexpected bug anywhere in the codebase) is NOT routed through it, and Node's default behavior
+// for an uncaught exception or unhandled rejection is to crash the entire process - taking the app down
+// for every concurrent user at once until the host restarts it, not just failing the one request that
+// triggered it. Logging and staying up trades "might run with inconsistent state once" for "definitely
+// doesn't take the whole app down for everyone" - the safer trade for a multi-tenant HTTP server whose
+// actual state (data.json / Supabase) is written through its own already-serialized, conflict-checked
+// path (see writeData below) independent of the process staying alive.
+process.on('uncaughtException', (error) => {
+	console.error('Uncaught exception (process kept alive):', error);
+});
+process.on('unhandledRejection', (reason) => {
+	console.error('Unhandled promise rejection (process kept alive):', reason);
+});
+
+const vapidPublicKey = String(process.env.VAPID_PUBLIC_KEY || '').trim();
+const vapidPrivateKey = String(process.env.VAPID_PRIVATE_KEY || '').trim();
+const vapidKeyPattern = /^[A-Za-z0-9_-]+$/;
+let pushEnabled = Boolean(vapidPublicKey && vapidPrivateKey && vapidKeyPattern.test(vapidPublicKey) && vapidKeyPattern.test(vapidPrivateKey));
+if (pushEnabled) {
+	try { webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:contact@ibra-ba.net', vapidPublicKey, vapidPrivateKey); }
+	catch (error) { console.error('VAPID keys invalid, push notifications disabled:', error.message); pushEnabled = false; }
+} else {
+	const publicOk = vapidKeyPattern.test(vapidPublicKey);
+	const privateOk = vapidKeyPattern.test(vapidPrivateKey);
+	console.warn(
+		`Push notifications disabled. publicKey: present=${Boolean(vapidPublicKey)} length=${vapidPublicKey.length} validChars=${publicOk}; ` +
+		`privateKey: present=${Boolean(vapidPrivateKey)} length=${vapidPrivateKey.length} validChars=${privateOk}`
+	);
+}
+async function sendPushToUser(data, userId, payload) {
+	if (!pushEnabled) return;
+	const subscriptions = (data.pushSubscriptions || []).filter((item) => item.userId === userId);
+	if (!subscriptions.length) return;
+	const expired = [];
+	await Promise.all(subscriptions.map(async (subscription) => {
+		try { await webpush.sendNotification(subscription.subscription, JSON.stringify(payload)); }
+		catch (error) { if (error.statusCode === 404 || error.statusCode === 410) expired.push(subscription.endpoint); }
+	}));
+	if (expired.length) data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => !expired.includes(item.endpoint));
+}
 
 const require = createRequire(import.meta.url);
 const { PDFParse } = require('pdf-parse');
@@ -59,46 +113,121 @@ if (!supabaseConfigured) {
 	console.warn(message);
 }
 const storageKeyFor = (originalName) => `${Date.now()}-${String(originalName || 'file').replace(/[^a-zA-Z0-9_.-]/g, '_')}`;
+const fixUploadFilenameEncoding = (request, _response, next) => { if (request.file?.originalname) request.file.originalname = Buffer.from(request.file.originalname, 'latin1').toString('utf8'); next(); };
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const memoryUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
 const identityUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 }, fileFilter: (_request, file, callback) => callback(isAllowedIdentityAsset(file) ? null : new Error('Choisissez un fichier JPG ou PNG de 5 Mo maximum.'), true) });
 const identityUploadMiddleware = (field) => (request, response, next) => identityUpload.single(field)(request, response, async (error) => {
 	if (error) return response.status(400).json({ error: 'Choisissez un fichier JPG ou PNG de 5 Mo maximum.' });
 	if (request.file) {
+		request.file.originalname = Buffer.from(request.file.originalname, 'latin1').toString('utf8');
 		request.file.filename = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 		try { await uploadFile(IDENTITY_BUCKET, request.file.filename, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
 	}
 	next();
 });
+app.use(compression());
 app.use(cors());
 app.use(express.json());
-app.use(express.static(root, {
+const publicFiles = new Set(['/', '/index.html', '/script.js', '/styles.css', '/logo.svg', '/manifest.webmanifest', '/sw.js', '/knowledge-base/rge-qualibat-ite.json']);
+const serveStatic = express.static(root, {
+	dotfiles: 'deny',
 	setHeaders(response, filePath) {
-		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+		if (response.getHeader('Cache-Control')) return; // already set below for a versioned script.js/styles.css request
+		if (/\.(?:html|js|css|json|webmanifest)$/i.test(filePath)) response.setHeader('Cache-Control', 'no-cache, must-revalidate');
 	}
-}));
-app.get('/identity-assets/:filename', (request, response) => response.redirect(publicUrl(request.params.filename)));
+});
+// index.html links to script.js/styles.css with a ?v=<content-hash> query (see assetVersion below), so a
+// request carrying that query is for one exact, never-changing version of the file - safe to cache for a
+// year. A request without ?v= (an old cached page, or someone hitting the file directly) still revalidates
+// every time, since that URL's content can change on the next deploy.
+app.get(['/script.js', '/styles.css'], (request, response, next) => {
+	response.setHeader('Cache-Control', typeof request.query.v === 'string' && request.query.v ? 'public, max-age=31536000, immutable' : 'no-cache, must-revalidate');
+	next();
+});
+const assetVersionCache = new Map();
+const assetVersion = async (relativePath) => {
+	if (assetVersionCache.has(relativePath)) return assetVersionCache.get(relativePath);
+	const version = crypto.createHash('md5').update(await fs.readFile(path.join(root, relativePath))).digest('hex').slice(0, 10);
+	assetVersionCache.set(relativePath, version);
+	return version;
+};
+app.get(['/', '/index.html'], async (request, response, next) => {
+	try {
+		const [html, scriptVersion, stylesVersion] = await Promise.all([
+			fs.readFile(path.join(root, 'index.html'), 'utf8'),
+			assetVersion('script.js'),
+			assetVersion('styles.css'),
+		]);
+		const versioned = html
+			.replace('src="script.js"', `src="script.js?v=${scriptVersion}"`)
+			.replace('href="styles.css"', `href="styles.css?v=${stylesVersion}"`);
+		response.setHeader('Cache-Control', 'no-cache, must-revalidate');
+		response.type('html').send(versioned);
+	} catch (error) { next(error); }
+});
+app.use((request, response, next) => (publicFiles.has(request.path) ? serveStatic(request, response, next) : next()));
+app.get('/identity-assets/:filename', async (request, response) => {
+	const pooled = await poolAsset(request.params.filename).catch(() => null);
+	if (pooled) { response.set('Cache-Control', 'public, max-age=31536000, immutable'); response.type(pooled.contentType); return response.send(pooled.body); }
+	response.redirect(publicUrl(request.params.filename));
+});
 
 const readLocalData = async () => JSON.parse(await fs.readFile(dataPath, 'utf8'));
 let supabaseWarningShown = false;
+const dataCache = createDataCache({
+	ttlMs: Number(process.env.DATA_CACHE_TTL_MS ?? 2000),
+	staleMs: Number(process.env.DATA_CACHE_STALE_MS ?? 300000),
+});
+const restHeaders = { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` };
+const restCall = async (pathAndQuery, options = {}) => {
+	const result = await fetch(`${supabaseUrl}/rest/v1/${pathAndQuery}`, { ...options, headers: { ...restHeaders, ...(options.headers || {}) }, signal: AbortSignal.timeout(8000) });
+	if (!result.ok) throw new Error(`Supabase ${options.method || 'GET'} ${pathAndQuery.split('?')[0]} failed with ${result.status}`);
+	return result;
+};
+const dailyBackup = createDailyBackup({
+	readRow: async (id) => (await (await restCall(`app_state?id=eq.${encodeURIComponent(id)}&select=data`)).json())[0]?.data ?? null,
+	rowExists: async (id) => (await (await restCall(`app_state?id=eq.${encodeURIComponent(id)}&select=id`)).json()).length > 0,
+	writeRow: async (id, data) => { await restCall('app_state', { method: 'POST', headers: { 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id, data }) }); },
+	listBackupIds: async () => (await (await restCall('app_state?id=like.backup-*&select=id')).json()).map((row) => row.id),
+	deleteRow: async (id) => { await restCall(`app_state?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }); },
+});
+const loadFromSupabase = async () => {
+	const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
+	if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
+	const rows = await result.json();
+	if (rows[0]?.data) return rows[0].data;
+	const local = await readLocalData();
+	const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
+	if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
+	return local;
+};
 const readData = async () => {
 	if (!supabaseConfigured) return readLocalData();
 	try {
-		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&select=data`, { headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}` } });
-		if (!result.ok) throw new Error(`Supabase read failed with ${result.status}`);
-		const rows = await result.json();
-		if (rows[0]?.data) return rows[0].data;
-		const local = await readLocalData();
-		const seed = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates' }, body: JSON.stringify({ id: 'singleton', data: local }) });
-		if (!seed.ok) throw new Error(`Supabase seed failed with ${seed.status}`);
-		return local;
+		return await dataCache.read(loadFromSupabase);
 	} catch (error) {
 		if (!supabaseWarningShown) { console.error('Supabase persistence unavailable:', error.message); supabaseWarningShown = true; }
 		if (process.env.NODE_ENV === 'production') throw error;
 		return readLocalData();
 	}
 };
-const writeData = async (data) => {
+// Every call site does readData() -> mutate its own copy -> writeData(copy). With one shared JSON
+// blob and no per-record transactions, two overlapping writes on this same instance could otherwise
+// race on the local .tmp file (both write it before either renames, corrupting whichever renames
+// second). Queuing writes on this instance removes that local-file hazard and makes write order
+// deterministic. It does not by itself stop two *different* instances (or two requests that both read
+// before either wrote) from losing one writer's change -- that's what the __rev compare-and-swap below
+// is for: the Supabase write only commits if the row's revision still matches what this write's data
+// was read at; otherwise it's rejected with 409 instead of silently overwriting the other change.
+let writeQueue = Promise.resolve();
+const writeData = (data) => {
+	const next = writeQueue.then(() => writeDataNow(data));
+	writeQueue = next.catch(() => {});
+	return next;
+};
+const writeDataNow = async (data) => {
 	const serialized = `${JSON.stringify(data, null, 2)}\n`;
 	const backupPath = `${dataPath}.bak`;
 	const temporaryPath = `${dataPath}.tmp`;
@@ -106,8 +235,28 @@ const writeData = async (data) => {
 	await fs.writeFile(temporaryPath, serialized, 'utf8');
 	await fs.rename(temporaryPath, dataPath);
 	if (supabaseConfigured) {
-		const result = await fetch(`${supabaseUrl}/rest/v1/app_state`, { method: 'POST', headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'resolution=merge-duplicates,return=minimal' }, body: JSON.stringify({ id: 'singleton', data }) });
+		if (process.env.DAILY_BACKUP !== 'off') await dailyBackup.beforeWrite();
+		dataCache.invalidate();
+		const expectedRev = data.__rev;
+		// A blob written before this revision system existed has no __rev key at all, which Postgres
+		// reports as NULL (not 0) through the ->> operator, so that first post-deploy write must match
+		// on "is null", not "eq.0" - otherwise it would spuriously conflict with itself.
+		const revCondition = typeof expectedRev === 'number' ? `data->>__rev=eq.${expectedRev}` : 'data->>__rev=is.null';
+		const nextData = { ...data, __rev: (typeof expectedRev === 'number' ? expectedRev : 0) + 1 };
+		const result = await fetch(`${supabaseUrl}/rest/v1/app_state?id=eq.singleton&${revCondition}`, {
+			method: 'PATCH',
+			headers: { apikey: supabaseKey, Authorization: `Bearer ${supabaseKey}`, 'Content-Type': 'application/json', Prefer: 'return=representation' },
+			body: JSON.stringify({ data: nextData }),
+		});
 		if (!result.ok) throw new Error(`Supabase write failed with ${result.status}`);
+		const updatedRows = await result.json();
+		if (updatedRows.length === 0) {
+			const conflict = new Error('The data was changed by someone else in the meantime. Please refresh and try again.');
+			conflict.status = 409;
+			throw conflict;
+		}
+		data.__rev = nextData.__rev;
+		dataCache.set(data);
 	}
 };
 const tokenFrom = (request) => (request.headers.authorization || '').replace(/^Bearer /, '') || null;
@@ -125,27 +274,49 @@ const companyOwnerForUser = (data, user) => {
 	const employerSiret = cleanSiret(user.employerSiret);
 	return (data.users || []).find((item) => isOwnerRole(item.role) && employerSiret && cleanSiret(item.siret) === employerSiret) || (data.users || []).find((item) => isOwnerRole(item.role) && user.employerCompany && item.company === user.employerCompany) || null;
 };
+const sameCompany = (data, userA, userB) => companyKeyForUser(companyOwnerForUser(data, userA) || userA) === companyKeyForUser(companyOwnerForUser(data, userB) || userB);
+// For records tied to a worker rather than a project (rendezvous, time entries): an owner may act on
+// them only if that worker is in their own company - never by role alone, same reasoning as projects.
+const ownerCanAccessWorkerRecord = (data, requestUser, workerId) => {
+	if (requestUser.role === 'admin') return true;
+	if (!isOwnerRole(requestUser.role)) return false;
+	const worker = (data.users || []).find((user) => user.id === workerId);
+	const requester = (data.users || []).find((user) => user.id === requestUser.sub) || requestUser;
+	return Boolean(worker) && sameCompany(data, worker, requester);
+};
 const companyProfileForUser = (data, user) => {
 	const owner = companyOwnerForUser(data, user) || user;
 	const key = companyKeyForUser(owner);
 	const profile = (data.companyProfiles || []).find((item) => item.key === key || (owner?.siret && cleanSiret(item.siret) === cleanSiret(owner.siret)));
 	return profile || { key, name: owner?.company || owner?.employerCompany || '', siret: owner?.siret || owner?.employerSiret || '', logoFile: '', logoUrl: '' };
 };
-const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || '', name: profile.name || '', siret: profile.siret || '', logoFile: profile.logoFile || '', logoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), updatedAt: profile.updatedAt || '' });
-const publicUser = (user, companyProfile = null) => ({ id: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' });
+const publicCompanyProfile = (profile) => ({ id: profile.key || profile.id || '', name: profile.name || '', siret: profile.siret || '', logoFile: profile.logoFile || '', logoUrl: profile.logoUrl || identityFileUrl(profile.logoFile), accountantEmail: profile.accountantEmail || '', updatedAt: profile.updatedAt || '' });
+const publicUser = (user, companyProfile = null) => ({ id: user.id, name: user.name, email: user.email, phone: user.phone || '', role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' });
 const issueAuthToken = (user, companyProfile = null) => jwt.sign({ sub: user.id, name: user.name, email: user.email, role: user.role, company: user.company || '', siret: user.siret || '', employerCompany: user.employerCompany || '', employerSiret: user.employerSiret || '', projectIds: user.projectIds || [], avatarUrl: user.avatarUrl || identityFileUrl(user.avatarFile), companyLogoUrl: companyProfile?.logoUrl || user.companyLogoUrl || '', companyName: companyProfile?.name || user.company || user.employerCompany || '' }, secret, { expiresIn: '8h' });
 const projectById = (data, projectId) => (data.projects || []).find((project) => project.id === String(projectId || '')) || null;
+const projectsForCompany = (data, ownerId) => (data.projects || []).filter((project) => project.ownerId === ownerId);
 const projectBudgetFor = (data, projectId) => (data.projectBudgets || []).find((budget) => budget.projectId === projectId) || null;
 const projectContextFor = (data, projectId) => { const project = projectById(data, projectId); const budget = projectBudgetFor(data, projectId); return { project, budget, projectName: project?.name || '', budgetId: budget?.id || '', devisNumber: budget?.devisNumber || '' }; };
+// A project belongs to exactly one company (project.ownerId = that company's owner-role user id).
+// For an owner-role requester this is the ONLY thing that should grant access - never role alone,
+// or every company's gérant could reach every other company's chantiers. ownerIdFor resolves "which
+// company does this request belong to" the same way companyOwnerForUser already does for users.
+const ownerIdFor = (data, requestUser) => {
+	const record = (data.users || []).find((user) => user.id === requestUser.sub);
+	return (companyOwnerForUser(data, record) || record || requestUser)?.id;
+};
 const canAccessProject = (data, requestUser, projectId) => {
 	const project = projectById(data, projectId);
-	return Boolean(project && project.status !== 'archived' && (isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id)));
+	if (!project || project.status === 'archived') return false;
+	if (requestUser.role === 'admin') return true;
+	if (isOwnerRole(requestUser.role)) return project.ownerId === ownerIdFor(data, requestUser);
+	return (requestUser.projectIds || []).includes(project.id);
 };
 const assertProjectAccess = (data, requestUser, projectId, worker = null) => {
 	const project = projectById(data, projectId);
 	if (!project) { const error = new Error('Chantier not found'); error.status = 404; throw error; }
 	if (project.status === 'archived') { const error = new Error('This chantier is archived'); error.status = 400; throw error; }
-	const actorCanAccess = isOwnerRole(requestUser.role) || (requestUser.projectIds || []).includes(project.id);
+	const actorCanAccess = requestUser.role === 'admin' || (isOwnerRole(requestUser.role) ? project.ownerId === ownerIdFor(data, requestUser) : (requestUser.projectIds || []).includes(project.id));
 	const workerCanAccess = !worker || isOwnerRole(worker.role) || (worker.projectIds || []).includes(project.id);
 	if (!actorCanAccess || !workerCanAccess) { const error = new Error(`Le chantier sélectionné n’est pas accessible à cet ouvrier: ${project.name}`); error.status = 403; throw error; }
 	return project;
@@ -174,6 +345,7 @@ async function analyzePhotoWithVision({ buffer, mimeType, fileName, evidenceType
 	const prompt = `${french ? 'Analyse cette photo de chantier façade/ITE/bardage' : 'Analiziraj ovu fotografiju chantier fasade/ITE/bardage'}.
 Réponds uniquement en JSON avec: workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1.
 Ne devine jamais les mesures, marques ou performances non visibles. Si un élément n'est pas clairement visible, écris qu'il faut confirmer par plan/fiche technique/DTA.
+Le champ confidence doit être une estimation honnête de TA propre certitude, jamais arrondie à la hausse : s'il y a le moindre doute, un angle flou, un élément partiellement caché ou un détail non visible sur la photo, confidence doit rester bas. Ne mets jamais une valeur proche de 1 sauf si tu es vraiment certain de chaque élément déclaré.
 File: ${fileName}. Type preuve: ${evidenceType}. Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.`;
 	const parseVisionJson = (text) => {
 		const clean = String(text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim();
@@ -237,6 +409,7 @@ async function analyzeDocumentWithGemini({ buffer, mimeType, fileName, evidenceT
 Tu dois répondre SPECIFIQUEMENT selon ce plan/fiche, pas avec un texte générique.
 Si le document parle de bardage ventilé, explique exactement par où commencer, l'ordre logique: support, calepinage, ossature/équerres/tasseaux, isolant, pare-pluie, lame d'air, profils départ/angles/tableaux, pose du parement, contrôles et photos preuve.
 Si une information précise n'est pas dans le document, écris "à confirmer dans le plan/fiche/DTA" au lieu d'inventer.
+Le champ confidence doit être une estimation honnête de TA propre certitude sur cette analyse, jamais arrondie à la hausse. S'il y a du texte illisible, des pages non comprises dans ce que tu as reçu, un schéma ambigu ou une information manquante que tu as dû marquer "à confirmer", confidence doit rester bas en conséquence - ne mets une valeur proche de 1 que si le document est entièrement clair et que chaque élément déclaré en est tiré avec certitude.
 Réponds uniquement en JSON avec:
 summary string, workType string, systems array, materials array, howTo array, controls array, evidence array, risks array, confidence number 0-1, answer string.
 Langue de réponse: ${french ? 'français' : 'bosnien/serbe latin'}.
@@ -278,6 +451,53 @@ ${String(text || '').slice(0, 18000)}`;
 			requiresHumanConfirmation: true
 		};
 	} catch {
+		return null;
+	}
+}
+// A separate, dedicated call from analyzeDocumentWithGemini above - that one produces a technical
+// summary (systems/materials/controls) for someone who already reads plans; this one is specifically
+// for a plain-language walkthrough for workers who don't. Grounded the same way (only this document,
+// "à confirmer" instead of inventing) so it carries the same accuracy guarantee as the rest of the
+// analysis pipeline, just aimed at a different reader.
+async function explainDocumentForLaypeople({ buffer, mimeType, fileName, language, extractedText }) {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const french = language === 'fr';
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	// extractedText comes from pdf-parse, the same deterministic text-layer reader the app already
+	// trusts for devis/facture numbers - unlike the vision model, it cannot misread a digit, so when
+	// it's available it is handed to the model as the authoritative source for every number, with the
+	// image used only to understand layout/symbols. A scanned/photographed PDF has no text layer, so
+	// this block is simply omitted and the model falls back to reading the image alone.
+	const cleanedExtractedText = cleanExtractedPdfText(extractedText);
+	const groundingBlock = cleanedExtractedText.length > 20
+		? (french
+			? `\n\nTEXTE EXACT EXTRAIT DU DOCUMENT (lecture mécanique fiable, pas une interprétation) :\n"""\n${cleanedExtractedText.slice(0, 15000)}\n"""\nPour tout chiffre, cote ou mesure : s'il apparaît dans ce texte, recopie-le EXACTEMENT comme il est écrit ici, jamais une valeur lue "à l'œil" sur l'image. Utilise l'image seulement pour comprendre les schémas/symboles.`
+			: `\n\nTAČAN TEKST IZVUČEN IZ DOKUMENTA (pouzdano mehaničko čitanje, ne tumačenje) :\n"""\n${cleanedExtractedText.slice(0, 15000)}\n"""\nZa svaki broj, kotu ili mjeru: ako se pojavljuje u ovom tekstu, prenesi je TAČNO onako kako ovdje piše, nikad vrijednost "pročitanu okom" sa slike. Sliku koristi samo da razumiješ šeme/simbole.`)
+		: '';
+	const prompt = (french
+		? `Tu expliques ce document chantier (${fileName}) à un ouvrier qui ne sait pas lire un plan ou une fiche technique. Lis le document ENTIER, TOUTES les pages, y compris les tableaux, légendes, glossaires et pages de détail à la fin - ne t'arrête pas après la première page. Décris d'abord ce que c'est (plan de quoi, vue en plan/coupe/élévation, ou fiche produit) en une phrase simple. Puis explique dans l'ordre : les éléments principaux visibles, ce que signifient les symboles, lignes, cotes ou pictogrammes importants pour CE document précis, les étapes pour bien réaliser le travail dans l'ordre où elles sont décrites, et ce à quoi il doit faire attention avant/pendant les travaux. Termine par une section à part intitulée "Points à respecter pour la conformité RGE Qualibat" : liste uniquement les règles d'exécution, tolérances, matériaux ou contrôles que CE document rend obligatoires (lame d'air minimale, distances de fixation, matériaux certifiés, pare-pluie interdit ou obligatoire, etc.) - ce sont ces points-là qui, si l'ouvrier ne les respecte pas, remettent en cause la conformité du chantier et peuvent faire perdre la certification RGE Qualibat de l'entreprise. N'invente aucune règle RGE générale qui ne serait pas dans ce document précis ; si le document ne mentionne aucun point de conformité, écris "Aucun point de conformité RGE explicite dans ce document - se référer au DTU applicable". Règle la plus importante : chaque cote, mesure, distance, épaisseur ou tolérance chiffrée qui est écrite QUELQUE PART dans le document (texte, tableau ou schéma coté) doit être recopiée telle quelle dans ton explication, avec son unité - ne remplace JAMAIS un chiffre qui est présent dans le document par "à vérifier sur le document". Réserve "à vérifier sur le document" uniquement aux détails qui ne sont vraiment écrits nulle part dans le fichier. Phrases courtes, vocabulaire simple, pas de jargon non expliqué. Réponds uniquement en texte brut, pas de JSON, 250-550 mots.`
+		: `Objasni ovaj dokument sa gradilišta (${fileName}) radniku koji ne zna da čita planove ili tehničke listove. Pročitaj CIJEL dokument, SVE stranice, uključujući tabele, legende, glosare i stranice sa detaljima na kraju - ne staj nakon prve stranice. Prvo u jednoj jednostavnoj rečenici reci šta je dokument (plan čega, kakav prikaz - tlocrt/presjek/pogled, ili tehnički list proizvoda). Zatim objasni redom: glavne elemente koji se vide, šta znače važni simboli, linije, kote ili oznake za BAŠ ovaj dokument, korake kako pravilno izvesti posao redoslijedom kojim su opisani u dokumentu, i na šta treba paziti prije/tokom rada. Na kraju dodaj posebnu sekciju "Šta se mora poštovati zbog RGE Qualibat usklađenosti": navedi SAMO pravila izvođenja, tolerancije, materijale ili kontrole koje OVAJ dokument nalaže kao obavezne (minimalna lama vazduha, razmaci fiksacije, certificirani materijali, da li je pare-pluie zabranjen ili obavezan, itd.) - to su tačno te stvari koje, ako radnik ne poštuje, dovode u pitanje usklađenost gradilišta i mogu dovesti do gubitka RGE Qualibat certifikata firme. Ne izmišljaj opšta RGE pravila koja nisu napisana u ovom konkretnom dokumentu; ako dokument ne spominje nijedan takav zahtjev, napiši "Dokument ne navodi eksplicitne RGE zahtjeve - provjeriti primjenjivi DTU". Najvažnije pravilo: svaka kota, mjera, razmak, debljina ili tolerancija koja je NEGDJE napisana u dokumentu (u tekstu, tabeli ili kotiranoj skici) mora biti prenesena tačno onako kako piše, sa jedinicom mjere - NIKADA ne zamijeni broj koji postoji u dokumentu frazom "treba provjeriti na dokumentu". Tu frazu koristi samo za detalje koji zaista nigdje nisu napisani u fajlu. Kratke rečenice, jednostavne riječi, bez neobjašnjenog stručnog žargona. Odgovori samo običnim tekstom, bez JSON-a, 250-550 riječi.`
+	) + groundingBlock;
+	try {
+		const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({
+				generationConfig: { temperature: 0.1 },
+				contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
+			}),
+			signal: AbortSignal.timeout(25000)
+		});
+		if (!geminiResponse.ok) {
+			console.error('Gemini plain-explanation rejected', geminiResponse.status, (await geminiResponse.text()).slice(0, 500));
+			return null;
+		}
+		const result = await geminiResponse.json();
+		const text = String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim();
+		return text || null;
+	} catch (error) {
+		console.error('Gemini plain-explanation threw', error.message);
 		return null;
 	}
 }
@@ -356,11 +576,23 @@ function workerSelf(request, response, next) {
 	next();
 }
 const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
+function isDwgFile(file) {
+	return file.originalname.toLowerCase().endsWith('.dwg');
+}
 function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
 	const isImage = file.mimetype.startsWith('image/');
-	return (['plan', 'fiche-technique'].includes(type) && isPdf) || (allowedWorkEvidenceTypes.includes(type) && !['plan', 'fiche-technique'].includes(type) && isImage);
+	// A plan/fiche-technique is very often a photographed page (a "carnet de détail" shot on a phone,
+	// not scanned to PDF) - it needs the same PDF-or-photo tolerance as devis/facture uploads.
+	// A plan can also be a native AutoCAD .dwg - converted to .dxf server-side before storage, below.
+	if (type === 'plan') return isPdf || isImage || isDwgFile(file);
+	if (type === 'fiche-technique') return isPdf || isImage;
+	return allowedWorkEvidenceTypes.includes(type) && isImage;
+}
+function isAllowedPersonalDocument(file) {
+	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
+	return isPdf || file.mimetype.startsWith('image/');
 }
 
 async function sendMailSafe({ to, subject, text, attachments = [] }) {
@@ -409,7 +641,7 @@ async function sendSmsSafe({ to, text }) {
 		if (!apiResponse.ok) throw new Error(`Twilio API returned ${apiResponse.status}`);
 		return { skipped: false, provider: 'twilio' };
 	}
-	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || 'IBRABA';
+	const brevoSender = process.env.BREVO_SMS_SENDER || process.env.SMS_SENDER || '';
 	if (process.env.BREVO_API_KEY && brevoSender) {
 		const apiResponse = await fetch('https://api.brevo.com/v3/transactionalSMS/sms', {
 			method: 'POST',
@@ -554,6 +786,228 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} €`, { x: marginX, y, size: 13, font: fontBold });
 	return Buffer.from(await doc.save());
 }
+// A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
+// or line), with its unit value, repeat count and effective total, followed by the same brut/net/openings
+// totals the plan-measure UI shows - so what's on the PDF handed to a client, architect, or prime
+// contractor is provably the same arithmetic as what the gerant saw on screen, not a re-derivation that
+// could drift from it.
+async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectName, documentName, calibrationLabel, measurements, generatedAt }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	// StandardFonts.Helvetica only supports WinAnsiEncoding - a character outside it (a smart quote, an
+	// emoji, a stray Unicode minus sign "−" instead of a plain "-", etc.) throws and aborts the whole PDF.
+	// Free text in this document (a measurement's label, the chantier name, the plan's filename) is
+	// user-typed and not validated anywhere upstream for this, so every dynamic string is sanitized here -
+	// one unencodable character must never turn into a 500 that silently blocks the whole export.
+	const encodableCache = new Map();
+	const isEncodable = (char) => {
+		if (encodableCache.has(char)) return encodableCache.get(char);
+		let ok = true;
+		try { font.widthOfTextAtSize(char, 10); } catch { ok = false; }
+		encodableCache.set(char, ok);
+		return ok;
+	};
+	const safeText = (value) => {
+		const text = String(value || '');
+		try { font.widthOfTextAtSize(text, 10); return text; } catch { return [...text].map((char) => (isEncodable(char) ? char : '?')).join(''); }
+	};
+	const headerTop = y;
+	let brandY = headerTop;
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 100; const maxHeight = 50;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(safeText(companyName), 11, fontBold);
+	drawRight(safeText(truncate(companyAddress, 50)), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText('Métré - Relevé de mesures', { x: marginX, y: leftY, size: 18, font: fontBold });
+	leftY -= 24;
+	page.drawText(`Chantier : ${safeText(truncate(projectName, 48))}`, { x: marginX, y: leftY, size: 11, font: fontBold });
+	leftY -= 16;
+	page.drawText(`Plan : ${safeText(truncate(documentName, 55))}`, { x: marginX, y: leftY, size: 10, font });
+	leftY -= 14;
+	page.drawText(safeText(calibrationLabel), { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	leftY -= 14;
+	page.drawText(`Généré le ${safeText(generatedAt)}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	y = Math.min(leftY, brandY) - 16;
+	const columns = [
+		{ label: 'Désignation', x: marginX },
+		{ label: 'Type', x: marginX + 195 },
+		{ label: 'Unitaire', x: marginX + 300 },
+		{ label: 'Répét.', x: marginX + 355 },
+		{ label: 'Total', x: marginX + 395 },
+		{ label: 'Unité', x: rightEdge - 35 },
+	];
+	const drawHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	drawHeader();
+	let grossM2 = 0; let openingsM2 = 0; let openingsCount = 0; let openingsPerimeterMl = 0; let totalMl = 0;
+	for (const entry of measurements) {
+		const repeatCount = entry.repeatCount || 1;
+		const effective = entry.value * repeatCount;
+		if (entry.unit === 'm2' && entry.role === 'opening') { openingsM2 += effective; openingsCount += repeatCount; openingsPerimeterMl += (entry.perimeterM || 0) * repeatCount; }
+		else if (entry.unit === 'm2') { grossM2 += effective; }
+		else { totalMl += effective; }
+		if (y < 90) { page = doc.addPage(pageSize); y = 800; drawHeader(); }
+		const typeLabel = entry.role === 'opening' ? 'Ouverture (déduite)' : entry.type === 'polygon' ? 'Surface' : 'Ligne';
+		const rowColor = entry.role === 'opening' ? rgb(0.75, 0.25, 0.25) : rgb(0, 0, 0);
+		page.drawText(safeText(truncate(entry.label, 34)), { x: columns[0].x, y, size: 9, font, color: rowColor });
+		page.drawText(typeLabel, { x: columns[1].x, y, size: 8, font, color: rowColor });
+		page.drawText(entry.value.toFixed(2), { x: columns[2].x, y, size: 9, font, color: rowColor });
+		page.drawText(`×${repeatCount}`, { x: columns[3].x, y, size: 9, font, color: rowColor });
+		page.drawText(effective.toFixed(2), { x: columns[4].x, y, size: 9, font: fontBold, color: rowColor });
+		page.drawText(entry.unit === 'm2' ? 'm²' : 'ml', { x: columns[5].x, y, size: 9, font, color: rowColor });
+		y -= 16;
+	}
+	const netM2 = Math.max(0, grossM2 - openingsM2);
+	if (y < 140) { page = doc.addPage(pageSize); y = 800; }
+	y -= 10;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 22;
+	const totalsLines = [
+		`Total brut (surfaces) : ${grossM2.toFixed(2)} m²`,
+		openingsCount > 0 ? `Ouvertures à déduire : -${openingsM2.toFixed(2)} m² (${openingsCount} unité, pourtour ${openingsPerimeterMl.toFixed(2)} ml)` : null,
+		`TOTAL NET : ${netM2.toFixed(2)} m²`,
+		totalMl > 0 ? `Total lignes : ${totalMl.toFixed(2)} ml` : null,
+	].filter(Boolean);
+	for (const line of totalsLines) {
+		page.drawText(line, { x: marginX, y, size: 12, font: fontBold });
+		y -= 18;
+	}
+	y -= 8;
+	page.drawText('Mesures calibrées directement sur le plan (géométrie exacte, pixel par pixel) - aucune reconnaissance IA.', { x: marginX, y, size: 8, font, color: rgb(0.45, 0.45, 0.45) });
+	return Buffer.from(await doc.save());
+}
+// Generates the devis itself from this chantier's own line items (with their prices), instead of only
+// ever importing one someone else sent. Same pdf-lib pattern as buildMetrePdf/buildHoursPdf (company
+// branding, paginated table, the same WinAnsi sanitizer for free-text descriptions - a devis line's
+// description is just as user-typed as a measurement's label, so the exact same "−" vs "-" class of bug
+// applies here too), grouped by category with a subtotal per category and one grand total at the end.
+async function buildDevisPdf({ companyName, companyAddress, logoBuffer, projectName, devisNumber, client, items, total, generatedAt }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	const encodableCache = new Map();
+	const isEncodable = (char) => {
+		if (encodableCache.has(char)) return encodableCache.get(char);
+		let ok = true;
+		try { font.widthOfTextAtSize(char, 10); } catch { ok = false; }
+		encodableCache.set(char, ok);
+		return ok;
+	};
+	const safeText = (value) => {
+		const text = String(value || '');
+		try { font.widthOfTextAtSize(text, 10); return text; } catch { return [...text].map((char) => (isEncodable(char) ? char : '?')).join(''); }
+	};
+	const headerTop = y;
+	let brandY = headerTop;
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 100; const maxHeight = 50;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(safeText(companyName), 11, fontBold);
+	drawRight(safeText(truncate(companyAddress, 50)), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText('Devis', { x: marginX, y: leftY, size: 18, font: fontBold });
+	leftY -= 24;
+	if (devisNumber) { page.drawText(`N° ${safeText(devisNumber)}`, { x: marginX, y: leftY, size: 11, font: fontBold }); leftY -= 16; }
+	page.drawText(`Chantier : ${safeText(truncate(projectName, 48))}`, { x: marginX, y: leftY, size: 11, font });
+	leftY -= 16;
+	if (client) { page.drawText(`Client : ${safeText(truncate(client, 48))}`, { x: marginX, y: leftY, size: 10, font }); leftY -= 14; }
+	page.drawText(`Généré le ${safeText(generatedAt)}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	y = Math.min(leftY, brandY) - 16;
+	const columns = [
+		{ label: 'Désignation', x: marginX },
+		{ label: 'Qté', x: marginX + 260 },
+		{ label: 'Unité', x: marginX + 300 },
+		{ label: 'P.U. EUR', x: marginX + 345 },
+		{ label: 'Total EUR', x: rightEdge - 70 },
+	];
+	const drawTableHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	drawTableHeader();
+	let currentCategory = null;
+	let categorySubtotal = 0;
+	const flushCategorySubtotal = () => {
+		if (currentCategory === null) return;
+		page.drawText(`Sous-total ${safeText(truncate(currentCategory, 40))} : ${categorySubtotal.toFixed(2)} EUR`, { x: marginX, y, size: 9, font: fontBold, color: rgb(0.35, 0.35, 0.35) });
+		y -= 18;
+	};
+	for (const item of items) {
+		const category = item.category || item.description;
+		if (category !== currentCategory) {
+			if (y < 110) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+			flushCategorySubtotal();
+			if (y < 90) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+			page.drawText(safeText(truncate(category, 60)), { x: marginX, y, size: 10, font: fontBold });
+			y -= 16;
+			currentCategory = category;
+			categorySubtotal = 0;
+		}
+		if (y < 90) { page = doc.addPage(pageSize); y = 800; drawTableHeader(); }
+		categorySubtotal += Number(item.lineTotal || 0);
+		page.drawText(safeText(truncate(item.description, 42)), { x: columns[0].x, y, size: 9, font });
+		page.drawText(String(item.quantity), { x: columns[1].x, y, size: 9, font });
+		page.drawText(safeText(item.unit || ''), { x: columns[2].x, y, size: 9, font });
+		page.drawText(Number(item.unitPrice || 0).toFixed(2), { x: columns[3].x, y, size: 9, font });
+		page.drawText(Number(item.lineTotal || 0).toFixed(2), { x: columns[4].x, y, size: 9, font: fontBold });
+		y -= 16;
+	}
+	if (y < 90) { page = doc.addPage(pageSize); y = 800; }
+	flushCategorySubtotal();
+	y -= 8;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 22;
+	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} EUR`, { x: marginX, y, size: 13, font: fontBold });
+	return Buffer.from(await doc.save());
+}
 const previousMonthKey = (date = new Date()) => {
 	const previous = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() - 1, 1));
 	return previous.toISOString().slice(0, 7);
@@ -567,7 +1021,11 @@ const companyBrandingForPdf = async (data, worker) => {
 	return { companyName: profile.name || worker?.employerCompany || worker?.company || '', companyAddress: owner?.companyAddress || '', logoBuffer };
 };
 
-app.get('/api/health', (_request, response) => response.json({ status: 'ok', service: 'ibra-ba-api' }));
+app.get('/api/health', (_request, response) => response.json({
+	status: 'ok',
+	service: 'ibra-ba-api',
+	commit: process.env.RENDER_GIT_COMMIT || 'devis-gemini-inspect-retry-2026-10-10k',
+}));
 app.get('/', (_request, response) => response.sendFile(path.join(root, 'index.html')));
 app.get('/api/siret/:siret', async (request, response) => {
 	try {
@@ -674,10 +1132,35 @@ app.post('/api/auth/change-password', auth, async (request, response) => {
 	user.passwordHash = await bcrypt.hash(newPassword, 12); user.passwordChangedAt = Math.floor(Date.now() / 1000); await writeData(data); const profile = companyProfileForUser(data, user); response.json({ message: 'Password changed', token: issueAuthToken(user, profile), user: publicUser(user, profile) });
 });
 app.get('/api/me', auth, (request, response) => response.json({ user: publicUser(request.userRecord, request.companyProfile), company: publicCompanyProfile(request.companyProfile) }));
-app.get('/api/users', auth, manager, async (request, response) => { const data = await readData(); response.json(data.users.map((user) => publicUser(user, companyProfileForUser(data, user)))); });
+app.patch('/api/me', auth, async (request, response) => {
+	const data = await readData();
+	const user = data.users.find((item) => item.id === request.user.sub);
+	if (!user) return response.status(404).json({ error: 'User not found' });
+	const name = String(request.body.name ?? user.name).trim();
+	const contact = String(request.body.contact || '').trim();
+	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(user.email || '').trim().toLowerCase();
+	const phone = contact ? (email ? '' : contact) : String(user.phone || '').trim();
+	const normalizedPhone = phone.replace(/[\s()-]/g, '');
+	if (!name || (!email && !phone)) return response.status(400).json({ error: 'Name and phone or email are required' });
+	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
+	user.name = name;
+	user.email = email;
+	user.phone = phone;
+	data.timeEntries = (data.timeEntries || []).map((entry) => entry.workerId === user.id ? { ...entry, workerName: user.name } : entry);
+	await writeData(data);
+	const profile = companyProfileForUser(data, user);
+	response.json({ user: publicUser(user, profile) });
+});
+app.get('/api/users', auth, manager, async (request, response) => {
+	const data = await readData();
+	const visible = request.user.role === 'admin' ? data.users : data.users.filter((user) => sameCompany(data, user, request.userRecord));
+	response.json(visible.map((user) => publicUser(user, companyProfileForUser(data, user))));
+});
 app.get('/api/contacts', auth, async (request, response) => {
 	const data = await readData(); const financialView = isOwnerRole(request.user.role);
-	response.json(data.users.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), ...(financialView ? { dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 } : {}) })));
+	const myOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+	const scoped = request.user.role === 'admin' ? data.users : data.users.filter((user) => (companyOwnerForUser(data, user) || user).id === myOwner.id);
+	response.json(scoped.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), ...(financialView ? { dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 } : {}) })));
 });
 app.get('/api/company/profile', auth, async (request, response) => response.json(publicCompanyProfile(companyProfileForUser(await readData(), request.userRecord))));
 app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'), async (request, response) => {
@@ -689,7 +1172,8 @@ app.patch('/api/company/profile', auth, manager, identityUploadMiddleware('logo'
 	const removeLogo = String(request.body.removeLogo || '').toLowerCase() === 'true';
 	if (removeLogo && existing.logoFile) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
 	if (request.file && existing.logoFile && existing.logoFile !== request.file.filename) await deleteFile(IDENTITY_BUCKET, existing.logoFile);
-	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
+	const accountantEmail = String(request.body.accountantEmail ?? existing.accountantEmail ?? '').trim();
+	const profile = { key: existing.key || companyKeyForUser(owner), name, siret: owner?.siret || existing.siret || '', logoFile: removeLogo ? '' : (request.file?.filename || existing.logoFile || ''), accountantEmail, updatedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.companyProfiles = [...(data.companyProfiles || []).filter((item) => item.key !== profile.key), profile];
 	data.users = data.users.map((user) => {
 		if (companyKeyForUser(companyOwnerForUser(data, user) || user) !== profile.key) return user;
@@ -754,7 +1238,8 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	const siret = String(request.body.siret || '').trim(); const phone = String(request.body.phone || '').trim();
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const company = String(request.body.company || '').trim();
-	const selectedProjectIds = role === 'user' ? normalizeProjectIds(request.body.projectIds, data.projects) : (data.projects || []).map((project) => project.id);
+	const companyProjects = projectsForCompany(data, owner?.id);
+	const selectedProjectIds = role === 'user' ? normalizeProjectIds(request.body.projectIds, companyProjects) : companyProjects.map((project) => project.id);
 	if (!name || !/^\S+@\S+\.\S+$/.test(email) || (role === 'gerant' && (!siret || !company)) || (role === 'user' && (!ownerSiret || !ownerCompany || !selectedProjectIds.length))) return response.status(400).json({ error: 'Name, email, company/SIRET details, and at least one chantier are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	if (role === 'gerant' && data.users.some((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === cleanSiret(siret))) return response.status(409).json({ error: 'SIRET owner already exists' });
@@ -770,7 +1255,6 @@ app.post('/api/users', auth, manager, async (request, response) => {
 	let delivery = 'manual';
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - votre accès', text: credentialsText });
 	if (!mailResult.skipped) delivery = 'email';
-	if (delivery === 'manual' && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Configure email delivery before creating users' });
 	data.users.push(user); await writeData(data);
 	const { passwordHash, ...safeUser } = user;
 	response.status(201).json({ ...safeUser, delivery, ...(delivery === 'manual' ? { setupUrl } : {}) });
@@ -786,7 +1270,7 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const normalizedPhone = phone.replace(/[\s()-]/g, '');
 	const dailyRate = Number(request.body.dailyRate || 0);
 	const hourlyRate = Number(request.body.hourlyRate || 0);
-	const selectedProjectIds = normalizeProjectIds(request.body.projectIds, data.projects);
+	const selectedProjectIds = normalizeProjectIds(request.body.projectIds, projectsForCompany(data, owner?.id));
 	if (!name || !/^\S+@\S+\.\S+$/.test(email) || !ownerSiret || !ownerCompany || !selectedProjectIds.length || dailyRate < 0 || hourlyRate < 0) return response.status(400).json({ error: 'Name, worker email, owner company/SIRET, at least one chantier, daily rate, and hourly rate are required' });
 	if ((email && data.users.some((user) => user.email && user.email.toLowerCase() === email)) || (phone && data.users.some((user) => user.phone && user.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'Worker already exists' });
 	const user = { id: `user-${Date.now()}`, name, email, phone, deliveryMethod: 'email', role: 'user', siret: '', company: ownerCompany, employerSiret: ownerSiret, employerCompany: ownerCompany, invitedBy: request.user.sub, projectIds: selectedProjectIds, dailyRate, hourlyRate, passwordHash: await bcrypt.hash(crypto.randomBytes(32).toString('base64url'), 12), passwordChangedAt: Math.floor(Date.now() / 1000) };
@@ -794,7 +1278,6 @@ app.post('/api/workers', auth, manager, async (request, response) => {
 	const assignedProjectNames = selectedProjectIds.map((projectId) => (data.projects || []).find((project) => project.id === projectId)?.name || projectId).join(', ');
 	const credentialsText = `Bonjour ${name},\n\n${request.user.name} vous a invité dans IBRA-BA pour la société ${ownerCompany}.\nSIRET: ${ownerSiret}\nChantiers attribués: ${assignedProjectNames}\nIdentifiant : ${email}\n\nCliquez ici pour choisir votre mot de passe : ${setupUrl}\n\nVous pourrez ensuite saisir vos jours de travail et vos rendez-vous/absences. Ce lien est valable 7 jours.`;
 	const mailResult = await sendMailSafe({ to: email, subject: 'IBRA-BA - invitation ouvrier', text: credentialsText });
-	if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 	data.users.push(user);
 	await writeData(data);
 	const { passwordHash, ...safeUser } = user;
@@ -805,6 +1288,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
 	if (user.id === request.user.sub) return response.status(400).json({ error: 'Edit your own account through the account flow' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	const name = String(request.body.name ?? user.name).trim();
 	const contact = String(request.body.contact || '').trim();
 	const email = contact ? (/^\S+@\S+\.\S+$/.test(contact) ? contact.toLowerCase() : '') : String(request.body.email ?? user.email ?? '').trim().toLowerCase();
@@ -814,7 +1298,7 @@ app.patch('/api/users/:id', auth, manager, async (request, response) => {
 	if ((email && data.users.some((item) => item.id !== user.id && item.email && item.email.toLowerCase() === email)) || (phone && data.users.some((item) => item.id !== user.id && item.phone && item.phone.replace(/[\s()-]/g, '') === normalizedPhone))) return response.status(409).json({ error: 'User already exists' });
 	const isWorker = isWorkerRole(user.role);
 	const hasProjectAssignment = request.body.projectIds !== undefined;
-	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, data.projects) : (user.projectIds || []);
+	const projectIds = hasProjectAssignment ? normalizeProjectIds(request.body.projectIds, projectsForCompany(data, (companyOwnerForUser(data, request.userRecord) || request.userRecord).id)) : (user.projectIds || []);
 	if (isWorker && hasProjectAssignment && !projectIds.length) return response.status(400).json({ error: 'At least one chantier is required for a worker' });
 	const dailyRate = request.body.dailyRate === undefined ? user.dailyRate : Number(request.body.dailyRate);
 	const hourlyRate = request.body.hourlyRate === undefined ? user.hourlyRate : Number(request.body.hourlyRate);
@@ -835,11 +1319,11 @@ app.post('/api/users/:id/password-reset', auth, manager, async (request, respons
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
 	if (user.id === request.user.sub) return response.status(400).json({ error: 'Use the account password flow for your own account' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	if (!user.email) return response.status(400).json({ error: 'This user has no email address for password reset' });
 	const setupUrl = createPasswordSetupUrl(data, user.id);
 	try {
 		const mailResult = await sendMailSafe({ to: user.email, subject: 'IBRA-BA - nouveau lien de mot de passe', text: `Bonjour ${user.name},\n\nUn nouveau lien de configuration de mot de passe a été demandé pour votre accès IBRA-BA :\n\n${setupUrl}\n\nCe lien est valable 7 jours.` });
-		if (mailResult.skipped && process.env.NODE_ENV === 'production') return response.status(503).json({ error: 'Email delivery is not configured' });
 		await writeData(data);
 		return response.json({ message: mailResult.skipped ? 'Reset link prepared for local testing.' : 'Reset link sent.', delivery: mailResult.skipped ? 'manual' : 'email', ...(mailResult.skipped ? { setupUrl } : {}) });
 	} catch (error) {
@@ -855,7 +1339,7 @@ app.get('/api/worker-assignments', auth, manager, async (request, response) => {
 		const owner = companyOwnerForUser(data, worker);
 		return owner?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
 	};
-	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const projects = (request.user.role === 'admin' ? (data.projects || []) : projectsForCompany(data, (companyOwnerForUser(data, managerUser) || managerUser).id)).filter((project) => project.status !== 'archived');
 	const workers = (data.users || []).filter((user) => isWorkerRole(user.role) && managerOwnsWorker(user));
 	response.json({ workers: workers.map((user) => ({ ...publicUser(user, companyProfileForUser(data, user)), dailyRate: user.dailyRate || 0, hourlyRate: user.hourlyRate || 0 })), projects, assignments: workers.map((user) => ({ userId: user.id, projectIds: user.projectIds || [] })) });
 });
@@ -866,7 +1350,7 @@ app.put('/api/worker-assignments', auth, manager, async (request, response) => {
 	const managerUser = data.users.find((user) => user.id === request.user.sub) || request.userRecord;
 	const ownerUsers = (data.users || []).filter((user) => isOwnerRole(user.role));
 	const managerOwnsWorker = (worker) => request.user.role === 'admin' || companyOwnerForUser(data, worker)?.id === managerUser.id || (ownerUsers.length === 1 && !worker.invitedBy && !worker.employerSiret && !worker.employerCompany);
-	const projects = (data.projects || []).filter((project) => project.status !== 'archived' && (request.user.role === 'admin' || !(managerUser.projectIds || []).length || (managerUser.projectIds || []).includes(project.id)));
+	const projects = (request.user.role === 'admin' ? (data.projects || []) : projectsForCompany(data, (companyOwnerForUser(data, managerUser) || managerUser).id)).filter((project) => project.status !== 'archived');
 	const availableIds = new Set(projects.map((project) => project.id));
 	const updateMap = new Map();
 	for (const assignment of assignments) {
@@ -888,8 +1372,9 @@ app.delete('/api/users/:id', auth, manager, async (request, response) => {
 	const data = await readData();
 	const user = data.users.find((item) => item.id === request.params.id);
 	if (!user) return response.status(404).json({ error: 'User not found' });
+	if (request.user.role !== 'admin' && !sameCompany(data, user, request.userRecord)) return response.status(403).json({ error: 'Access denied for this user' });
 	if (isOwnerRole(user.role)) {
-		const remainingManagers = data.users.filter((item) => item.id !== user.id && isOwnerRole(item.role));
+		const remainingManagers = data.users.filter((item) => item.id !== user.id && isOwnerRole(item.role) && sameCompany(data, item, user));
 		if (!remainingManagers.length) return response.status(400).json({ error: 'At least one manager/admin account must remain' });
 	}
 	data.users = data.users.filter((item) => item.id !== user.id);
@@ -908,8 +1393,11 @@ const defaultControlsForProject = (projectId) => [
 	{ id: `${projectId}-photo-evidence`, projectId, name: 'Fotografije i dokazi po fazama rada', status: 'incomplete', owner: 'Gérant' }
 ];
 app.get('/api/projects', auth, async (request, response) => {
-	const projects = (await readData()).projects || [];
-	const visible = isOwnerRole(request.user.role) ? projects : projects.filter((project) => (request.user.projectIds || []).includes(project.id));
+	const data = await readData();
+	const projects = data.projects || [];
+	const visible = request.user.role === 'admin' ? projects
+		: isOwnerRole(request.user.role) ? projects.filter((project) => project.ownerId === ownerIdFor(data, request.user))
+		: projects.filter((project) => (request.user.projectIds || []).includes(project.id));
 	response.json(visible);
 });
 app.post('/api/projects', auth, manager, async (request, response) => {
@@ -918,18 +1406,55 @@ app.post('/api/projects', auth, manager, async (request, response) => {
 	const data = await readData();
 	let id = slugifyProjectId(name);
 	if ((data.projects || []).some((project) => project.id === id)) id = `${id}-${Date.now()}`;
-	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, createdAt: new Date().toISOString() };
+	const ownerId = companyOwnerForUser(data, request.userRecord)?.id || request.userRecord.id;
+	const project = { id, name, location: String(request.body.location || '').trim(), progress: 0, status: 'active', manager: request.user.name || request.user.sub, ownerId, createdAt: new Date().toISOString() };
 	data.projects = [...(data.projects || []), project];
 	data.chantierControls = [...(data.chantierControls || []), ...defaultControlsForProject(id)];
-	data.users = (data.users || []).map((user) => isOwnerRole(user.role) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
+	data.users = (data.users || []).map((user) => (isOwnerRole(user.role) && (companyOwnerForUser(data, user)?.id || user.id) === ownerId) ? { ...user, projectIds: [...new Set([...(user.projectIds || []), id])] } : user);
 	await writeData(data);
 	response.status(201).json(project);
 });
-app.delete('/api/projects/:id', auth, manager, async (request, response) => {
-	if (request.params.id === 'lot-a') return response.status(400).json({ error: 'Default chantier cannot be removed' });
+app.patch('/api/projects/:id/progress', auth, manager, async (request, response) => {
+	const progress = Number(request.body.progress);
+	if (!Number.isFinite(progress) || progress < 0 || progress > 100) return response.status(400).json({ error: 'Progress must be a number between 0 and 100' });
 	const data = await readData();
 	const project = (data.projects || []).find((item) => item.id === request.params.id);
 	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	project.progress = Math.round(progress);
+	project.progressUpdatedAt = new Date().toISOString();
+	project.progressUpdatedBy = request.user.sub;
+	await writeData(data);
+	response.json(project);
+});
+app.get('/api/projects/:id/weather', auth, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const project = (data.projects || []).find((item) => item.id === request.params.id);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (project.weatherLat == null || project.weatherLon == null) {
+		let geocoded;
+		try { geocoded = await geocodeLocation(project.location || project.name); } catch (error) { console.error('[weather] geocodeLocation failed:', error.message); }
+		if (!geocoded) return response.json({ available: false });
+		project.weatherLat = geocoded.lat;
+		project.weatherLon = geocoded.lon;
+		project.weatherLabel = geocoded.label;
+		await writeData(data);
+	}
+	try {
+		const forecast = await fetchForecast(project.weatherLat, project.weatherLon);
+		const payload = { available: true, label: project.weatherLabel || project.location, days: forecast.days.map((day) => ({ ...day, ...weatherCodeLabel(day.code) })) };
+		response.json(payload);
+	} catch (error) {
+		console.error('[weather] forecast fetch failed:', error.message);
+		response.json({ available: false });
+	}
+});
+app.delete('/api/projects/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const project = (data.projects || []).find((item) => item.id === request.params.id);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
 	data.projects = (data.projects || []).filter((item) => item.id !== request.params.id);
 	data.projectBudgets = (data.projectBudgets || []).filter((item) => item.projectId !== request.params.id);
 	data.projectSchedules = (data.projectSchedules || []).filter((item) => item.projectId !== request.params.id);
@@ -942,6 +1467,8 @@ app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	data.messages = (data.messages || []).filter((item) => item.projectId !== request.params.id);
 	data.rendezvous = (data.rendezvous || []).filter((item) => item.projectId !== request.params.id);
 	data.timeEntries = (data.timeEntries || []).filter((item) => item.projectId !== request.params.id);
+	data.devisLineItems = (data.devisLineItems || []).filter((item) => item.projectId !== request.params.id);
+	data.factures = (data.factures || []).filter((item) => item.projectId !== request.params.id);
 	data.users = (data.users || []).map((user) => ({ ...user, projectIds: (user.projectIds || []).filter((id) => id !== request.params.id) }));
 	await writeData(data);
 	response.json({ removed: true, id: project.id, name: project.name });
@@ -982,14 +1509,53 @@ const parseAmount = (value) => {
 	const number = Number(String(value || '').replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.'));
 	return Number.isFinite(number) ? number : 0;
 };
-const extractDevisFields = (text) => {
-	const normalized = String(text || '').replace(/\s+/g, ' ').trim();
+// Regex keyword matches can land inside a pricing-table header or a terms/conditions
+// clause instead of the actual field (e.g. "...Mention datée et signée : TASH N° Désignation
+// Qté PU TVA" or "...ajustement des fournitures et/ou de leurs prix."). Those captures are
+// non-empty but wrong, so they must be rejected here rather than silently accepted — otherwise
+// the Gemini AI fallback below never runs because the field already looks "found".
+const looksLikeGarbageDevisField = (value) => /désignation|qté|p\.?u\.?|tva|mention datée|ajustement des fournitures|conditions générales/i.test(value);
+// A label like "Chantier ::" (a stray double colon some PDF exports produce) made the capture group
+// match just ":" - non-empty, so `extracted.chantier || aiChantier` in /api/budget/inspect treated it as
+// "already found" and discarded Gemini's real answer instead of falling back to it. Reject anything that
+// isn't at least 2 characters with a real letter or digit in it, not only the specific garbage phrases.
+const isMeaningfulDevisValue = (value) => value.length >= 2 && /[\p{L}\d]/u.test(value);
+// Devis/facture labels (Client:, Chantier:, etc.) are almost always on their own line, immediately
+// followed by the value up to the end of that same line — a far more reliable stop boundary than
+// hand-curated keywords. Tried first; the keyword-bounded match on whitespace-collapsed text (passed
+// in as `normalizedPattern`) is only a fallback for text where line breaks didn't survive PDF parsing.
+// linePatterns can be a single pattern or an array tried in priority order (all lines checked against
+// the first pattern before moving to the next) - lets a more exact label (e.g. "Chantier:") win over a
+// looser one (e.g. "Adresse du projet:") even when the looser label's line comes first in the document.
+const extractLabeledField = (rawText, normalized, linePatterns, normalizedPattern) => {
+	for (const pattern of Array.isArray(linePatterns) ? linePatterns : [linePatterns]) {
+		for (const line of String(rawText || '').split(/\r?\n/)) {
+			const value = line.match(pattern)?.[1]?.trim();
+			if (value && isMeaningfulDevisValue(value) && !looksLikeGarbageDevisField(value)) return value;
+		}
+	}
+	const fallback = normalized.match(normalizedPattern)?.[1]?.trim() || '';
+	return (fallback && isMeaningfulDevisValue(fallback) && !looksLikeGarbageDevisField(fallback)) ? fallback : '';
+};
+const extractDevisFields = (rawText) => {
+	const normalized = String(rawText || '').replace(/\s+/g, ' ').trim();
 	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
 	const rawAmount = amountMatches.at(-1)?.[1] || '';
+	// The lookahead below uses \s* (zero-or-more), not \s+: when a stray separator leaves the lazy
+	// capture already sitting right in front of the next label (no whitespace left to consume), a \s+
+	// requirement can never be satisfied there, so the lazy match keeps growing - silently swallowing
+	// the rest of the document instead of stopping, right up to the next field's own value. See the
+	// "Chantier ::" regression test for the exact failure this caused.
+	const client = extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s*(?:adresse|chantier|travaux|total|montant)\b|$)/i);
+	const chantier = extractLabeledField(
+		rawText, normalized,
+		[/^\s*(?:chantier|projet|lieu des travaux)\s*[:#-]?\s*(.+)/i, /^\s*(?:adresse du projet|adresse chantier)\s*[:#-]?\s*(.+)/i],
+		/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s*(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i
+	);
 	return {
 		number: normalized.match(/(?:devis|devis n(?:°|o)?|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
-		client: normalized.match(/(?:client|donneur d'ordre)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s+(?:adresse|chantier|travaux|total|montant)\b|$)/i)?.[1]?.trim() || '',
-		chantier: normalized.match(/(?:adresse du projet|adresse chantier|chantier|projet|lieu des travaux)\s*[:#-]?\s*([^|;]{2,160}?)(?=\s+(?:adresse|travaux|total|montant|net à payer|devis)\b|$)/i)?.[1]?.trim() || '',
+		client,
+		chantier,
 		total: parseAmount(rawAmount)
 	};
 };
@@ -997,51 +1563,298 @@ const inspectDevisWithGemini = async (file) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	if (!geminiApiKey) return null;
 	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
-	const prompt = 'Read this French construction quote/devis PDF. Return only JSON with fields: number string, client string, chantier string, total number. Use the final TTC/net payable total when available. If a field is not visible, use empty string or 0.';
-	const geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify({
-			generationConfig: { temperature: 0, responseMimeType: 'application/json' },
-			contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
-		})
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Return JSON with fields: number, client, chantier, total. The "chantier" field is the site/jobsite address where the work takes place (often near "chantier", "lieu d\'exécution", or a second address block) — it is NEVER a sentence from the terms, conditions, or legal clauses of the devis; if no distinct site address is printed, reuse the client address. Copy the client name and chantier/site address text EXACTLY and COMPLETELY as printed in the PDF — full legal name, full address, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. If a field is genuinely not visible anywhere in the PDF, use empty string or 0.';
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			responseSchema: {
+				type: 'OBJECT',
+				properties: {
+					number: { type: 'STRING' },
+					client: { type: 'STRING' },
+					chantier: { type: 'STRING', description: "Site/jobsite address only, never a legal/terms sentence" },
+					total: { type: 'NUMBER' }
+				},
+				required: ['number', 'client', 'chantier', 'total']
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
 	});
-	if (!geminiResponse.ok) {
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini devis inspect network error', networkError.message);
+			return null;
+		}
+		if (geminiResponse.ok) break;
 		const details = await geminiResponse.text();
-		console.error('Gemini devis inspect rejected', geminiResponse.status, details.slice(0, 500));
-		return null;
+		console.error('Gemini devis inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
 	}
 	const result = await geminiResponse.json();
 	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
 };
-app.post('/api/budget/inspect', auth, memoryUpload.single('file'), async (request, response) => {
-	if (!request.file || (request.file.mimetype !== 'application/pdf' && !request.file.originalname.toLowerCase().endsWith('.pdf'))) return response.status(400).json({ error: 'A Devis PDF is required' });
+const extractDevisLineItemsWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return { items: [], error: 'Aucune clé GEMINI_API_KEY/GOOGLE_AI_API_KEY configurée sur le serveur.' };
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = 'Read this French construction quote/devis PDF very carefully. Extract EVERY individual line item (descriptif/désignation) from the pricing table, in full. Copy the description text EXACTLY and COMPLETELY as written in the PDF — do not paraphrase, summarize, truncate, or merge rows together, and do not skip any row even if a value looks incomplete. Copy the quantity and unit (m2, ml, u, forfait, kg, etc.) exactly as printed, and the unit price / line total exactly as printed (do not round). Also identify the section/phase/lot heading that each row is printed under (for example "TRAVAUX DEMOLITION" or "REALISATION TRAVAUX") and put it in "category", reusing the exact same category string for every row under that same heading; if a row has no nearby section heading, use its own description as the category. Return only a JSON array, each entry: { "description": string, "quantity": number, "unit": string, "unitPrice": number, "lineTotal": number, "category": string }. Keep the original row order. Only use 0 or an empty string for a field that is genuinely absent from that row in the PDF.';
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			maxOutputTokens: 8192,
+			responseSchema: {
+				type: 'ARRAY',
+				items: {
+					type: 'OBJECT',
+					properties: {
+						description: { type: 'STRING' },
+						quantity: { type: 'NUMBER' },
+						unit: { type: 'STRING' },
+						unitPrice: { type: 'NUMBER' },
+						lineTotal: { type: 'NUMBER' },
+						category: { type: 'STRING' }
+					},
+					required: ['description', 'quantity', 'unit', 'unitPrice', 'lineTotal', 'category']
+				}
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	let lastDetails = '';
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini devis line items network error', networkError.message);
+			return { items: [], error: `Erreur réseau vers Gemini (modèle ${model}) : ${networkError.message}` };
+		}
+		if (geminiResponse.ok) break;
+		lastDetails = await geminiResponse.text();
+		console.error('Gemini devis line items rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, lastDetails.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) {
+			return { items: [], error: `Gemini a refusé la requête (HTTP ${geminiResponse.status}, modèle ${model}) : ${lastDetails.slice(0, 300)}` };
+		}
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	if (result.promptFeedback?.blockReason) {
+		console.error('Gemini devis line items blocked', result.promptFeedback.blockReason);
+		return { items: [], error: `Contenu bloqué par Gemini (${result.promptFeedback.blockReason}).` };
+	}
+	const candidate = result.candidates?.[0];
+	const rawText = String(candidate?.content?.parts?.[0]?.text || '').trim();
+	if (!rawText) {
+		console.error('Gemini devis line items empty response', JSON.stringify(result).slice(0, 500));
+		return { items: [], error: `Gemini n'a renvoyé aucun contenu (finishReason: ${candidate?.finishReason || 'inconnu'}).` };
+	}
+	try {
+		const parsed = JSON.parse(rawText.replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		const items = Array.isArray(parsed) ? parsed.map((item) => ({
+			description: String(item.description || '').trim(),
+			quantity: Number(item.quantity) || 0,
+			unit: String(item.unit || ''),
+			unitPrice: Number(item.unitPrice) || 0,
+			lineTotal: Number(item.lineTotal) || 0,
+			category: String(item.category || '').trim() || String(item.description || '').trim()
+		})) : [];
+		if (!items.length) return { items: [], error: `Gemini n'a identifié aucune ligne dans le tableau de prix (finishReason: ${candidate?.finishReason || 'inconnu'}).` };
+		return { items, error: null };
+	} catch (parseError) { return { items: [], error: `Réponse Gemini illisible : ${parseError.message}` }; }
+};
+app.post('/api/budget/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'A Devis PDF, photo, or Excel file is required' });
+	// An Excel bill-of-quantities is read directly cell by cell - no AI, no text pattern guessing, the
+	// most precise source available - so it's branched off entirely before the PDF/photo path below.
+	if (isExcelFile(request.file)) {
+		const excelResult = await parseDevisExcel(request.file.buffer);
+		const total = excelResult.items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+		return response.json({ extracted: { number: '', client: '', chantier: '', total }, lineItems: excelResult.items, lineItemsSource: 'excel', lineItemsError: excelResult.error, textFound: true, needsConfirmation: true, source: request.file.originalname, aiFallbackUsed: false });
+	}
+	// Accepts a phone photo of a paper devis, not only a real PDF: a scanned/photographed page has no
+	// text layer for parsePdf anyway, so it already depended entirely on the Gemini vision fallback
+	// below - rejecting it outright at the door just forced a manual-entry PDF conversion step first.
+	if (!isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Devis PDF or photo is required' });
 	let text = '';
-	try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); }
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Devis PDF text parse failed:', error.message); } }
 	const extracted = extractDevisFields(text);
 	let source = request.file.originalname;
 	if (!extracted.number || !extracted.client || !extracted.chantier || !extracted.total) {
 		const ai = await inspectDevisWithGemini(request.file);
 		if (ai) {
 			extracted.number = extracted.number || String(ai.number || '');
-			extracted.client = extracted.client || String(ai.client || '');
-			extracted.chantier = extracted.chantier || String(ai.chantier || '');
+			const aiClient = String(ai.client || '').trim();
+			extracted.client = extracted.client || (looksLikeGarbageDevisField(aiClient) ? '' : aiClient);
+			const aiChantier = String(ai.chantier || '').trim();
+			extracted.chantier = extracted.chantier || (looksLikeGarbageDevisField(aiChantier) ? '' : aiChantier);
 			extracted.total = extracted.total || parseAmount(ai.total);
 			source = `${request.file.originalname} · Gemini`;
 		}
 	}
-	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') });
+	const lineItemsResult = await extractDevisLineItemsWithGemini(request.file);
+	response.json({ extracted, lineItems: lineItemsResult.items, lineItemsSource: 'ai', lineItemsError: lineItemsResult.error, textFound: text.length > 0, needsConfirmation: !extracted.number || !extracted.client || !extracted.chantier || !extracted.total, source, aiFallbackUsed: source.includes('Gemini') || lineItemsResult.items.length > 0 });
 });
-app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), async (request, response) => {
-	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A PDF file is required' });
-	const parsed = await parsePdf(request.file.buffer);
-	const text = parsed.text.replace(/\s+/g, ' ').trim();
-	const amountMatch = text.match(/(?:total|montant|amount|ukupno)\s*(?:ttc|t\.t\.c\.|eur|€)?\s*[:=]?\s*([\d\s.,]+)/i);
-	const dateMatch = text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/);
-	const supplier = text.match(/(?:fournisseur|supplier|dobavljač|vendeur)\s*[:=-]?\s*([^|;]{2,80})/i)?.[1]?.trim() || '';
-	const number = text.match(/(?:facture|invoice|facture n|račun|devis)\s*(?:n°|no|br\.?|#)?\s*[:=-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '';
-	const amount = amountMatch ? Number(amountMatch[1].replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
-	response.json({ textFound: text.length > 0, extracted: { number, supplier, date: dateMatch?.[1] || '', amount: Number.isFinite(amount) ? amount : 0 }, source: request.file.originalname, needsOcr: text.length === 0 });
+// A phone photo of a till receipt (a fuel/gas station ticket is the exact real case this is for) has
+// no text layer to regex-match at all, unlike a real PDF invoice - this is the same PDF-or-photo
+// tolerance and Gemini vision fallback already trusted for devis/facture inspect, just aimed at a
+// till-receipt's fields (supplier, a short description of what was bought, amount, date) instead.
+const inspectPurchaseWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this purchase receipt or invoice (PDF or photo) very carefully - it could be a fuel/gas station ticket, a hardware store receipt, a supplier invoice, or any other till receipt. Return only JSON with fields: supplier string (the business/station name exactly as printed), description string (what was purchased, a few words, e.g. \"Gazole 45L\" or \"Matériel électrique\" - summarize briefly if there are several line items, or copy the single item name), amount number (the final total actually paid, exact figure as printed, no rounding), date string (YYYY-MM-DD, the purchase/transaction date as printed, never guessed). If a field is genuinely not visible anywhere on the receipt, use an empty string or 0.";
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { supplier: { type: 'STRING' }, description: { type: 'STRING' }, amount: { type: 'NUMBER' }, date: { type: 'STRING', description: 'YYYY-MM-DD' } }, required: ['supplier', 'description', 'amount'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini purchase inspect network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini purchase inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
+app.post('/api/pdf/inspect', auth, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A PDF or photo receipt is required' });
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	let text = '';
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.replace(/\s+/g, ' ').trim(); } catch (error) { console.error('Purchase PDF text parse failed:', error.message); } }
+	if (text) {
+		const amountMatch = text.match(/(?:total|montant|amount|ukupno)\s*(?:ttc|t\.t\.c\.|eur|€)?\s*[:=]?\s*([\d\s.,]+)/i);
+		const dateMatch = text.match(/\b(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})\b/);
+		const supplier = text.match(/(?:fournisseur|supplier|dobavljač|vendeur)\s*[:=-]?\s*([^|;]{2,80})/i)?.[1]?.trim() || '';
+		const number = text.match(/(?:facture|invoice|facture n|račun|devis)\s*(?:n°|no|br\.?|#)?\s*[:=-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '';
+		const amount = amountMatch ? Number(amountMatch[1].replace(/\s/g, '').replace(/\.(?=\d{3}(?:\D|$))/g, '').replace(',', '.')) : 0;
+		return response.json({ textFound: true, extracted: { number, supplier, date: dateMatch?.[1] || '', amount: Number.isFinite(amount) ? amount : 0, description: '' }, source: request.file.originalname, needsOcr: false, aiUsed: false });
+	}
+	// No text layer (a scanned PDF or, the common real case, a phone photo of a till receipt) - fall
+	// back to Gemini vision rather than reporting "needs manual OCR" the way this route always used to.
+	const ai = await inspectPurchaseWithGemini(request.file);
+	if (!ai) return response.json({ textFound: false, extracted: { number: '', supplier: '', date: '', amount: 0, description: '' }, source: request.file.originalname, needsOcr: true, aiUsed: false });
+	response.json({ textFound: false, extracted: { number: '', supplier: String(ai.supplier || ''), date: parseFrenchDate(ai.date) || (/^\d{4}-\d{2}-\d{2}$/.test(ai.date || '') ? ai.date : ''), amount: Number(ai.amount) || 0, description: String(ai.description || '') }, source: `${request.file.originalname} · Gemini`, needsOcr: false, aiUsed: true });
+});
+const parseFrenchDate = (raw) => {
+	const match = String(raw || '').match(/\b(\d{1,2})[./-](\d{1,2})[./-](\d{2,4})\b/);
+	if (!match) return '';
+	let [, day, month, year] = match;
+	if (year.length === 2) year = `20${year}`;
+	const iso = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+	return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : '';
+};
+const extractFactureFields = (rawText) => {
+	const normalized = String(rawText || '').replace(/\s+/g, ' ').trim();
+	const amountMatches = [...normalized.matchAll(/(?:net à payer|total\s+(?:ttc|t\.t\.c\.)|montant\s+total|total)\s*[:=]?\s*([\d\s.,]+)\s*(?:€|eur)?/gi)];
+	const rawAmount = amountMatches.at(-1)?.[1] || '';
+	const dateMatches = [...normalized.matchAll(/\b\d{1,2}[./-]\d{1,2}[./-]\d{2,4}\b/g)].map((item) => item[0]);
+	const issuedLabelDate = normalized.match(/(?:date d'émission|date de facturation|émis le|le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
+	const dueLabelDate = normalized.match(/(?:date d'échéance|échéance|à régler avant le|payable avant le)\s*[:#-]?\s*(\d{1,2}[./-]\d{1,2}[./-]\d{2,4})/i)?.[1] || '';
+	return {
+		invoiceNumber: normalized.match(/(?:facture|facture n(?:°|o)?|invoice|référence|reference)\s*[:#-]?\s*([A-Z0-9][A-Z0-9/_.-]{2,})/i)?.[1] || '',
+		clientName: extractLabeledField(rawText, normalized, /^\s*(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*(.+)/i, /(?:client|donneur d'ordre|facturé à)\s*[:#-]?\s*([^|;]{2,80}?)(?=\s*(?:adresse|chantier|email|e-mail|total|montant)\b|$)/i),
+		clientEmail: normalized.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i)?.[0] || '',
+		amount: parseAmount(rawAmount),
+		issuedDate: parseFrenchDate(issuedLabelDate || dateMatches[0]),
+		dueDate: parseFrenchDate(dueLabelDate || dateMatches[1])
+	};
+};
+const inspectFactureWithGemini = async (file) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this French client invoice/facture (PDF or photo) very carefully. Return only JSON with fields: invoiceNumber string, clientName string, clientEmail string, amount number, issuedDate string (YYYY-MM-DD), dueDate string (YYYY-MM-DD). Copy the client name EXACTLY and COMPLETELY as printed — full legal name, no paraphrasing or truncation. Use the final TTC/net payable total when available, exact figure, no rounding. Convert any date you find to YYYY-MM-DD precisely as printed, do not guess a date that is not in the document. If a field is genuinely not visible anywhere in the document, use an empty string or 0.";
+	const requestBody = JSON.stringify({
+		generationConfig: {
+			temperature: 0,
+			responseMimeType: 'application/json',
+			responseSchema: {
+				type: 'OBJECT',
+				properties: {
+					invoiceNumber: { type: 'STRING' },
+					clientName: { type: 'STRING' },
+					clientEmail: { type: 'STRING' },
+					amount: { type: 'NUMBER' },
+					issuedDate: { type: 'STRING', description: 'YYYY-MM-DD' },
+					dueDate: { type: 'STRING', description: 'YYYY-MM-DD' }
+				},
+				required: ['invoiceNumber', 'clientName', 'amount']
+			}
+		},
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: file.mimetype || 'application/pdf', data: file.buffer.toString('base64') } }] }]
+	});
+	// Gemini's shared free/low-tier quota returns 503 "overloaded" fairly often; the devis inspect path
+	// already retried through that, this one gave up on the first transient hiccup instead.
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: requestBody
+			});
+		} catch (networkError) {
+			console.error('Gemini facture inspect network error', networkError.message);
+			return null;
+		}
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini facture inspect rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
+app.post('/api/factures/inspect', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	// Accepts a phone photo of a paper facture too - see the matching comment on /api/budget/inspect.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A Facture PDF or photo is required' });
+	let text = '';
+	const isPdfFile = request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf');
+	if (isPdfFile) { try { text = (await parsePdf(request.file.buffer)).text.trim(); } catch (error) { console.error('Facture PDF text parse failed:', error.message); } }
+	const extracted = extractFactureFields(text);
+	let source = request.file.originalname;
+	if (!extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate) {
+		const ai = await inspectFactureWithGemini(request.file);
+		if (ai) {
+			extracted.invoiceNumber = extracted.invoiceNumber || String(ai.invoiceNumber || '');
+			extracted.clientName = extracted.clientName || String(ai.clientName || '');
+			extracted.clientEmail = extracted.clientEmail || String(ai.clientEmail || '');
+			extracted.amount = extracted.amount || parseAmount(ai.amount);
+			extracted.issuedDate = extracted.issuedDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(ai.issuedDate || '')) ? ai.issuedDate : '');
+			extracted.dueDate = extracted.dueDate || (/^\d{4}-\d{2}-\d{2}$/.test(String(ai.dueDate || '')) ? ai.dueDate : '');
+			source = `${request.file.originalname} · Gemini`;
+		}
+	}
+	response.json({ extracted, textFound: text.length > 0, needsConfirmation: !extracted.invoiceNumber || !extracted.clientName || !extracted.amount || !extracted.dueDate, source, aiFallbackUsed: source.includes('Gemini') });
 });
 app.get('/api/projects/:id/financial-summary', auth, async (request, response) => {
 	const data = await readData();
@@ -1055,10 +1868,11 @@ app.get('/api/projects/:id/financial-summary', auth, async (request, response) =
 	const purchaseTotals = Object.fromEntries(purchaseCategories.map((category) => [category, purchases.filter((item) => item.category === category).reduce((sum, item) => sum + Number(item.amount || 0), 0)]));
 	const purchaseTotal = Object.values(purchaseTotals).reduce((sum, amount) => sum + amount, 0);
 	const approvedWorkHours = approvedHours.reduce((sum, item) => sum + Number(item.hours || 0), 0);
+	const approvedWorkAmount = approvedHours.reduce((sum, item) => sum + Number(item.workAmount || 0), 0);
 	const approvedLaborTotal = laborCosts.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-	const spent = purchaseTotal + approvedLaborTotal;
-	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours };
-	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
+	const spent = purchaseTotal + approvedLaborTotal + approvedWorkAmount;
+	const breakdown = { ...purchaseTotals, approvedLabor: approvedLaborTotal, approvedWorkHours, approvedWorkAmount };
+	response.json({ projectId: request.params.id, budget: budget?.total || 0, purchases: purchaseTotal, approvedWorkHours, approvedWorkAmount, approvedLaborTotal, laborCosts, breakdown, spent, remaining: budget ? budget.total - spent : null, budgetStatus: budget ? 'available' : 'missing' });
 });
 app.post('/api/projects/:id/labor-costs', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -1073,9 +1887,10 @@ app.post('/api/projects/:id/labor-costs', auth, manager, async (request, respons
 	await writeData(data);
 	response.status(existing ? 200 : 201).json(laborCost);
 });
-app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async (request, response) => {
-	const uploadedPdf = request.file?.buffer || null;
-	if (!request.file || !(request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf') || uploadedPdf?.subarray(0, 5).toString() === '%PDF-')) return response.status(400).json({ error: 'A Devis PDF is required' });
+app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	// Matches /api/budget/inspect: saving a devis that was only ever photographed, not scanned to PDF,
+	// or that was a spreadsheet of quantities, must not be blocked just because the preview step read it.
+	if (!request.file || !(isAllowedPersonalDocument(request.file) || isExcelFile(request.file))) return response.status(400).json({ error: 'A Devis PDF, photo, or Excel file is required' });
 	const total = Number(request.body.total || 0);
 	if (!Number.isFinite(total) || total <= 0) return response.status(400).json({ error: 'Devis total is required' });
 	const data = await readData();
@@ -1084,17 +1899,428 @@ app.post('/api/projects/:id/budget', auth, manager, upload.single('file'), async
 	const existing = (data.projectBudgets || []).find((item) => item.projectId === request.params.id);
 	if (existing && existing.devisNumber && String(request.body.devisNumber || '') !== existing.devisNumber && request.body.replaceExisting !== 'true') return response.status(409).json({ error: 'An active Devis already exists. Confirm replacement explicitly.' });
 	const sourceFile = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Devis upload failed: ' + uploadError.message }); }
 	const budget = { id: existing?.id || `budget-${Date.now()}`, projectId: request.params.id, projectName: context.projectName, chantierName: String(request.body.chantierName || context.projectName), devisNumber: String(request.body.devisNumber || ''), client: String(request.body.client || ''), total, spent: existing?.spent || 0, remaining: total - (existing?.spent || 0), sourceFile, sourceName: request.file.originalname, status: 'uploaded', uploadedBy: request.user.sub, updatedAt: new Date().toISOString() };
 	data.projectBudgets = [...(data.projectBudgets || []).filter((item) => item.projectId !== request.params.id), budget];
 	await writeData(data); response.status(201).json(budget);
 });
+app.post('/api/projects/:id/budget/line-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = Array.isArray(request.body.items) ? request.body.items : [];
+	if (!items.length) return response.status(400).json({ error: 'At least one line item is required' });
+	const existingCount = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).length;
+	// Tracks whether a line's quantity is a deterministic read (Excel cell, or the plan tool's calibrated
+	// geometry) or an AI guess (a PDF/photo devis's pricing table) - surfaced later wherever a line item
+	// is shown or compared against, so an AI-read number is never silently treated as equally certain.
+	const source = ['excel', 'ai', 'plan-measure'].includes(request.body.source) ? request.body.source : 'manual';
+	const created = items.map((item, index) => ({
+		id: `line-item-${Date.now()}-${index}`,
+		projectId: request.params.id,
+		description: String(item.description || '').trim(),
+		quantity: Number(item.quantity) || 0,
+		unit: String(item.unit || ''),
+		unitPrice: Number(item.unitPrice) || 0,
+		lineTotal: Number(item.lineTotal) || 0,
+		category: String(item.category || '').trim() || String(item.description || '').trim(),
+		source,
+		status: 'unassigned',
+		assignedTo: null,
+		assignedToName: '',
+		assignedBy: null,
+		assignedAt: null,
+		completedAt: null,
+		progressPercent: 0,
+		sortOrder: existingCount + index,
+		attachmentFile: null,
+		attachmentName: '',
+		attachmentMimeType: '',
+		completionPhotoFile: null,
+		completionPhotoName: '',
+		createdAt: new Date().toISOString()
+	}));
+	data.devisLineItems = [...(data.devisLineItems || []), ...created];
+	await writeData(data);
+	response.status(201).json(created);
+});
+app.get('/api/projects/:id/budget/line-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const items = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).sort((a, b) => a.sortOrder - b.sortOrder);
+	const purchases = (data.purchases || []).filter((item) => item.projectId === request.params.id && item.lineItemId);
+	const workReports = (data.workReports || []).filter((item) => item.projectId === request.params.id && item.lineItemId && item.status === 'approved');
+	response.json(items.map((item) => {
+		const materialSpent = purchases.filter((purchase) => purchase.lineItemId === item.id).reduce((sum, purchase) => sum + Number(purchase.amount || 0), 0);
+		const laborSpent = workReports.filter((report) => report.lineItemId === item.id).reduce((sum, report) => sum + Number(report.calculatedAmount || 0), 0);
+		const spent = materialSpent + laborSpent;
+		return { ...item, spent, profit: item.lineTotal - spent };
+	}));
+});
+// Generates the devis itself from this chantier's own line items, closing the loop started by the
+// price-catalog/metre/discrepancy-check work: those let the app price and verify a devis, this lets it
+// actually produce one to send. Reuses the devis header (number/client) already saved on this project if
+// one was ever imported, but never requires it - a chantier built up purely from plan measurements and
+// quick tasks can still generate a devis with whatever header info is available (blanks left blank, not
+// invented). The grand total is always the live sum of current line items, never the possibly-stale
+// total from an original import, since prices can be edited or lines added after that happened.
+app.get('/api/projects/:id/devis-pdf', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	const items = (data.devisLineItems || []).filter((item) => item.projectId === request.params.id).sort((a, b) => a.sortOrder - b.sortOrder);
+	if (!items.length) return response.status(400).json({ error: 'Aucune ligne de devis pour ce chantier' });
+	const budget = projectBudgetFor(data, request.params.id);
+	const total = items.reduce((sum, item) => sum + Number(item.lineTotal || 0), 0);
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	const branding = await companyBrandingForPdf(data, worker);
+	const pdf = await buildDevisPdf({
+		...branding,
+		projectName: project?.name || request.params.id,
+		devisNumber: budget?.devisNumber || '',
+		client: budget?.client || '',
+		items,
+		total,
+		generatedAt: new Date().toLocaleDateString('fr-FR'),
+	});
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="devis-${String(project?.name || request.params.id).replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
+	response.send(pdf);
+});
+// A reminder of a price the company itself charged before, never an invented number - prices change
+// over time and "fourniture et pose" (supply+install) vs "pose" (install only) can be a 4x difference
+// for the same-sounding item, so this matches on the EXACT normalized description only (same rule as
+// the plan tool's devis discrepancy check), across every chantier the caller's own company owns, and
+// returns the single most recent match rather than an average that could blend unrelated scopes.
+const normalizeDevisDescription = (value) => String(value || '').trim().toLowerCase().replace(/\s*\(×\d+\)\s*$/, '');
+app.get('/api/price-catalog/suggest', auth, manager, async (request, response) => {
+	const data = await readData();
+	const description = String(request.query.description || '');
+	if (!description.trim()) return response.json({ found: false });
+	const target = normalizeDevisDescription(description);
+	const companyProjectIds = new Set(projectsForCompany(data, ownerIdFor(data, request.user)).map((project) => project.id));
+	const matches = (data.devisLineItems || [])
+		.filter((item) => companyProjectIds.has(item.projectId) && Number(item.unitPrice) > 0 && normalizeDevisDescription(item.description) === target)
+		.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+	if (!matches.length) return response.json({ found: false });
+	const latest = matches[0];
+	const project = projectById(data, latest.projectId);
+	response.json({ found: true, unitPrice: latest.unitPrice, unit: latest.unit, description: latest.description, projectName: project?.name || latest.projectId, source: latest.source || 'manual', date: latest.createdAt });
+});
+// A plan-measure line can land with unitPrice: 0 (no past price to suggest, or the gérant declined the
+// suggestion at the time) - this is the only way to come back later and fill it in, or correct a
+// quantity/price typo, without deleting and re-adding the whole line. lineTotal is always re-derived
+// from quantity*unitPrice here, never accepted as its own independent field, so the two can never
+// silently drift apart from one another.
+app.patch('/api/budget/line-items/:itemId', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Line item not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (request.body.description !== undefined) item.description = String(request.body.description).trim() || item.description;
+	if (request.body.unit !== undefined) item.unit = String(request.body.unit).trim();
+	if (request.body.category !== undefined) item.category = String(request.body.category).trim() || item.description;
+	if (request.body.quantity !== undefined) { const quantity = Number(request.body.quantity); if (Number.isFinite(quantity) && quantity >= 0) item.quantity = quantity; }
+	if (request.body.unitPrice !== undefined) { const unitPrice = Number(request.body.unitPrice); if (Number.isFinite(unitPrice) && unitPrice >= 0) item.unitPrice = unitPrice; }
+	item.lineTotal = Number((item.quantity * item.unitPrice).toFixed(2));
+	item.editedBy = request.user.sub;
+	item.editedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(item);
+});
+app.patch('/api/budget/line-items/:itemId/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Line item not found' });
+	try { assertProjectAccess(data, request.user, item.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const worker = (data.users || []).find((user) => user.id === String(request.body.workerId || ''));
+	if (!worker) return response.status(400).json({ error: 'A valid worker is required' });
+	if (!isOwnerRole(worker.role) && !(worker.projectIds || []).includes(item.projectId)) return response.status(403).json({ error: 'Le chantier sélectionné n’est pas accessible à cet ouvrier' });
+	if (request.file) {
+		const attachmentFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
+		item.attachmentFile = attachmentFile;
+		item.attachmentName = request.file.originalname;
+		item.attachmentMimeType = request.file.mimetype;
+	}
+	item.assignedTo = worker.id;
+	item.assignedToName = worker.name;
+	item.assignedBy = request.user.sub;
+	item.assignedAt = new Date().toISOString();
+	item.status = 'assigned';
+	await writeData(data);
+	response.json(item);
+});
+app.patch('/api/projects/:id/budget/categories/:category/assign', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category);
+	if (!items.length) return response.status(404).json({ error: 'Category not found' });
+	const worker = (data.users || []).find((user) => user.id === String(request.body.workerId || ''));
+	if (!worker) return response.status(400).json({ error: 'A valid worker is required' });
+	if (!isOwnerRole(worker.role) && !(worker.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Le chantier sélectionné n’est pas accessible à cet ouvrier' });
+	let attachmentFile = null;
+	if (request.file) {
+		attachmentFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+		try { await uploadFile(UPLOADS_BUCKET, attachmentFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Attachment upload failed: ' + uploadError.message }); }
+	}
+	const now = new Date().toISOString();
+	items.forEach((item) => {
+		if (attachmentFile) { item.attachmentFile = attachmentFile; item.attachmentName = request.file.originalname; item.attachmentMimeType = request.file.mimetype; }
+		item.assignedTo = worker.id;
+		item.assignedToName = worker.name;
+		item.assignedBy = request.user.sub;
+		item.assignedAt = now;
+		if (item.status !== 'done') item.status = 'assigned';
+	});
+	await writeData(data);
+	sendPushToUser(data, worker.id, { title: 'Nouvelle tâche', body: `${request.user.name} vous a assigné : ${request.params.category}`, tag: 'ibra-task', url: '/' }).catch(() => {});
+	response.json(items);
+});
+app.delete('/api/projects/:id/budget/categories/:category', auth, manager, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category);
+	if (!items.length) return response.status(404).json({ error: 'Category not found' });
+	const removedIds = new Set(items.map((item) => item.id));
+	data.devisLineItems = (data.devisLineItems || []).filter((entry) => !removedIds.has(entry.id));
+	await writeData(data);
+	response.json({ ok: true });
+});
+const stripLineItemPricing = ({ unitPrice: _unitPrice, lineTotal: _lineTotal, assignedBy: _assignedBy, ...item }) => item;
+app.get('/api/tasks/mine', auth, async (request, response) => {
+	const data = await readData();
+	const items = (data.devisLineItems || []).filter((item) => item.assignedTo === request.user.sub).sort((a, b) => a.sortOrder - b.sortOrder);
+	response.json(items.map(stripLineItemPricing));
+});
+app.get('/api/tasks/:itemId/attachment', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub && !canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.attachmentFile) return response.status(404).json({ error: 'No attachment stored for this task' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.attachmentFile, 300, item.attachmentName || 'attachment').catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.attachmentFile);
+		response.setHeader('Content-Type', item.attachmentMimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${(item.attachmentName || 'attachment').replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Attachment download failed: ' + error.message });
+	}
+});
+app.patch('/api/tasks/:itemId/progress', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	const progressPercent = Number(request.body.progressPercent);
+	if (!Number.isFinite(progressPercent) || progressPercent < 0 || progressPercent > 100) return response.status(400).json({ error: 'Progress must be a number between 0 and 100' });
+	item.progressPercent = Math.round(progressPercent);
+	item.status = item.progressPercent >= 100 ? 'done' : 'in_progress';
+	if (item.status === 'done') item.completedAt = new Date().toISOString();
+	await writeData(data);
+	response.json(stripLineItemPricing(item));
+});
+app.patch('/api/projects/:id/tasks/category/:category/complete', auth, memoryUpload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	const items = (data.devisLineItems || []).filter((entry) => entry.projectId === request.params.id && entry.category === request.params.category && entry.assignedTo === request.user.sub);
+	if (!items.length) return response.status(404).json({ error: 'Task category not found' });
+	let completionPhotoFile = null;
+	if (request.file) {
+		completionPhotoFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+		try { await uploadFile(UPLOADS_BUCKET, completionPhotoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); }
+	}
+	const now = new Date().toISOString();
+	const assignerIds = new Set();
+	items.forEach((item) => {
+		if (completionPhotoFile) { item.completionPhotoFile = completionPhotoFile; item.completionPhotoName = request.file.originalname; }
+		item.status = 'done';
+		item.progressPercent = 100;
+		item.completedAt = now;
+		if (item.assignedBy) assignerIds.add(item.assignedBy);
+	});
+	const notificationText = `${request.user.name || 'Un ouvrier'} a terminé la catégorie « ${request.params.category} » — assignez la suite.`;
+	const notifications = [...assignerIds].map((assignerId) => {
+		const assigner = data.users.find((user) => user.id === assignerId);
+		return { id: `notification-${Date.now()}-${assignerId}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: assignerId, recipientName: assigner?.name || '', projectId: request.params.id, text: notificationText, createdAt: now, read: false, type: 'task-category-done' };
+	});
+	data.messages = [...(data.messages || []), ...notifications];
+	await writeData(data);
+	assignerIds.forEach((assignerId) => sendPushToUser(data, assignerId, { title: 'Tâche terminée', body: notificationText, tag: 'ibra-task', url: '/' }).catch(() => {}));
+	response.json(items.map(stripLineItemPricing));
+});
+app.get('/api/tasks/:itemId/completion-photo', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.devisLineItems || []).find((entry) => entry.id === request.params.itemId);
+	if (!item) return response.status(404).json({ error: 'Task not found' });
+	if (item.assignedTo !== request.user.sub && !canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.completionPhotoFile) return response.status(404).json({ error: 'No completion photo stored for this task' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.completionPhotoFile, 300, item.completionPhotoName || 'photo').catch(() => null);
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.completionPhotoFile);
+		response.setHeader('Content-Type', 'image/jpeg');
+		response.setHeader('Content-Disposition', `attachment; filename="${(item.completionPhotoName || 'photo').replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Photo download failed: ' + error.message });
+	}
+});
+const factureColorStatus = (facture, now = new Date()) => {
+	if (facture.status === 'paid') return 'green';
+	const overdueThreshold = new Date(new Date(facture.dueDate).getTime() + 30 * 24 * 60 * 60 * 1000);
+	return now > overdueThreshold ? 'red' : 'orange';
+};
+// Fires once per facture, the first time it's found red (30+ days past due): there's no background
+// scheduler in this app (Cloud Run can scale to zero, so a setInterval isn't reliable anyway), so this
+// piggybacks on the one read path that already loads a chantier's factures. notifiedOverdueAt makes it
+// idempotent, so reopening the tab never re-sends the push. Runs after the response, errors swallowed,
+// so a notification hiccup never breaks the facture list itself.
+const notifyOverdueFactures = async (projectId) => {
+	try {
+		const data = await readData();
+		const factures = (data.factures || []).filter((item) => item.projectId === projectId);
+		const newlyOverdue = factures.filter((item) => factureColorStatus(item) === 'red' && !item.notifiedOverdueAt);
+		if (!newlyOverdue.length) return;
+		const project = projectById(data, projectId);
+		newlyOverdue.forEach((item) => { item.notifiedOverdueAt = new Date().toISOString(); });
+		await writeData(data);
+		if (project?.ownerId) {
+			await Promise.all(newlyOverdue.map((item) => sendPushToUser(data, project.ownerId, {
+				title: 'Facture impayée depuis 30 jours',
+				body: `${item.clientName || 'Client'} — facture ${item.invoiceNumber || item.id} (${item.amount}€) toujours impayée.`,
+				tag: 'ibra-facture-overdue',
+				url: '/',
+			}).catch(() => {})));
+		}
+	} catch (error) { console.error('Overdue facture notification failed:', error.message); }
+};
+app.get('/api/projects/:id/factures', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	const factures = (data.factures || []).filter((item) => item.projectId === request.params.id);
+	response.json(factures.map((item) => ({ ...item, colorStatus: factureColorStatus(item) })));
+	notifyOverdueFactures(request.params.id).catch(() => {});
+});
+// A single "what needs your attention" view across every chantier the company owns, instead of having
+// to open each chantier's Factures/Devis tab one by one to notice an overdue invoice or a priceless
+// line. All three categories are read from state that already exists and is already trusted elsewhere
+// (factureColorStatus for overdue, unitPrice for missing prices, source+editedAt for an AI-read line a
+// human has never touched since) - nothing new is tracked or guessed here.
+app.get('/api/attention-items', auth, manager, async (request, response) => {
+	const data = await readData();
+	const companyProjects = projectsForCompany(data, ownerIdFor(data, request.user));
+	const projectIds = new Set(companyProjects.map((project) => project.id));
+	const projectName = (projectId) => companyProjects.find((project) => project.id === projectId)?.name || projectId;
+	const now = new Date();
+	const overdueFactures = (data.factures || [])
+		.filter((item) => projectIds.has(item.projectId) && factureColorStatus(item, now) === 'red')
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), clientName: item.clientName, invoiceNumber: item.invoiceNumber, amount: item.amount, daysOverdue: Math.floor((now - new Date(item.dueDate)) / (24 * 60 * 60 * 1000)) }));
+	const unpricedLineItems = (data.devisLineItems || [])
+		.filter((item) => projectIds.has(item.projectId) && Number(item.unitPrice) <= 0)
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), description: item.description, quantity: item.quantity, unit: item.unit }));
+	const unverifiedAiLineItems = (data.devisLineItems || [])
+		.filter((item) => projectIds.has(item.projectId) && item.source === 'ai' && !item.editedAt)
+		.map((item) => ({ id: item.id, projectId: item.projectId, projectName: projectName(item.projectId), description: item.description, quantity: item.quantity, unit: item.unit, unitPrice: item.unitPrice }));
+	response.json({ overdueFactures, unpricedLineItems, unverifiedAiLineItems });
+});
+app.post('/api/projects/:id/factures', auth, manager, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, request.params.id); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const amount = Number(request.body.amount || 0);
+	if (!Number.isFinite(amount) || amount <= 0) return response.status(400).json({ error: 'A positive invoice amount is required' });
+	const issuedDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.issuedDate || '') ? request.body.issuedDate : new Date().toISOString().slice(0, 10);
+	const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(request.body.dueDate || '') ? request.body.dueDate : new Date(new Date(issuedDate).getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+	const invoiceNumber = String(request.body.invoiceNumber || '');
+	let sourceFile = null;
+	let fileHash = null;
+	if (request.file) {
+		// Hashed before compression so re-uploading the identical PDF is still caught.
+		fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
+		sourceFile = storageKeyFor(request.file.originalname);
+		request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+		try { await uploadFile(UPLOADS_BUCKET, sourceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
+	}
+	// Same invoice number billed twice is the real-world duplicate (double-billing a client); an
+	// identical file is the fallback signal when no invoice number was entered.
+	const duplicate = (data.factures || []).find((item) => item.projectId === request.params.id
+		&& ((invoiceNumber && item.invoiceNumber === invoiceNumber) || (fileHash && item.fileHash === fileHash)));
+	const facture = { id: `facture-${Date.now()}`, projectId: request.params.id, invoiceNumber, clientName: String(request.body.clientName || ''), clientEmail: String(request.body.clientEmail || ''), amount, issuedDate, dueDate, status: 'pending', paidAt: null, lastRelanceAt: null, notifiedOverdueAt: null, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfInvoiceNumber: duplicate?.invoiceNumber || null, sourceFile, sourceName: request.file?.originalname || '', createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.factures = [...(data.factures || []), facture];
+	await writeData(data);
+	response.status(201).json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.patch('/api/factures/:factureId/mark-paid', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	facture.status = 'paid';
+	facture.paidAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.post('/api/factures/:factureId/relance', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (factureColorStatus(facture) !== 'red') return response.status(400).json({ error: 'La relance est disponible uniquement pour les factures en retard de plus de 30 jours' });
+	if (!facture.clientEmail) return response.status(400).json({ error: 'Aucun email client renseigné' });
+	try {
+		await sendMailSafe({
+			to: facture.clientEmail,
+			subject: `Rappel: facture ${facture.invoiceNumber || facture.id} de ${facture.amount}€ en retard`,
+			text: `Bonjour ${facture.clientName || ''},\n\nLa facture ${facture.invoiceNumber || facture.id} d'un montant de ${facture.amount}€, échue le ${facture.dueDate}, reste impayée. Merci de procéder au règlement dans les meilleurs délais.\n\nCordialement.`
+		});
+	} catch (error) {
+		return response.status(502).json({ error: 'Relance email failed: ' + error.message });
+	}
+	facture.lastRelanceAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ ...facture, colorStatus: factureColorStatus(facture) });
+});
+app.get('/api/factures/:factureId/document', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!facture.sourceFile) return response.status(404).json({ error: 'No document stored for this facture' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, facture.sourceFile, 300, facture.sourceName || facture.sourceFile).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, facture.sourceFile);
+		response.setHeader('Content-Type', 'application/pdf');
+		response.setHeader('Content-Disposition', `attachment; filename="${(facture.sourceName || facture.sourceFile).replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
+});
+app.delete('/api/factures/:factureId', auth, manager, async (request, response) => {
+	const data = await readData();
+	const facture = (data.factures || []).find((item) => item.id === request.params.factureId);
+	if (!facture) return response.status(404).json({ error: 'Facture not found' });
+	if (!canAccessProject(data, request.user, facture.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (facture.sourceFile) await deleteFile(UPLOADS_BUCKET, facture.sourceFile).catch(() => {});
+	data.factures = data.factures.filter((item) => item.id !== facture.id);
+	await writeData(data);
+	response.json({ deleted: true, id: facture.id });
+});
 app.get('/api/purchases', auth, async (request, response) => {
 	const data = await readData();
 	response.json((data.purchases || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
 });
-app.post('/api/purchases', auth, manager, upload.single('invoice'), async (request, response) => {
-	if (!request.file || request.file.mimetype !== 'application/pdf') return response.status(400).json({ error: 'A purchase invoice PDF is required' });
+app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFilenameEncoding, async (request, response) => {
+	// Accepts a phone photo of a till receipt too (eg. fuel station), not just a PDF - see /api/pdf/inspect.
+	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A purchase invoice PDF or photo is required' });
 	const amount = Number(request.body.amount || 0);
 	const category = String(request.body.category || 'other');
 	if (!request.body.projectId || !request.body.supplier || !request.body.description || !Number.isFinite(amount) || amount <= 0 || !['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'].includes(category)) return response.status(400).json({ error: 'Purchase fields are incomplete' });
@@ -1102,18 +2328,30 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), async (reque
 	let context;
 	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const invoiceFile = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
 	try { await uploadFile(UPLOADS_BUCKET, invoiceFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Invoice upload failed: ' + uploadError.message }); }
-	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const purchase = { id: `purchase-${Date.now()}`, projectId: String(request.body.projectId), projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, category, supplier: String(request.body.supplier), description: String(request.body.description), amount, purchaseDate: String(request.body.purchaseDate || new Date().toISOString().slice(0, 10)), invoiceFile, invoiceName: request.file.originalname, lineItemId: request.body.lineItemId || null, createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.purchases = [...(data.purchases || []), purchase]; await writeData(data); response.status(201).json(purchase);
 });
-app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role) && !(request.user.projectIds || []).includes(request.params.id)) return response.status(403).json({ error: 'Access denied' });
-	response.json((await readData()).chantierControls.filter((item) => item.projectId === request.params.id));
+app.delete('/api/purchases/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const purchase = (data.purchases || []).find((item) => item.id === request.params.id);
+	if (!purchase) return response.status(404).json({ error: 'Purchase not found' });
+	if (!canAccessProject(data, request.user, purchase.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (purchase.invoiceFile) await deleteFile(UPLOADS_BUCKET, purchase.invoiceFile).catch(() => {});
+	data.purchases = data.purchases.filter((item) => item.id !== purchase.id);
+	await writeData(data);
+	response.json({ deleted: true, id: purchase.id });
 });
-app.patch('/api/chantier-controls/:id', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can update controls' });
+app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	response.json(data.chantierControls.filter((item) => item.projectId === request.params.id));
+});
+app.patch('/api/chantier-controls/:id', auth, manager, async (request, response) => {
 	const data = await readData(); const control = data.chantierControls.find((item) => item.id === request.params.id);
 	if (!control) return response.status(404).json({ error: 'Control not found' });
+	if (!canAccessProject(data, request.user, control.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const status = String(request.body.status || '');
 	if (!['complete', 'review', 'incomplete'].includes(status)) return response.status(400).json({ error: 'Invalid control status' });
 	if (status === 'complete') {
@@ -1135,23 +2373,50 @@ app.get('/api/projects/:id/control-history', auth, async (request, response) => 
 });
 app.get('/api/messages', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.messages || []).filter((item) => (item.senderId === request.user.sub || item.recipientId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+	response.json((data.messages || []).filter((item) => (item.senderId === request.user.sub || item.recipientId === request.user.sub) && (!item.projectId || canAccessProject(data, request.user, item.projectId))));
 });
 app.post('/api/messages', auth, async (request, response) => {
 	const data = await readData(); const text = String(request.body.text || '').trim();
-	if (!text || !request.body.recipientId || !request.body.projectId) return response.status(400).json({ error: 'Message fields required' });
+	if (!text || !request.body.recipientId) return response.status(400).json({ error: 'Message fields required' });
 	const recipient = data.users.find((item) => item.id === request.body.recipientId); if (!recipient) return response.status(404).json({ error: 'Recipient not found' });
-	let context;
-	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(request.body.projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
+	const projectId = String(request.body.projectId || '').trim();
+	let context = { projectName: '', budgetId: null, devisNumber: null };
+	if (projectId) {
+		try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); if (isWorkerRole(recipient.role) && !(recipient.projectIds || []).includes(projectId)) throw Object.assign(new Error('Recipient is not assigned to this chantier'), { status: 403 }); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	} else {
+		const senderOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+		const recipientOwner = companyOwnerForUser(data, recipient) || recipient;
+		if (senderOwner.id !== recipientOwner.id) return response.status(403).json({ error: 'Access denied for this recipient' });
+	}
+	const message = { id: `message-${Date.now()}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId: projectId || null, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: new Date().toISOString(), read: false };
 	data.messages.push(message); await writeData(data);
+	await sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {});
 	response.status(201).json(message);
+});
+// One message to every worker assigned to a chantier (e.g. "pas de travail demain, météo") instead of
+// the gérant retyping the same text into each worker's own 1-to-1 thread.
+app.post('/api/messages/broadcast', auth, manager, async (request, response) => {
+	const data = await readData();
+	const text = String(request.body.text || '').trim();
+	const projectId = String(request.body.projectId || '').trim();
+	if (!text || !projectId) return response.status(400).json({ error: 'Message et chantier requis' });
+	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied' });
+	let context;
+	try { context = projectContextFor(data, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const recipients = data.users.filter((user) => isWorkerRole(user.role) && (user.projectIds || []).includes(projectId));
+	const now = new Date().toISOString();
+	const messages = recipients.map((recipient) => ({ id: `message-${Date.now()}-${recipient.id}`, senderId: request.user.sub, senderName: request.user.name, recipientId: recipient.id, recipientName: recipient.name, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, text, createdAt: now, read: false }));
+	data.messages = [...(data.messages || []), ...messages];
+	await writeData(data);
+	await Promise.all(recipients.map((recipient) => sendPushToUser(data, recipient.id, { title: request.user.name, body: text, tag: 'ibra-message', url: '/' }).catch(() => {})));
+	response.status(201).json({ sent: messages.length });
 });
 app.delete('/api/messages/:id', auth, async (request, response) => {
 	const data = await readData();
 	const message = (data.messages || []).find((item) => item.id === request.params.id);
 	if (!message) return response.status(404).json({ error: 'Message not found' });
-	if (message.senderId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
+	const canOwnerDelete = isOwnerRole(request.user.role) && [message.senderId, message.recipientId].some((userId) => { const party = data.users.find((item) => item.id === userId); return party && (request.user.role === 'admin' || sameCompany(data, party, request.userRecord)); });
+	if (message.senderId !== request.user.sub && !canOwnerDelete) return response.status(403).json({ error: 'Access denied' });
 	data.messages = (data.messages || []).filter((item) => item.id !== message.id);
 	await writeData(data);
 	response.json({ deleted: true, id: message.id });
@@ -1166,6 +2431,26 @@ app.post('/api/messages/read', auth, async (request, response) => {
 	if (updatedIds.length) await writeData(data);
 	response.json({ updated: updatedIds });
 });
+app.get('/api/push/public-key', (_request, response) => response.json({
+	publicKey: vapidPublicKey,
+	enabled: pushEnabled,
+}));
+app.post('/api/push/subscribe', auth, async (request, response) => {
+	const subscription = request.body.subscription;
+	if (!subscription?.endpoint || !subscription?.keys?.p256dh || !subscription?.keys?.auth) return response.status(400).json({ error: 'Invalid push subscription' });
+	const data = await readData();
+	data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => item.endpoint !== subscription.endpoint);
+	data.pushSubscriptions.push({ userId: request.user.sub, endpoint: subscription.endpoint, subscription, createdAt: new Date().toISOString() });
+	await writeData(data);
+	response.status(201).json({ subscribed: true });
+});
+app.post('/api/push/unsubscribe', auth, async (request, response) => {
+	const endpoint = String(request.body.endpoint || '');
+	const data = await readData();
+	data.pushSubscriptions = (data.pushSubscriptions || []).filter((item) => !(item.endpoint === endpoint && item.userId === request.user.sub));
+	await writeData(data);
+	response.json({ unsubscribed: true });
+});
 const dateOnlyTimestamp = (value) => {
 	const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
 	if (!match) return Number.NaN;
@@ -1179,12 +2464,42 @@ const resolveRendezvousOwner = (data, worker) => {
 	const employerSiret = cleanSiret(worker.employerSiret);
 	return employerSiret ? data.users.find((user) => isOwnerRole(user.role) && cleanSiret(user.siret) === employerSiret) || null : null;
 };
+const rendezvousVisibleTo = (data, requestUser) => (data.rendezvous || []).filter((item) => {
+	if (item.workerId === requestUser.sub) return true;
+	if (item.projectId) return canAccessProject(data, requestUser, item.projectId);
+	return ownerCanAccessWorkerRecord(data, requestUser, item.workerId);
+});
 app.get('/api/rendezvous', auth, async (request, response) => {
-	const data = await readData(); const canSeeAll = isOwnerRole(request.user.role);
-	response.json((data.rendezvous || []).filter((item) => (canSeeAll || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+	const data = await readData();
+	response.json(rendezvousVisibleTo(data, request.user));
+});
+// A standard .ics file so a worker or gérant can add their RDV/absences into their own phone's calendar
+// app (Google/Apple) instead of only ever checking them inside IBRA-BA - same visibility rule as the
+// JSON listing above, just a different export format of the exact same data.
+const icsEscape = (text) => String(text || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+const icsDateTime = (dateStr, timeStr) => {
+	const [hours, minutes] = String(timeStr || '09:00').split(':');
+	return `${String(dateStr).replace(/-/g, '')}T${String(hours).padStart(2, '0')}${String(minutes).padStart(2, '0')}00`;
+};
+app.get('/api/rendezvous/ics', auth, async (request, response) => {
+	const data = await readData();
+	const items = rendezvousVisibleTo(data, request.user);
+	const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//IBRA-BA//RDV//FR', 'CALSCALE:GREGORIAN'];
+	for (const item of items) {
+		const start = icsDateTime(item.date, item.time);
+		const summary = item.type === 'absence' ? `Absence — ${item.workerName || ''}` : `RDV — ${item.workerName || ''}`;
+		const description = [item.projectName, item.reason].filter(Boolean).join(' - ');
+		lines.push('BEGIN:VEVENT', `UID:${item.id}@ibra-ba`, `DTSTAMP:${icsDateTime(new Date().toISOString().slice(0, 10), '00:00')}Z`, `DTSTART:${start}`, `SUMMARY:${icsEscape(summary)}`, `DESCRIPTION:${icsEscape(description)}`, 'END:VEVENT');
+	}
+	lines.push('END:VCALENDAR');
+	response.setHeader('Content-Type', 'text/calendar; charset=utf-8');
+	response.setHeader('Content-Disposition', 'attachment; filename="ibra-ba-rdv.ics"');
+	response.send(lines.join('\r\n'));
 });
 app.post('/api/rendezvous', auth, async (request, response) => {
 	const isOwnerActor = isOwnerRole(request.user.role);
+	const type = String(request.body.type || 'rdv').trim() === 'absence' ? 'absence' : 'rdv';
+	const projectId = String(request.body.projectId || '').trim();
 	const absenceDate = String(request.body.absenceDate || request.body.date || '').trim();
 	const date = String(request.body.date || absenceDate).trim();
 	const time = String(request.body.time || '').trim();
@@ -1193,18 +2508,24 @@ app.post('/api/rendezvous', auth, async (request, response) => {
 	const absenceTimestamp = dateOnlyTimestamp(absenceDate);
 	const dateTimestamp = dateOnlyTimestamp(date);
 	const days = Number.isFinite(absenceTimestamp) && Number.isFinite(todayTimestamp) ? Math.floor((absenceTimestamp - todayTimestamp) / 86400000) : -1;
-	if (!request.body.projectId || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (!isOwnerActor && days < 3)) return response.status(400).json({ error: 'Absence/RDV must be declared at least 3 days ahead' });
-	if (!isOwnerActor && !(request.user.projectIds || []).includes(request.body.projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
+	if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(time) || !Number.isFinite(absenceTimestamp) || !Number.isFinite(dateTimestamp) || (type !== 'absence' && !isOwnerActor && days < 3)) return response.status(400).json({ error: 'RDV must be declared at least 3 days ahead' });
 	const data = await readData();
 	const worker = isOwnerActor && request.body.workerId ? data.users.find((user) => user.id === request.body.workerId) : data.users.find((user) => user.id === request.user.sub);
 	if (!worker) return response.status(404).json({ error: 'Worker account not found' });
-	let context;
-	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	let context = { projectName: '', budgetId: null, devisNumber: null };
+	if (projectId) {
+		if (!isOwnerActor && !(request.user.projectIds || []).includes(projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
+		try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	} else {
+		const actorOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+		const workerOwner = companyOwnerForUser(data, worker) || worker;
+		if (actorOwner.id !== workerOwner.id) return response.status(403).json({ error: 'Access denied for this worker' });
+	}
 	const owner = resolveRendezvousOwner(data, worker);
-	const item = { id: `rendezvous-${Date.now()}`, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
+	const item = { id: `rendezvous-${Date.now()}`, projectId: projectId || null, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: worker.id, workerName: worker.name, date, time, absenceDate, reason, type, ownerId: owner?.id || null, createdAt: new Date().toISOString() };
 	data.rendezvous = [...(data.rendezvous || []), item];
 	const notificationText = `Absence/RDV ${absenceDate} à ${time} | ${reason}`;
-	data.messages = [...(data.messages || []), ...(owner ? [{ id: `notification-${Date.now()}-${owner.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: owner.id, recipientName: owner.name, projectId: request.body.projectId, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }] : [])];
+	data.messages = [...(data.messages || []), ...(owner ? [{ id: `notification-${Date.now()}-${owner.id}`, senderId: 'system', senderName: 'IBRA-BA', recipientId: owner.id, recipientName: owner.name, projectId: projectId || null, text: notificationText, createdAt: new Date().toISOString(), read: false, type: 'rendezvous-notification' }] : [])];
 	await writeData(data);
 	response.status(201).json(item);
 });
@@ -1212,7 +2533,7 @@ app.patch('/api/rendezvous/:id', auth, async (request, response) => {
 	const data = await readData();
 	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
-	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (item.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const absenceDate = String(request.body.absenceDate || request.body.date || item.absenceDate).trim();
 	const time = String(request.body.time || item.time).trim();
 	const reason = request.body.reason !== undefined ? String(request.body.reason).trim() : item.reason;
@@ -1225,34 +2546,44 @@ app.delete('/api/rendezvous/:id', auth, async (request, response) => {
 	const data = await readData();
 	const item = (data.rendezvous || []).find((entry) => entry.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Rendezvous not found' });
-	if (!isOwnerRole(request.user.role) && item.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
+	if (item.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.workerId)) return response.status(403).json({ error: 'Access denied' });
 	data.rendezvous = (data.rendezvous || []).filter((entry) => entry.id !== item.id);
 	await writeData(data);
 	response.json({ deleted: true, id: item.id });
 });
 app.get('/api/time-entries', auth, async (request, response) => {
 	const data = await readData();
-	response.json((data.timeEntries || []).filter((item) => (isOwnerRole(request.user.role) || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)));
+	response.json((data.timeEntries || []).filter((item) => {
+		if (item.workerId === request.user.sub) return true;
+		if (item.projectId) return canAccessProject(data, request.user, item.projectId);
+		return ownerCanAccessWorkerRecord(data, request.user, item.workerId);
+	}));
 });
 app.post('/api/time-entries', auth, async (request, response) => {
 	const [startH,startM] = String(request.body.start || '').split(':').map(Number); const [endH,endM] = String(request.body.end || '').split(':').map(Number); const hours = ((endH * 60 + endM) - (startH * 60 + startM) - Number(request.body.breakMinutes || 0)) / 60;
 	const rateType = String(request.body.rateType || 'daily'); const data = await readData(); const canAssignWorker = isOwnerRole(request.user.role); const requestedWorkerId = String(request.body.workerId || '').trim(); const worker = canAssignWorker && requestedWorkerId ? data.users.find((item) => item.id === requestedWorkerId) : data.users.find((item) => item.id === request.user.sub); const profileRate = rateType === 'hourly' ? Number(worker?.hourlyRate || 0) : Number(worker?.dailyRate || 0); const rate = Number(request.body.rate || profileRate);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
-	if (!request.body.date || !request.body.projectId || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, chantier, work time, rate type, and a positive rate are required' });
-	let context;
-	try { context = projectContextFor(data, request.body.projectId); assertProjectAccess(data, request.user, request.body.projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === request.body.projectId && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
+	const projectId = String(request.body.projectId || '').trim();
+	if (!request.body.date || !hours || hours < 0 || !['daily', 'hourly'].includes(rateType) || !Number.isFinite(rate) || rate <= 0) return response.status(400).json({ error: 'Date, work time, rate type, and a positive rate are required' });
+	let context = { projectName: '', budgetId: null, devisNumber: null };
+	if (projectId) {
+		try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, worker); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	} else {
+		const actorOwner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+		const workerOwner = companyOwnerForUser(data, worker) || worker;
+		if (actorOwner.id !== workerOwner.id) return response.status(403).json({ error: 'Access denied for this worker' });
+	}
+	const isDuplicate = (data.timeEntries || []).some((entry) => entry.workerId === worker.id && entry.projectId === (projectId || null) && entry.date === request.body.date && entry.start === request.body.start && entry.end === request.body.end);
 	if (isDuplicate && request.body.confirmDuplicate !== 'true') return response.status(409).json({ error: 'An identical entry already exists for this worker, chantier, date and hours', duplicate: true });
 	const workAmount = rateType === 'hourly' ? hours * rate : rate;
-	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: request.body.projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'pending' };
+	const item = { id: `time-${Date.now()}`, workerId: worker.id, workerName: worker.name, enteredBy: request.user.sub, projectId: projectId || null, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, date: request.body.date, start: request.body.start, end: request.body.end, breakMinutes: Number(request.body.breakMinutes || 0), hours, rateType, rate, workAmount, status: 'approved' };
 	data.timeEntries.push(item); await writeData(data); response.status(201).json(item);
 });
 app.delete('/api/time-entries/:id', auth, async (request, response) => {
 	const data = await readData();
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
-	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
-	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can delete an approved entry' });
+	if (entry.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	data.timeEntries = data.timeEntries.filter((item) => item.id !== entry.id);
 	await writeData(data);
 	response.json({ deleted: true, id: entry.id });
@@ -1261,8 +2592,7 @@ app.patch('/api/time-entries/:id', auth, async (request, response) => {
 	const data = await readData();
 	const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
-	if (!isOwnerRole(request.user.role) && entry.workerId !== request.user.sub) return response.status(403).json({ error: 'Access denied' });
-	if (entry.status === 'approved' && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can edit an approved entry' });
+	if (entry.workerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const date = request.body.date || entry.date;
 	const breakMinutes = request.body.breakMinutes !== undefined ? Number(request.body.breakMinutes || 0) : entry.breakMinutes;
 	const rateType = ['daily', 'hourly'].includes(request.body.rateType) ? request.body.rateType : entry.rateType;
@@ -1295,7 +2625,10 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 	if (!entries.length) return response.status(400).json({ error: 'No approved work entries found for this month' });
 	const ownerSiret = worker?.employerSiret || '';
 	const managers = data.users.filter((user) => isOwnerRole(user.role) && user.email && (user.id === worker?.invitedBy || (ownerSiret && cleanSiret(user.siret) === cleanSiret(ownerSiret))));
-	const recipients = managers.length ? managers : data.users.filter((user) => isOwnerRole(user.role) && user.email);
+	// Never fall back to "every owner in the database" - that would mail a worker's private hours and pay
+	// to other companies. The only safe fallback is this worker's own resolved company owner, if any.
+	const fallbackOwner = managers.length ? [] : [companyOwnerForUser(data, worker)].filter((user) => user?.email);
+	const recipients = managers.length ? managers : fallbackOwner;
 	if (!recipients.length) return response.status(503).json({ error: 'No owner email is configured' });
 	const detailedEntries = entries.map((entry) => ({ ...entry, workAmount: entryAmount(entry, worker), projectLabel: projectLabelFor(data, entry.projectId) }));
 	const total = detailedEntries.reduce((sum, entry) => sum + entry.workAmount, 0);
@@ -1316,8 +2649,8 @@ app.post('/api/time-entries/pdf/send', auth, async (request, response) => {
 app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
 	const month = String(request.query.month || previousMonthKey());
 	const requestedWorkerId = String(request.query.workerId || request.user.sub);
-	if (requestedWorkerId !== request.user.sub && !isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Access denied' });
 	const data = await readData();
+	if (requestedWorkerId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, requestedWorkerId)) return response.status(403).json({ error: 'Access denied' });
 	const worker = data.users.find((user) => user.id === requestedWorkerId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
 	const entries = data.timeEntries.filter((entry) => entry.workerId === requestedWorkerId && entry.date.startsWith(month) && entry.status === 'approved');
@@ -1329,10 +2662,10 @@ app.get('/api/time-entries/pdf/download', auth, async (request, response) => {
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-lista-plate-${month}-${worker.name.replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
 	response.send(pdf);
 });
-app.patch('/api/time-entries/:id/status', auth, async (request, response) => {
-	if (!isOwnerRole(request.user.role)) return response.status(403).json({ error: 'Only owners can approve time' });
+app.patch('/api/time-entries/:id/status', auth, manager, async (request, response) => {
 	const data = await readData(); const entry = data.timeEntries.find((item) => item.id === request.params.id);
 	if (!entry) return response.status(404).json({ error: 'Time entry not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, entry.workerId)) return response.status(403).json({ error: 'Access denied' });
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid time status' });
 	entry.status = status; entry.reviewedBy = request.user.sub; entry.reviewedAt = new Date().toISOString(); await writeData(data); response.json(entry);
 });
@@ -1341,7 +2674,8 @@ app.get('/api/payroll/summary', auth, manager, async (request, response) => {
 	const data = await readData();
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7));
 	const entries = data.timeEntries.filter((entry) => entry.date.startsWith(month) && entry.status === 'approved');
-	const summary = data.users.map((user) => {
+	const scopedUsers = request.user.role === 'admin' ? data.users : data.users.filter((user) => sameCompany(data, user, request.userRecord));
+	const summary = scopedUsers.map((user) => {
 		const workerEntries = entries.filter((entry) => entry.workerId === user.id);
 		const hours = workerEntries.reduce((sum, entry) => sum + Number(entry.hours || 0), 0);
 		const days = new Set(workerEntries.map((entry) => entry.date)).size;
@@ -1361,7 +2695,8 @@ app.get('/api/my-payroll-summary', auth, async (request, response) => {
 	response.json({ month, days, hours, dailyRate: user?.dailyRate || 0, hourlyRate: user?.hourlyRate || 0, estimatedTotal, entries: entries.map((entry) => ({ date: entry.date, projectId: entry.projectId, rateType: entry.rateType || 'daily', rate: entry.rate || 0, workAmount: entry.workAmount || 0 })) });
 });
 app.get('/api/payout-requests', auth, async (request, response) => {
-	const data = await readData(); const managerView = isOwnerRole(request.user.role); response.json((data.payoutRequests || []).filter((item) => managerView || item.userId === request.user.sub));
+	const data = await readData();
+	response.json((data.payoutRequests || []).filter((item) => item.userId === request.user.sub || ownerCanAccessWorkerRecord(data, request.user, item.userId)));
 });
 app.post('/api/payout-requests', auth, async (request, response) => {
 	const month = String(request.body.month || ''); const days = Number(request.body.days || 0); if (!/^\d{4}-\d{2}$/.test(month) || !Number.isInteger(days) || days < 0) return response.status(400).json({ error: 'Month and a non-negative integer number of days are required' });
@@ -1374,6 +2709,7 @@ app.post('/api/payout-requests/mark-paid', auth, manager, async (request, respon
 	const data = await readData();
 	const worker = data.users.find((item) => item.id === userId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, userId)) return response.status(403).json({ error: 'Access denied for this worker' });
 	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
 	const days = new Set(entries.map((entry) => entry.date)).size;
 	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
@@ -1396,6 +2732,7 @@ app.post('/api/payout-requests/set-status', auth, manager, async (request, respo
 	const data = await readData();
 	const worker = data.users.find((item) => item.id === userId);
 	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	if (!ownerCanAccessWorkerRecord(data, request.user, userId)) return response.status(403).json({ error: 'Access denied for this worker' });
 	const entries = (data.timeEntries || []).filter((entry) => entry.workerId === userId && String(entry.date || '').startsWith(month));
 	const days = new Set(entries.map((entry) => entry.date)).size;
 	const amount = entries.reduce((sum, entry) => sum + entryAmount(entry, worker), 0);
@@ -1412,18 +2749,18 @@ app.post('/api/payout-requests/set-status', auth, manager, async (request, respo
 });
 app.get('/api/payout-requests/:id/pdf', auth, async (request, response) => {
 	const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id);
-	if (!item || (!isOwnerRole(request.user.role) && item.userId !== request.user.sub)) return response.status(404).json({ error: 'Payout request not found' });
+	if (!item || (item.userId !== request.user.sub && !ownerCanAccessWorkerRecord(data, request.user, item.userId))) return response.status(404).json({ error: 'Payout request not found' });
 	response.setHeader('Content-Type', 'application/pdf'); response.setHeader('Content-Disposition', `attachment; filename="ibra-payout-${item.month}-${item.userId}.pdf"`); response.send(buildPayoutPdf(item));
 });
 app.patch('/api/payout-requests/:id/status', auth, manager, async (request, response) => {
-	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
+	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'paid', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid payout status' }); const data = await readData(); const item = (data.payoutRequests || []).find((entry) => entry.id === request.params.id); if (!item) return response.status(404).json({ error: 'Payout request not found' }); if (!ownerCanAccessWorkerRecord(data, request.user, item.userId)) return response.status(403).json({ error: 'Access denied' }); item.status = status; item.reviewedBy = request.user.sub; item.reviewedAt = new Date().toISOString(); await writeData(data); response.json(item);
 });
 app.get('/api/work-reports', auth, async (request, response) => {
 	const data = await readData(); const managerView = isOwnerRole(request.user.role);
 	const reports = (data.workReports || []).filter((item) => (managerView || item.workerId === request.user.sub) && canAccessProject(data, request.user, item.projectId)); const financialView = isOwnerRole(request.user.role);
 	response.json(financialView ? reports : reports.map(({ unitRate: _unitRate, calculatedAmount: _calculatedAmount, ...report }) => report));
 });
-app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), async (request, response) => {
+app.post('/api/ai/estimate-area', auth, memoryUpload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
 	if (!request.file || !request.file.mimetype.startsWith('image/')) return response.status(400).json({ error: 'A work photo is required' });
 	const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2';
 	const projectId = String(request.body.projectId || '');
@@ -1487,7 +2824,7 @@ For m² use visible height x width of executed work. For ml use visible linear l
 	const image = `data:${request.file.mimetype};base64,${base64Image}`; const aiResponse = await fetch(`${aiBaseUrl.replace(/\/$/, '')}/chat/completions`, { method: 'POST', headers: { Authorization: `Bearer ${aiApiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: process.env.OPENAI_VISION_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini', temperature: 0, response_format: { type: 'json_object' }, messages: [{ role: 'system', content: 'Estimate construction quantities only with reliable visible scale. Never guess. Return JSON only.' }, { role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: image } }] }] }) });
 	if (!aiResponse.ok) return response.status(502).json({ error: 'Vision AI provider unavailable' }); const result = await aiResponse.json(); return response.json(normalizeEstimate(parseEstimate(result.choices?.[0]?.message?.content), 'estimated'));
 });
-app.post('/api/work-reports', auth, upload.single('photo'), async (request, response) => {
+app.post('/api/work-reports', auth, upload.single('photo'), fixUploadFilenameEncoding, async (request, response) => {
 	const projectId = String(request.body.projectId || ''); const description = String(request.body.description || '').trim(); const dateInput = String(request.body.date || ''); const capturedAtInput = String(request.body.capturedAt || ''); const locationName = String(request.body.locationName || '').trim(); const latitudeInput = request.body.latitude !== undefined && request.body.latitude !== '' ? Number(request.body.latitude) : null; const longitudeInput = request.body.longitude !== undefined && request.body.longitude !== '' ? Number(request.body.longitude) : null; const latitude = Number.isFinite(latitudeInput) && latitudeInput >= -90 && latitudeInput <= 90 ? latitudeInput : null; const longitude = Number.isFinite(longitudeInput) && longitudeInput >= -180 && longitudeInput <= 180 ? longitudeInput : null; const quantityUnit = request.body.quantityUnit === 'ml' ? 'ml' : 'm2'; const quantity = Number(request.body.quantity || request.body.quantityM2 || 0); const quantityM2 = quantityUnit === 'm2' ? quantity : 0; const quantityMl = quantityUnit === 'ml' ? quantity : 0; const unitRate = Number(request.body.unitRate || 0); const m2Source = String(request.body.m2Source || request.body.quantitySource || '');
 	const date = /^\d{4}-\d{2}-\d{2}$/.test(dateInput) ? dateInput : new Date().toISOString().slice(0, 10);
 	const capturedAt = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(capturedAtInput) ? capturedAtInput : new Date().toISOString();
@@ -1497,39 +2834,32 @@ app.post('/api/work-reports', auth, upload.single('photo'), async (request, resp
 	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, user); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
 	const photoFile = request.file ? storageKeyFor(request.file.originalname) : null;
 	if (request.file) { try { await uploadFile(UPLOADS_BUCKET, photoFile, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Photo upload failed: ' + uploadError.message }); } }
-	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file?.originalname || '', aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
+	const report = { id: `work-report-${Date.now()}`, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, lineItemId: request.body.lineItemId || null, workerId: request.user.sub, workerName: user?.name || request.user.name, date, capturedAt, locationName, latitude, longitude, description, quantityUnit, quantity, quantityM2, quantityMl, m2Source, quantitySource: m2Source, unitRate, calculatedAmount: quantity * unitRate, photoFile, photoName: request.file?.originalname || '', aiStatus: 'estimated', aiEstimatedM2: quantityM2 || null, aiEstimatedMl: quantityMl || null, status: 'pending', pricingSource: context.budget ? `Devis ${context.devisNumber || context.budget.id}` : 'Devis - à confirmer par Gérant', createdAt: new Date().toISOString() };
 	data.workReports = [...(data.workReports || []), report]; await writeData(data); response.status(201).json(report);
 });
 app.patch('/api/work-reports/:id/status', auth, manager, async (request, response) => {
 	const status = String(request.body.status || ''); if (!['approved', 'rejected', 'pending'].includes(status)) return response.status(400).json({ error: 'Invalid work report status' });
-	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
+	const data = await readData(); const report = (data.workReports || []).find((item) => item.id === request.params.id); if (!report) return response.status(404).json({ error: 'Work report not found' }); if (!canAccessProject(data, request.user, report.projectId)) return response.status(403).json({ error: 'Access denied' }); report.status = status; report.reviewedBy = request.user.sub; report.reviewedAt = new Date().toISOString(); await writeData(data); response.json(report);
 });
 app.get('/api/projects/:id/situation-summary', auth, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
 	const month = String(request.query.month || new Date().toISOString().slice(0, 7)); const date = String(request.query.date || ''); const reports = (data.workReports || []).filter((item) => item.projectId === request.params.id && (date ? item.date === date : item.date.startsWith(month)) && item.status === 'approved'); const quantityM2 = reports.reduce((sum, item) => sum + Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0), 0); const quantityMl = reports.reduce((sum, item) => sum + Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0), 0); const amount = reports.reduce((sum, item) => sum + Number(item.calculatedAmount || 0), 0); const byWorker = Object.values(reports.reduce((groups, item) => { const group = groups[item.workerId] || { workerId: item.workerId, workerName: item.workerName, quantityM2: 0, quantityMl: 0, amount: 0, reportCount: 0 }; group.quantityM2 += Number(item.quantityM2 || (item.quantityUnit === 'm2' ? item.quantity : 0) || 0); group.quantityMl += Number(item.quantityMl || (item.quantityUnit === 'ml' ? item.quantity : 0) || 0); group.amount += Number(item.calculatedAmount || 0); group.reportCount += 1; groups[item.workerId] = group; return groups; }, {})); const managerView = isOwnerRole(request.user.role); response.json({ projectId: request.params.id, month, date: date || null, reportCount: reports.length, quantityM2, quantityMl, amount: managerView ? amount : null, byWorker: managerView ? byWorker : byWorker.map(({ amount: _amount, ...worker }) => worker), requiresHumanConfirmation: true });
 });
-app.post('/api/documents/upload', auth, upload.single('file'), async (request, response) => {
-	if (!request.file) return response.status(400).json({ error: 'File required' });
-	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
-	const evidenceType = request.body.evidenceType || 'other';
-	const projectId = String(request.body.projectId || '');
-	console.log(`[documents/upload] evidenceType=${evidenceType} mimetype=${request.file.mimetype} name=${request.file.originalname}`);
-	const data = await readData();
-	let context;
-	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	const storedName = storageKeyFor(request.file.originalname);
-	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+// Shared by the upload route's background analysis and the on-demand /analyze endpoint below - a plan/
+// fiche-technique is analyzed through the technical-document path (Gemini reads a photo page directly,
+// same as a PDF page) even when it's a photographed "carnet de détail" page, not a real PDF - only the
+// PDF-only steps (text layer parsing, embedded-image extraction) are skipped.
+async function runDocumentAutoAnalysis({ buffer, mimetype, originalname, evidenceType, language }) {
 	let autoAnalysis = null;
-	const language = request.body.responseLanguage || 'sr';
 	try {
-		if (['plan', 'fiche-technique'].includes(evidenceType) && (request.file.mimetype === 'application/pdf' || request.file.originalname.toLowerCase().endsWith('.pdf'))) {
-			const buffer = request.file.buffer;
+		if (['plan', 'fiche-technique'].includes(evidenceType)) {
+			const isPdfFile = mimetype === 'application/pdf' || originalname.toLowerCase().endsWith('.pdf');
 			let parsed = { text: '' };
-			try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); }
-			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
+			if (isPdfFile) { try { parsed = await parsePdf(buffer); } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
+			try { autoAnalysis = await analyzeDocumentWithGemini({ buffer, mimeType: mimetype, fileName: originalname, evidenceType, language, text: parsed.text || '' }); } catch (error) { console.error('Gemini document analysis threw:', error.message); autoAnalysis = null; }
 			if (!autoAnalysis) {
-				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: request.file.originalname, evidenceType, language });
+				autoAnalysis = analyzeConstructionDocument({ text: parsed.text || '', fileName: originalname, evidenceType, language });
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 			} else if (!autoAnalysis.answer) {
 				autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
@@ -1538,17 +2868,18 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 				const rules = extractPdfRules(parsed.text, { max: 10 });
 				if (rules.length) autoAnalysis.extractedRules = rules;
 			}
-			try {
-				const images = await extractPdfImagesWithTimeout(buffer, { maxImages: 6, maxPages: 12 });
-				if (images.length) autoAnalysis.referenceImages = images;
-			} catch (error) {
-				console.error('PDF image extraction failed:', error.message);
+			if (isPdfFile) {
+				try {
+					const images = await extractPdfImagesWithTimeout(buffer, { maxImages: 6, maxPages: 12 });
+					if (images.length) autoAnalysis.referenceImages = images;
+				} catch (error) {
+					console.error('PDF image extraction failed:', error.message);
+				}
 			}
-		} else if (request.file.mimetype.startsWith('image/')) {
-			const buffer = request.file.buffer;
+		} else if (mimetype.startsWith('image/')) {
 			let visionResult = { vision: null, status: 'not_configured' };
-			try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: request.file.mimetype, fileName: request.file.originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
-			autoAnalysis = analyzeConstructionPhoto({ fileName: request.file.originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
+			try { visionResult = await analyzePhotoWithVision({ buffer, mimeType: mimetype, fileName: originalname, evidenceType, language }); } catch (error) { console.error('Vision analysis threw:', error.message); }
+			autoAnalysis = analyzeConstructionPhoto({ fileName: originalname, evidenceType, language, vision: visionResult.vision, visionStatus: visionResult.status });
 			autoAnalysis.answer = formatConstructionAnalysis(autoAnalysis, language);
 		}
 	} catch (error) {
@@ -1556,35 +2887,707 @@ app.post('/api/documents/upload', auth, upload.single('file'), async (request, r
 		autoAnalysis = null;
 	}
 	if (!autoAnalysis) {
-		console.warn(`[documents/upload] no analysis branch matched or all fallbacks failed for evidenceType=${evidenceType} mimetype=${request.file.mimetype}`);
+		console.warn(`[documents/analyze] no analysis branch matched or all fallbacks failed for evidenceType=${evidenceType} mimetype=${mimetype}`);
 		const french = language === 'fr';
-		autoAnalysis = { status: 'analysis_error', fileName: request.file.originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
+		autoAnalysis = { status: 'analysis_error', fileName: originalname, evidenceType, summary: '', workType: french ? 'Analyse indisponible' : 'Analiza nedostupna', systems: [], materials: [], howTo: [], controls: [], evidence: [], risks: [], confidence: 0, answer: french ? 'Le document est enregistré, mais son analyse automatique a échoué. Ouvrez-le manuellement pour vérifier son contenu.' : 'Dokument je sačuvan, ali automatska analiza nije uspjela. Otvorite ga ručno da provjerite sadržaj.', requiresHumanConfirmation: true };
 	}
 	attachReferenceLinks(autoAnalysis);
-	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.size, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: autoAnalysis ? { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence } : undefined };
-	data.documents.push(item); await writeData(data); response.status(201).json({ ...item, autoAnalysis });
+	return autoAnalysis;
+}
+app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'File required' });
+	if (!isAllowedWorkDocument(request.file, request.body.evidenceType)) return response.status(400).json({ error: 'Only construction plans in PDF format and worksite photos are allowed' });
+	const evidenceType = request.body.evidenceType || 'other';
+	const projectId = String(request.body.projectId || '');
+	console.log(`[documents/upload] evidenceType=${evidenceType} mimetype=${request.file.mimetype} name=${request.file.originalname}`);
+	const data = await readData();
+	let context;
+	try { context = projectContextFor(data, projectId); assertProjectAccess(data, request.user, projectId, isWorkerRole(request.user.role) ? request.userRecord : null); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	// Hashed from the original bytes (before compression or DWG conversion, both of which can vary
+	// run to run) so re-uploading the exact same photo or plan is caught even though evidenceType,
+	// the chosen phase, or the stored format differs.
+	const fileHash = crypto.createHash('sha256').update(request.file.buffer).digest('hex');
+	const duplicate = (data.documents || []).find((doc) => doc.projectId === projectId && doc.fileHash === fileHash);
+	let storageMimeType = request.file.mimetype;
+	let storageName = request.file.originalname;
+	const convertedFromDwg = isDwgFile(request.file);
+	if (convertedFromDwg) {
+		// A .dwg can't be read by anything downstream (plan viewer, measurement tool) - it must become
+		// a usable .dxf before storage, never stored raw as if the upload had succeeded.
+		try { request.file.buffer = await convertDwgToDxf(request.file.buffer); }
+		catch (conversionError) { return response.status(502).json({ error: 'DWG conversion failed: ' + conversionError.message }); }
+		storageMimeType = 'application/dxf';
+		storageName = request.file.originalname.replace(/\.dwg$/i, '.dxf');
+	}
+	const storedName = storageKeyFor(storageName);
+	request.file.buffer = await compressUpload(request.file.buffer, storageMimeType);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, storageMimeType); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+	// Only meaningful for evidenceType=plan: lets the owner upload an "existant" and a "nouveau" plan for
+	// the same chantier and trace démolition vs construction on each separately with the measurement
+	// tool - no AI comparison between the two drawings, just a label so a devis line item built from a
+	// measurement on either one lands in the right category automatically.
+	const planType = evidenceType === 'plan' && ['existant', 'nouveau'].includes(request.body.planType) ? request.body.planType : null;
+	// originalName keeps the ".dwg" the user actually uploaded (for display); mimeType/storedName
+	// reflect the converted .dxf that is what's actually in storage from here on.
+	const item = { id: `document-${Date.now()}`, originalName: request.file.originalname, storedName, mimeType: storageMimeType, size: request.file.buffer.length, projectId, projectName: context.projectName, budgetId: context.budgetId, devisNumber: context.devisNumber, evidenceType, phase: request.body.phase || 'general', planType, convertedFromDwg, fileHash, duplicateOfId: duplicate?.id || null, duplicateOfName: duplicate?.originalName || null, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), autoAnalysis: { status: 'pending' } };
+	data.documents.push(item);
+	await writeData(data);
+	// The file and the document record are both durably saved at this point - respond now. The AI
+	// analysis below (Gemini + PDF parsing + image extraction) can take well over a minute for a large
+	// multi-page technical PDF (a real structural plan was seen timing out the whole upload request at an
+	// infra-level 503 before this fix, with the file already in storage but the document record never
+	// created because all of this used to run before the response). The client calls /analyze right after
+	// a successful upload to get the same immediate-feeling result, but a slow or failed analysis can
+	// never again cause the upload itself to fail or the document to go unsaved.
+	response.status(201).json(item);
 });
-app.get('/api/documents', auth, async (request, response) => response.json((await readData()).documents.filter((document) => document.uploadedBy === request.user.sub)));
+app.post('/api/documents/:id/analyze', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (item.autoAnalysisFull) return response.json({ ...item, autoAnalysis: item.autoAnalysisFull });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const language = request.body?.responseLanguage || 'sr';
+	const autoAnalysis = await runDocumentAutoAnalysis({ buffer, mimetype: item.mimeType, originalname: item.originalName, evidenceType: item.evidenceType, language });
+	const freshData = await readData();
+	const freshItem = freshData.documents.find((document) => document.id === item.id);
+	if (freshItem) {
+		freshItem.autoAnalysis = { status: autoAnalysis.status, workType: autoAnalysis.workType, confidence: autoAnalysis.confidence };
+		freshItem.autoAnalysisFull = autoAnalysis;
+		await writeData(freshData);
+	}
+	response.json({ ...item, autoAnalysis });
+});
+app.get('/api/documents', auth, async (request, response) => {
+	const data = await readData();
+	response.json(data.documents.filter((document) => canAccessProject(data, request.user, document.projectId)));
+});
+app.post('/api/documents/:id/explain', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!['plan', 'fiche-technique'].includes(item.evidenceType)) return response.status(400).json({ error: 'Explanation is only available for plans and fiches techniques' });
+	if (item.plainExplanation) return response.json({ status: 'cached', explanation: item.plainExplanation });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', explanation: null });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const language = request.body?.responseLanguage || 'sr';
+	let extractedText = '';
+	if (item.mimeType === 'application/pdf') { try { extractedText = (await parsePdf(buffer)).text || ''; } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
+	const explanation = await explainDocumentForLaypeople({ buffer, mimeType: item.mimeType, fileName: item.originalName, language, extractedText });
+	if (!explanation) return response.json({ status: 'not_configured', explanation: null });
+	item.plainExplanation = explanation;
+	item.plainExplanationAt = new Date().toISOString();
+	await writeData(data);
+	response.json({ status: 'generated', explanation });
+});
+app.get('/api/documents/:id/download', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	try {
+		// A converted DWG is stored as .dxf text - the downloaded file must be named .dxf too, or a
+		// user opening "plan.dwg" in AutoCAD (or any tool trusting the extension) hits a format
+		// mismatch with no indication why.
+		const downloadName = item.convertedFromDwg ? item.originalName.replace(/\.dwg$/i, '.dxf') : item.originalName;
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, downloadName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${downloadName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
+});
+// Plan measurement tool (calibrated on-screen takeoff, no AI): the user clicks two points of a known
+// real-world distance to compute pixelsPerMeter, then traces lines (ml) or polygons (m2) on the plan -
+// the server recomputes the value from the raw points + calibration rather than trusting a client number.
+// PDF plans get a second, fully automatic calibration path: a real CAD-exported PDF (not a scan) prints
+// its plot scale ("Échelle 1:50") in the title block as actual text, and the PDF page itself is "paper
+// space" at 1:1 - so pixelsPerMeter = PLAN_RASTER_DPI / (0.0254 * scaleDenominator), independent of page
+// size, exact math once the scale text is found. No AI involved: it's a regex over the PDF's real text
+// layer, same category as the devis/facture field regexes elsewhere in this file.
+const PLAN_RASTER_DPI = 150;
+const extractPlanScaleDenominator = (rawText) => {
+	const text = String(rawText || '');
+	// "éch." / "ech." is the standard French abbreviation for "échelle" and is at least as common on real
+	// title blocks as the full word (e.g. "éch. 1/250" in a PIGNON NORD label) - matching only "échelle"
+	// missed exactly this case, silently falling back to asking the user to calibrate by hand even though
+	// the plan already had its scale printed.
+	const labeled = text.match(/(?:échelle|echelle|\béch\.?|\bech\.?|scale)\s*[:=]?\s*1\s*[/:]\s*(\d{1,4})/i);
+	if (labeled) { const value = Number(labeled[1]); if (value > 1 && value <= 2000) return value; }
+	const common = text.match(/\b1\s*[/:]\s*(20|25|50|75|100|125|150|200|250|500|1000)\b/);
+	return common ? Number(common[1]) : null;
+};
+// A real architectural PDF set is routinely many pages (a cover sheet, then each facade/floor/detail on
+// its own page) - defaults to page 1 (unchanged behavior for the common single-page or "just open it"
+// case) but ?page=N lets the client fetch and measure any other page. Clamped to a sane range so a typo
+// in the query string can't make Ghostscript try to rasterize a page number that doesn't exist.
+app.get('/api/documents/:id/plan-image', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	try {
+		if (item.mimeType && item.mimeType.startsWith('image/')) {
+			const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+			response.setHeader('Content-Type', item.mimeType);
+			return response.send(buffer);
+		}
+		// A converted DWG is stored as .dxf text, not a PDF - Ghostscript below can't rasterize it, and
+		// the on-screen measurement tool has no DXF renderer yet, so fail with a clear message instead
+		// of letting a Ghostscript error on non-PDF bytes look like an unrelated crash.
+		if (item.convertedFromDwg || item.mimeType === 'application/dxf') {
+			return response.status(501).json({ error: 'Ce plan DWG a été converti en DXF mais l\'aperçu/mesure sur canvas pour ce format n\'est pas encore disponible. Téléchargez le fichier DXF converti en attendant.' });
+		}
+		const pageNumber = Math.max(1, Math.min(500, Math.round(Number(request.query.page)) || 1));
+		const rasterKey = `${item.storedName}.page${pageNumber}.png`;
+		let png;
+		try { png = await downloadFile(UPLOADS_BUCKET, rasterKey); }
+		catch {
+			const pdfBuffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+			png = await rasterizePdfPage(pdfBuffer, PLAN_RASTER_DPI, pageNumber);
+			await uploadFile(UPLOADS_BUCKET, rasterKey, png, 'image/png').catch(() => {});
+		}
+		response.setHeader('Content-Type', 'image/png');
+		response.send(png);
+	} catch (error) {
+		response.status(502).json({ error: 'Plan image unavailable: ' + error.message });
+	}
+});
+// Cheap page count (reads the PDF's own page tree via pdf-lib, no rasterization) so the client can show
+// page navigation only when a document actually has more than one page - the common case (a single-page
+// plan, or a photo) never needs it.
+app.get('/api/documents/:id/plan-page-count', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ pageCount: 1 });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const pdfDoc = await PDFDocument.load(buffer, { ignoreEncryption: true });
+		response.json({ pageCount: pdfDoc.getPageCount() });
+	} catch {
+		response.json({ pageCount: 1 });
+	}
+});
+app.get('/api/documents/:id/plan-scale-suggestion', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ scaleDenominator: null });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json({ scaleDenominator: extractPlanScaleDenominator(parsed.text) });
+	} catch {
+		response.json({ scaleDenominator: null });
+	}
+});
+// Same deterministic parsePdf + cleanExtractedPdfText grounding already trusted for the scale
+// auto-detect above, extended to list every technical spec callout and every "not finalized yet" note
+// already printed in the plan's own PDF text - see extractPlanTextCallouts for why it never tries to
+// reconstruct which name a spec belongs to. Works on any plan with a real text layer, any trade.
+app.get('/api/documents/:id/plan-text-callouts', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ callouts: [], openItems: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json(extractPlanTextCallouts(parsed.text));
+	} catch {
+		response.json({ callouts: [], openItems: [] });
+	}
+});
+// Same grounding again, this time grouped per page under whatever sheet code/title that page's own
+// title block already prints - see extractPlanDetailIndex for why a multi-page "details booklet" style
+// plan reads as a real index instead of 20+ pages nobody has time to open one by one.
+app.get('/api/documents/:id/plan-detail-index', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+	if (!isPdf) return response.json({ entries: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const parsed = await parsePdf(buffer);
+		response.json({ entries: extractPlanDetailIndex(parsed.pages) });
+	} catch {
+		response.json({ entries: [] });
+	}
+});
+// Only meaningful for a plan converted from DWG (stored as .dxf text) - no OCR, no AI, just the
+// same deterministic group-code parse used for the PDF text features above, applied to real CAD
+// entities instead: every number comes directly from the plan's own geometry, verified against this
+// exact approach's hand-run Python equivalent on a real project file before being wired in here.
+function isDxfDocument(item) {
+	return item.convertedFromDwg || item.mimeType === 'application/dxf';
+}
+app.get('/api/documents/:id/dxf-layers', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!isDxfDocument(item)) return response.json({ layers: [] });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const entities = parseDxfEntities(buffer.toString('utf8'));
+		response.json({ layers: summarizeLayers(entities) });
+	} catch (error) {
+		response.status(502).json({ error: 'DXF read failed: ' + error.message });
+	}
+});
+// Groups one layer's block-placement positions into zones (same wall/bay) along one axis and
+// reports the gap between each consecutive pair - the exact "razmak" (spacing) calculation this
+// session's manual plan analysis did by hand for ossature/équerre spacing, now generic to any layer.
+// mode=per-wall (default): which position along `axis` each row/rail sits at, one list per wall/bay
+// (axisSpacing - e.g. "which height does each horizontal rail go at, per wall").
+// mode=along-row: spacing BETWEEN points within one row/rail, not across wall-to-wall rows - needs
+// its own two-level clustering (rowSpacing), since the same approximate height repeats across many
+// unrelated walls and would otherwise merge into one meaningless row (e.g. "how far apart are the
+// brackets left-to-right along one specific rail").
+app.get('/api/documents/:id/dxf-spacing', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!isDxfDocument(item)) return response.json({ zones: [] });
+	const layer = String(request.query.layer || '');
+	const axis = request.query.axis === 'x' ? 'x' : 'y';
+	const mode = request.query.mode === 'along-row' ? 'along-row' : 'per-wall';
+	if (!layer) return response.status(400).json({ error: 'layer is required' });
+	try {
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		const entities = parseDxfEntities(buffer.toString('utf8'));
+		const inserts = extractInserts(entities).filter((point) => point.layer === layer);
+		if (mode === 'along-row') {
+			response.json({ rows: rowSpacing(inserts, { wallAxis: axis }) });
+		} else {
+			response.json({ zones: axisSpacing(inserts, { spacingAxis: axis }) });
+		}
+	} catch (error) {
+		response.status(502).json({ error: 'DXF read failed: ' + error.message });
+	}
+});
+// Reads only what's already printed on the plan's title block (cartouche) - chantier address, client,
+// architecte - same reliable text-extraction mechanism as devis fields. Unlike the calibrated
+// measurements above, this is AI, so it's cached as a one-shot "AI read" the client must show as
+// unverified, never treated as exact the way a calibrated measurement is.
+const extractPlanInfoWithGemini = async (buffer, mimeType) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_VISION_MODEL || process.env.GEMINI_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const prompt = "Read this construction plan (architectural drawing) very carefully, especially its title block/cartouche. Return only JSON with fields: subject string (what this specific sheet shows, e.g. \"Façade Nord - Détail fenêtre\" or \"Coupe verticale ITE\" - copy the drawing's own title/désignation as printed, not a generic guess), chantierAddress string (the jobsite/project address), clientName string, architecte string. Copy each EXACTLY and COMPLETELY as printed on the plan, no paraphrasing or guessing. If a field is genuinely not visible anywhere on the plan, use an empty string.";
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { subject: { type: 'STRING' }, chantierAddress: { type: 'STRING' }, clientName: { type: 'STRING' }, architecte: { type: 'STRING' } }, required: ['subject', 'chantierAddress', 'clientName', 'architecte'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: { mimeType: mimeType || 'application/pdf', data: buffer.toString('base64') } }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini plan info network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini plan info rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try { return JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim()); } catch { return null; }
+};
+// Aggregates the RGE Qualibat compliance points already surfaced per-document (see
+// explainDocumentForLaypeople's "Points à respecter pour la conformité RGE Qualibat" section) into one
+// chantier-wide list, so a gérant doesn't have to open every plan/fiche technique one by one to see
+// what this site's own documents actually require. Deliberately reads the TEXT of each document (the
+// same deterministic parsePdf + cleanExtractedPdfText grounding already trusted for the explain
+// feature), not vision - these are written rules, not a layout to look at, and text is both cheaper and
+// more exact for that. A document with no extractable text (a scan/photo with no text layer) is simply
+// skipped and reported as such, never silently dropped without a trace.
+const extractRgeChecklistWithGemini = async ({ projectName, documents }) => {
+	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+	if (!geminiApiKey) return null;
+	const model = (process.env.GEMINI_MODEL || process.env.GEMINI_VISION_MODEL || 'gemini-3.1-flash-lite').replace(/^models\//, '');
+	const combined = documents.map((doc, index) => `=== DOCUMENT ${index + 1}: ${doc.name} ===\n${doc.text.slice(0, 8000)}`).join('\n\n');
+	const prompt = `Voici le texte extrait de plusieurs documents techniques du chantier "${projectName}". Pour chaque règle d'exécution, tolérance, matériau ou contrôle explicitement obligatoire pour la conformité RGE Qualibat que tu trouves dans ce texte, liste-la avec le nom exact du document source (repris tel quel depuis "DOCUMENT N: <nom>"). Règle la plus importante : ne liste QUE ce qui est écrit noir sur blanc dans le texte fourni ci-dessous - n'invente et ne déduis aucune règle RGE générale absente de ce texte précis. Si un document ne contient aucune règle de conformité explicite, ne crée aucune entrée pour lui.\n\n${combined}`;
+	const requestBody = JSON.stringify({
+		generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: { type: 'OBJECT', properties: { points: { type: 'ARRAY', items: { type: 'OBJECT', properties: { rule: { type: 'STRING' }, sourceDocument: { type: 'STRING' } }, required: ['rule', 'sourceDocument'] } } }, required: ['points'] } },
+		contents: [{ role: 'user', parts: [{ text: prompt }] }]
+	});
+	const maxAttempts = 3;
+	let geminiResponse;
+	for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+		try {
+			geminiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: requestBody });
+		} catch (networkError) { console.error('Gemini RGE checklist network error', networkError.message); return null; }
+		if (geminiResponse.ok) break;
+		const details = await geminiResponse.text();
+		console.error('Gemini RGE checklist rejected', geminiResponse.status, `(tentative ${attempt}/${maxAttempts})`, details.slice(0, 500));
+		const isOverloaded = geminiResponse.status === 503 || geminiResponse.status === 429;
+		if (!isOverloaded || attempt === maxAttempts) return null;
+		await new Promise((resolve) => setTimeout(resolve, 1500 * attempt));
+	}
+	const result = await geminiResponse.json();
+	try {
+		const parsed = JSON.parse(String(result.candidates?.[0]?.content?.parts?.[0]?.text || '').trim().replace(/^```(?:json)?/i, '').replace(/```$/i, '').trim());
+		return Array.isArray(parsed.points) ? parsed.points : [];
+	} catch { return null; }
+};
+app.post('/api/projects/:id/rge-checklist', auth, manager, async (request, response) => {
+	const data = await readData();
+	// Single canAccessProject check, same as every other :id-keyed project route in this file - it
+	// already returns false for a nonexistent id (projectById inside it finds nothing), so a separate
+	// 404 after it would be unreachable dead code and, worse, would leak to an unauthorized caller
+	// whether a given project id exists at all versus just being someone else's.
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	const relevantDocs = data.documents.filter((document) => document.projectId === request.params.id && ['plan', 'fiche-technique'].includes(document.evidenceType));
+	if (!relevantDocs.length) return response.json({ status: 'no_documents', points: [], documentsRead: [], documentsSkipped: [] });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', points: [], documentsRead: [], documentsSkipped: [] });
+	const documentsWithText = [];
+	const documentsSkipped = [];
+	for (const document of relevantDocs) {
+		const isPdf = document.mimeType === 'application/pdf' || document.originalName.toLowerCase().endsWith('.pdf');
+		if (!isPdf) { documentsSkipped.push(document.originalName); continue; }
+		try {
+			const buffer = await downloadFile(UPLOADS_BUCKET, document.storedName);
+			const cleaned = cleanExtractedPdfText((await parsePdf(buffer)).text);
+			if (cleaned.length > 20) documentsWithText.push({ name: document.originalName, text: cleaned });
+			else documentsSkipped.push(document.originalName);
+		} catch { documentsSkipped.push(document.originalName); }
+	}
+	if (!documentsWithText.length) return response.json({ status: 'no_text', points: [], documentsRead: [], documentsSkipped });
+	const points = await extractRgeChecklistWithGemini({ projectName: project.name, documents: documentsWithText });
+	if (!points) return response.json({ status: 'unavailable', points: [], documentsRead: [], documentsSkipped });
+	project.rgeChecklist = { points, generatedAt: new Date().toISOString(), documentsRead: documentsWithText.map((document) => document.name), documentsSkipped };
+	await writeData(data);
+	response.json({ status: 'generated', points, documentsRead: project.rgeChecklist.documentsRead, documentsSkipped });
+});
+app.get('/api/projects/:id/rge-checklist', auth, manager, async (request, response) => {
+	const data = await readData();
+	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied' });
+	const project = projectById(data, request.params.id);
+	response.json(project.rgeChecklist ? { status: 'cached', ...project.rgeChecklist } : { status: 'not_generated', points: [], documentsRead: [], documentsSkipped: [] });
+});
+app.post('/api/documents/:id/plan-info', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (item.planInfo) return response.json({ status: 'cached', planInfo: item.planInfo });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', planInfo: null });
+	let buffer;
+	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
+	const info = await extractPlanInfoWithGemini(buffer, item.mimeType);
+	if (!info) return response.json({ status: 'unavailable', planInfo: null });
+	item.planInfo = info;
+	await writeData(data);
+	response.json({ status: 'generated', planInfo: info });
+});
+const isFinitePoint = (point) => point && Number.isFinite(point.x) && Number.isFinite(point.y);
+// A single sheet often prints more than one scale (e.g. "FACADE ... éch. 1/75e" next to
+// "PIGNON ... éch. 1/50e" on the exact same BONDY plans this was built against) - calibrating once against
+// one of those and then measuring inside the other would silently be wrong by the ratio between the two
+// scales (here, 50%). item.calibration stays the single ACTIVE calibration everything else in this file
+// already reads (POST .../measurements bakes a measurement's value/perimeterM from whichever one is active
+// the moment it's created, so past measurements never change retroactively when the active one changes).
+// item.calibrations is the saved history of every named zone, so a gérant can switch back to "Façade" or
+// "Pignon" without re-clicking reference points each time.
+// An optional region (a rectangle in natural-image pixel space) a calibration zone applies to - lets the
+// tool resolve WHICH zone a given point belongs to on its own (planMeasureZoneForPoint, client-side) instead
+// of relying on the gérant to remember to switch the active zone before clicking. A zone with no region is
+// the fallback that matches anywhere, so a single-scale plan (the common case) never needs one.
+const isFiniteRegion = (region) => region && [region.x0, region.y0, region.x1, region.y1].every(Number.isFinite);
+// Each zone remembers which PAGE of the (possibly multi-page) PDF it was calibrated against - a scale
+// clicked on page 2 must never get silently applied to a shape measured on page 5. Defaults to 1 so every
+// single-page plan (still the common case) behaves exactly as before.
+function addCalibrationZone(item, calibration, label, region, page) {
+	const named = { ...calibration, id: `cal-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: String(label || '').trim() || null, region: isFiniteRegion(region) ? region : null, page: Math.max(1, Math.round(Number(page)) || 1) };
+	item.calibrations = [...(item.calibrations || []), named];
+	item.calibration = named;
+	return named;
+}
+app.patch('/api/documents/:id/calibration', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const page = Math.max(1, Math.min(500, Math.round(Number(request.body?.page)) || 1));
+	const scaleDenominator = Number(request.body?.scaleDenominator);
+	if (Number.isFinite(scaleDenominator) && scaleDenominator > 0) {
+		const isPdf = item.mimeType === 'application/pdf' || item.originalName.toLowerCase().endsWith('.pdf');
+		if (!isPdf) return response.status(400).json({ error: 'Scale-based calibration only applies to a PDF plan (it needs the page to be true paper-space, not a photo)' });
+		const calibration = addCalibrationZone(item, { method: 'pdf-scale', scaleDenominator, pixelsPerMeter: PLAN_RASTER_DPI / (0.0254 * scaleDenominator), calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label, null, page);
+		await writeData(data);
+		return response.json({ calibration, calibrations: item.calibrations });
+	}
+	const { pointA, pointB } = request.body || {};
+	const realDistanceM = Number(request.body?.realDistanceM);
+	if (!isFinitePoint(pointA) || !isFinitePoint(pointB) || !Number.isFinite(realDistanceM) || realDistanceM <= 0) return response.status(400).json({ error: 'Two reference points and a positive real distance (m), or a PDF scaleDenominator, are required' });
+	const pixelDistance = Math.hypot(pointB.x - pointA.x, pointB.y - pointA.y);
+	if (pixelDistance < 2) return response.status(400).json({ error: 'The two reference points are too close together to calibrate accurately' });
+	const calibration = addCalibrationZone(item, { method: 'two-point', pointA, pointB, realDistanceM, pixelsPerMeter: pixelDistance / realDistanceM, calibratedBy: request.user.sub, calibratedAt: new Date().toISOString() }, request.body?.label, null, page);
+	await writeData(data);
+	response.json({ calibration, calibrations: item.calibrations });
+});
+// Switches the ACTIVE calibration back to a previously saved zone (e.g. "Pignon 1:50") without making the
+// gérant re-click two reference points every time they move between parts of a mixed-scale sheet. Never
+// creates a new zone and never touches past measurements' already-baked values - purely a pointer change.
+app.patch('/api/documents/:id/calibration/activate', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const found = (item.calibrations || []).find((calibration) => calibration.id === request.body?.calibrationId);
+	if (!found) return response.status(404).json({ error: 'Calibration zone not found' });
+	item.calibration = found;
+	await writeData(data);
+	response.json({ calibration: item.calibration, calibrations: item.calibrations });
+});
+// Attaches (or replaces) the rectangle a calibration zone applies to, drawn by the gérant right after
+// naming the zone - separate from PATCH .../calibration itself so the two reference points used to set the
+// scale are never confused with the two corners used to mark where it applies.
+app.patch('/api/documents/:id/calibration/:calibrationId/region', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const found = (item.calibrations || []).find((calibration) => calibration.id === request.params.calibrationId);
+	if (!found) return response.status(404).json({ error: 'Calibration zone not found' });
+	const { x0, y0, x1, y1 } = request.body || {};
+	const region = isFiniteRegion({ x0, y0, x1, y1 }) ? { x0: Math.min(x0, x1), y0: Math.min(y0, y1), x1: Math.max(x0, x1), y1: Math.max(y0, y1) } : null;
+	found.region = region;
+	if (item.calibration?.id === found.id) item.calibration = found;
+	await writeData(data);
+	response.json({ calibration: found, calibrations: item.calibrations });
+});
+app.get('/api/documents/:id/measurements', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	// Backward-compatible: a zone/measurement saved before multi-page support existed has no `page` field -
+	// defaults to 1 here (never written back to disk unless re-saved), matching how it already behaved when
+	// every plan was implicitly "page 1".
+	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id).map((measurement) => ({ ...measurement, page: measurement.page || 1 }));
+	// Backward-compatible: a document calibrated before per-zone calibrations existed has item.calibration
+	// but no item.calibrations array yet - synthesize a one-entry list so the client's zone switcher always
+	// has something consistent to show, without needing to touch old documents on disk.
+	const calibrations = (item.calibrations || (item.calibration ? [item.calibration] : [])).map((calibration) => ({ ...calibration, page: calibration.page || 1 }));
+	response.json({ calibration: item.calibration ? { ...item.calibration, page: item.calibration.page || 1 } : null, calibrations, measurements });
+});
+app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const measurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId === item.id);
+	if (!measurements.length) return response.status(400).json({ error: 'Aucune mesure enregistrée pour ce plan' });
+	const project = projectById(data, item.projectId);
+	const worker = data.users.find((user) => user.id === request.user.sub);
+	const branding = await companyBrandingForPdf(data, worker);
+	const zoneSuffix = item.calibration?.label ? ` [zone : ${item.calibration.label}]` : '';
+	const calibrationLabel = (item.calibration
+		? (item.calibration.method === 'pdf-scale' ? `Échelle du plan : 1:${item.calibration.scaleDenominator} (lue dans le texte du PDF)` : `Calibration manuelle : ${item.calibration.pixelsPerMeter.toFixed(2)} px/m`)
+		: 'Plan non calibré') + zoneSuffix;
+	const pdf = await buildMetrePdf({
+		...branding,
+		projectName: project?.name || item.projectId,
+		documentName: item.originalName,
+		calibrationLabel,
+		measurements,
+		generatedAt: new Date().toLocaleDateString('fr-FR'),
+	});
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="metre-${String(project?.name || item.projectId).replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
+	response.send(pdf);
+});
+const polygonAreaPx = (points) => {
+	let sum = 0;
+	for (let index = 0; index < points.length; index += 1) {
+		const a = points[index]; const b = points[(index + 1) % points.length];
+		sum += a.x * b.y - b.x * a.y;
+	}
+	return Math.abs(sum) / 2;
+};
+const polylineLengthPx = (points) => {
+	let sum = 0;
+	for (let index = 1; index < points.length; index += 1) sum += Math.hypot(points[index].x - points[index - 1].x, points[index].y - points[index - 1].y);
+	return sum;
+};
+app.post('/api/documents/:id/measurements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = data.documents.find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	if (!item.calibration) return response.status(400).json({ error: 'Calibrate the plan scale before measuring' });
+	// A caller that already knows which zone a shape belongs to (e.g. the client resolved it geometrically
+	// against each zone's saved region) can name that zone explicitly instead of relying on whichever
+	// calibration happens to be "active" - avoids having to PATCH .../activate before every single shape on
+	// a plan that mixes zones, and removes any race between "switch active zone" and "post this shape".
+	const explicitCalibration = request.body.calibrationId ? (item.calibrations || []).find((calibration) => calibration.id === request.body.calibrationId) : null;
+	if (request.body.calibrationId && !explicitCalibration) return response.status(400).json({ error: 'Unknown calibrationId' });
+	const type = request.body.type === 'polygon' ? 'polygon' : 'line';
+	const points = (Array.isArray(request.body.points) ? request.body.points : []).filter(isFinitePoint);
+	const minPoints = type === 'polygon' ? 3 : 2;
+	if (points.length < minPoints) return response.status(400).json({ error: `At least ${minPoints} points are required` });
+	const label = String(request.body.label || '').trim() || (type === 'polygon' ? 'Surface' : 'Ligne');
+	// "opening" only applies to polygons (a window/door traced inside a wall surface, to subtract from
+	// it) - a line has no area to deduct from, so it always stays "surface" regardless of what's sent.
+	const role = type === 'polygon' && request.body.role === 'opening' ? 'opening' : 'surface';
+	const { pixelsPerMeter } = explicitCalibration || item.calibration;
+	const value = type === 'polygon' ? polygonAreaPx(points) / (pixelsPerMeter ** 2) : polylineLengthPx(points) / pixelsPerMeter;
+	// A window/door opening is usually billed per piece (fourniture + pose) and/or by the linear meter
+	// of trim/sealant around it, not by its m2 - so every polygon also gets its closed-loop perimeter
+	// (ml), independent of the m2 used to deduct it from the wall's net surface.
+	const perimeterM = type === 'polygon' ? polylineLengthPx([...points, points[0]]) / pixelsPerMeter : null;
+	// Lets one traced shape stand in for several identical copies (e.g. 5 identical 1.20x1.20 windows)
+	// instead of re-tracing every one - still a manual, exact count the user types in, never a guess from
+	// pattern-matching the image. Clamped to a sane range so a typo (or a stray huge number) can't silently
+	// multiply a total by something absurd.
+	const repeatCount = Math.max(1, Math.min(999, Math.round(Number(request.body.repeatCount)) || 1));
+	// The measurement's page is always INHERITED from whichever zone actually calibrated it, never taken
+	// from a separate client-sent field - a client claiming "page 3" while its points/calibrationId resolve
+	// to a page-1 zone would otherwise be exactly the silent mismatch this whole zone system exists to rule
+	// out.
+	const resolvedCalibration = explicitCalibration || item.calibration;
+	const measurement = { id: `measurement-${Date.now()}`, documentId: item.id, projectId: item.projectId, type, role, label, points, value, perimeterM, repeatCount, unit: type === 'polygon' ? 'm2' : 'ml', calibrationId: resolvedCalibration.id, page: resolvedCalibration.page || 1, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.planMeasurements = [...(data.planMeasurements || []), measurement];
+	await writeData(data);
+	response.status(201).json(measurement);
+});
+app.delete('/api/measurements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const item = (data.planMeasurements || []).find((measurement) => measurement.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Measurement not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => measurement.id !== item.id);
+	await writeData(data);
+	response.json({ deleted: true, id: item.id });
+});
+// Bulk-clear every measurement on one document, or just one page of it with ?page=N - the owner's
+// escape hatch after a bad auto-detect run (a color scan that locked onto windows instead of rails,
+// say) added dozens of wrong lines: deleting those one at a time via the single-measurement route
+// above is impractical, and the only other way to recover was to re-upload the whole document.
+app.delete('/api/documents/:id/measurements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const document = data.documents.find((item) => item.id === request.params.id);
+	if (!document) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, document.projectId)) return response.status(403).json({ error: 'Access denied' });
+	const page = request.query.page !== undefined ? Math.max(1, Math.round(Number(request.query.page)) || 1) : null;
+	const before = (data.planMeasurements || []).length;
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => {
+		if (measurement.documentId !== request.params.id) return true;
+		if (page !== null && (measurement.page || 1) !== page) return true;
+		return false;
+	});
+	const deleted = before - data.planMeasurements.length;
+	await writeData(data);
+	response.json({ deleted });
+});
 app.patch('/api/documents/:id', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name || name.length > 180) return response.status(400).json({ error: 'A document name up to 180 characters is required' });
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	item.originalName = name; item.renamedAt = new Date().toISOString(); item.renamedBy = request.user.sub;
 	await writeData(data); response.json(item);
 });
 app.post('/api/documents/:id/copy', auth, manager, async (request, response) => {
-	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const source = data.documents.find((document) => document.id === request.params.id);
 	if (!source) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, source.projectId)) return response.status(403).json({ error: 'Access denied' });
 	const storedName = `${Date.now()}-${source.storedName}`; const sourceBuffer = await downloadFile(UPLOADS_BUCKET, source.storedName); await uploadFile(UPLOADS_BUCKET, storedName, sourceBuffer, source.mimeType);
 	const copy = { ...source, id: `document-${Date.now()}-copy`, originalName: `Kopija - ${source.originalName}`, storedName, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString(), copiedFrom: source.id };
 	data.documents.push(copy); await writeData(data); response.status(201).json(copy);
 });
 app.delete('/api/documents/:id', auth, manager, async (request, response) => {
-	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id && document.uploadedBy === request.user.sub);
+	const data = await readData(); const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
+	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	await deleteFile(UPLOADS_BUCKET, item.storedName);
-	data.documents = data.documents.filter((document) => document.id !== item.id); await writeData(data); response.json({ deleted: true, id: item.id });
+	await deleteFile(UPLOADS_BUCKET, `${item.storedName}.page1.png`).catch(() => {});
+	data.documents = data.documents.filter((document) => document.id !== item.id);
+	data.planMeasurements = (data.planMeasurements || []).filter((measurement) => measurement.documentId !== item.id);
+	await writeData(data); response.json({ deleted: true, id: item.id });
+});
+app.post('/api/personal-documents/upload', auth, upload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	if (!request.file) return response.status(400).json({ error: 'File required' });
+	if (!isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'Only PDF or image files are allowed' });
+	const docType = String(request.body.docType || '').trim();
+	if (!docType) return response.status(400).json({ error: 'Document type is required' });
+	const workerId = String(request.body.workerId || '').trim();
+	const data = await readData();
+	const caller = request.userRecord;
+	const worker = isOwnerRole(caller.role) ? data.users.find((item) => item.id === workerId) : caller;
+	if (!worker) return response.status(404).json({ error: 'Worker not found' });
+	const owner = companyOwnerForUser(data, worker) || worker;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (callerOwner.id !== owner.id) return response.status(403).json({ error: 'Access denied for this worker' });
+	const expiresAt = request.body.expiresAt ? new Date(request.body.expiresAt).toISOString() : null;
+	const storedName = storageKeyFor(request.file.originalname);
+	request.file.buffer = await compressUpload(request.file.buffer, request.file.mimetype);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, request.file.buffer, request.file.mimetype); } catch (uploadError) { return response.status(502).json({ error: 'Document upload failed: ' + uploadError.message }); }
+	const item = { id: `personal-document-${Date.now()}`, workerId: worker.id, ownerId: owner.id, docType, direction: request.user.sub === owner.id ? 'gerant-to-worker' : 'worker-to-gerant', originalName: request.file.originalname, storedName, mimeType: request.file.mimetype, size: request.file.buffer.length, expiresAt, uploadedBy: request.user.sub, uploadedAt: new Date().toISOString() };
+	data.personalDocuments = [...(data.personalDocuments || []), item];
+	await writeData(data);
+	response.status(201).json(item);
+});
+app.get('/api/personal-documents', auth, async (request, response) => {
+	const data = await readData();
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	const items = (data.personalDocuments || []).filter((item) => item.workerId === caller.id || item.ownerId === callerOwner.id);
+	response.json(items);
+});
+app.get('/api/personal-documents/:id/download', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.personalDocuments || []).find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, item.storedName, 300, item.originalName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+		response.setHeader('Content-Type', item.mimeType || 'application/octet-stream');
+		response.setHeader('Content-Disposition', `attachment; filename="${item.originalName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) {
+		response.status(502).json({ error: 'Document download failed: ' + error.message });
+	}
+});
+app.delete('/api/personal-documents/:id', auth, async (request, response) => {
+	const data = await readData();
+	const item = (data.personalDocuments || []).find((document) => document.id === request.params.id);
+	if (!item) return response.status(404).json({ error: 'Document not found' });
+	const caller = request.userRecord;
+	const callerOwner = companyOwnerForUser(data, caller) || caller;
+	if (item.workerId !== caller.id && item.ownerId !== callerOwner.id) return response.status(403).json({ error: 'Access denied' });
+	await deleteFile(UPLOADS_BUCKET, item.storedName);
+	data.personalDocuments = (data.personalDocuments || []).filter((document) => document.id !== item.id);
+	await writeData(data);
+	response.json({ deleted: true, id: item.id });
 });
 app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const question = String(request.body.question || '').trim();
@@ -1597,7 +3600,7 @@ app.post('/api/ai/technical-answer', auth, async (request, response) => {
 	const geminiApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 	const data = await readData();
 	if (!canAccessProject(data, request.user, projectId)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const documents = (data.documents || []).filter((item) => item.projectId === projectId && item.uploadedBy === request.user.sub && allowedWorkEvidenceTypes.includes(item.evidenceType));
+	const documents = (data.documents || []).filter((item) => item.projectId === projectId && allowedWorkEvidenceTypes.includes(item.evidenceType));
 	const sourceVersion = crypto.createHash('sha256').update(documents.map((item) => `${item.id}:${item.updatedAt || item.uploadedAt || ''}`).join('|')).digest('hex');
 	const cacheKey = answerCacheKey(request.user.sub, projectId, question, sourceVersion);
 	const sources = [];
@@ -1682,15 +3685,46 @@ app.get('/api/projects/:id/work-sequence', auth, async (request, response) => {
 app.get('/api/projects/:id/evidence-summary', auth, async (request, response) => {
 	const data = await readData();
 	if (!canAccessProject(data, request.user, request.params.id)) return response.status(403).json({ error: 'Access denied for this chantier' });
-	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id && item.uploadedBy === request.user.sub);
+	const documents = (data.documents || []).filter((item) => item.projectId === request.params.id);
 	const required = ['plan', 'fiche-technique', 'photo-before', 'photo-during', 'photo-after'];
 	const present = required.filter((type) => documents.some((item) => item.evidenceType === type));
 	response.json({ projectId: request.params.id, required, present, missing: required.filter((type) => !present.includes(type)), complete: present.length === required.length });
+});
+// Catches anything an async route handler threw without its own try/catch (e.g. a writeData() 409
+// conflict) so the client always gets clean JSON - Express's own default error page is HTML, which
+// would otherwise land in a toast built to display a JSON error message.
+app.use((error, _request, response, _next) => {
+	if (response.headersSent) return;
+	console.error('Unhandled route error:', error.message);
+	response.status(error.status || 500).json({ error: error.message || 'Internal server error' });
 });
 await fs.mkdir(persistentRoot, { recursive: true });
 await ensureBuckets();
 if (persistentRoot !== root) {
 	const seedDataPath = path.join(root, 'data.json');
 	try { await fs.access(dataPath); } catch { await fs.copyFile(seedDataPath, dataPath); }
+}
+// One-time, idempotent: projects created before project.ownerId existed have no company tag at all,
+// which canAccessProject now requires - without this they'd become unreachable by anyone (not a leak,
+// but a lockout). Best-effort match back to the creating owner by project.manager (the name stored at
+// creation time); any that still can't be matched fall back to the single oldest owner account, which
+// is correct as long as this deployment only ever had one real company, same as the exposure this
+// whole change closes was only ever a problem once a second company existed.
+try {
+	const migrationData = await readData();
+	const legacyProjects = (migrationData.projects || []).filter((project) => !project.ownerId);
+	if (legacyProjects.length) {
+		const owners = (migrationData.users || []).filter((user) => isOwnerRole(user.role)).sort((a, b) => new Date(a.createdAt || 0) - new Date(b.createdAt || 0));
+		if (owners.length) {
+			for (const project of legacyProjects) {
+				const byName = owners.find((owner) => owner.name === project.manager);
+				project.ownerId = (byName || owners[0]).id;
+			}
+			await writeData(migrationData);
+			console.log(`Migrated ownerId for ${legacyProjects.length} pre-existing chantier(s).`);
+		}
+	}
+} catch (error) {
+	console.error('Project ownerId migration failed (will retry on next deploy):', error.message);
 }
 app.listen(Number(process.env.PORT || 3000), '0.0.0.0', () => console.log(`IBRA-BA web app listening on port ${process.env.PORT || 3000} at ${root}`));

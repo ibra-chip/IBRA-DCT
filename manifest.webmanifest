@@ -4,8 +4,8 @@
   "description": "Gestion documentaire et opérationnelle des chantiers IBRA-BA",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#08131f",
-  "theme_color": "#08131f",
+  "background_color": "#eef1f6",
+  "theme_color": "#141b2b",
   "lang": "fr",
   "icons": [
     {

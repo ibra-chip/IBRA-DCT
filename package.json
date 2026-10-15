@@ -20,18 +20,23 @@
     "db:generate": "npx prisma generate --schema prisma/schema.prisma",
     "db:migrate:dev": "npx prisma migrate dev --schema prisma/schema.prisma",
     "db:migrate:deploy": "npx prisma migrate deploy --schema prisma/schema.prisma",
-    "smoke:api": "node scripts/smoke-api.mjs"
+    "smoke:api": "node scripts/smoke-api.mjs",
+    "build:pages": "node scripts/build-pages.mjs"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",
+    "compression": "^1.8.2",
     "cors": "^2.8.5",
     "dotenv": "^17.4.2",
+    "exceljs": "^4.4.0",
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.3.0",
     "nodemailer": "^10.0.10",
     "pdf-lib": "^1.17.1",
-    "pdf-parse": "^2.4.5"
+    "pdf-parse": "^2.4.5",
+    "sharp": "^0.35.5",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"

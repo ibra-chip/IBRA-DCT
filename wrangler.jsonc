@@ -1,0 +1,10 @@
+{
+	// Cloudflare Pages test deploy: static frontend only (no Worker script). The API stays on
+	// Cloud Run (see script.js's fixed api origin); this just serves index.html/script.js/styles.css
+	// from the files npm run build:pages copies into public-pages/.
+	"name": "ibra-dct",
+	"compatibility_date": "2026-01-01",
+	"assets": {
+		"directory": "./public-pages"
+	}
+}

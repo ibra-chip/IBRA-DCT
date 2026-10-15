@@ -10,11 +10,11 @@
         "Cilj je energetska performansa, kontinuitet izolacije, smanjenje ponts thermiques i kvalitet dokaziv na kontroli.",
         "RGE/QUALIBAT trazi dokumentaciju, pravilnu izvedbu, kontrolu, prijem i savjet klijentu."
       ],
-      "titleFr": "Cat?gorie RGE et objectif",
+      "titleFr": "Catégorie RGE et objectif",
       "itemsFr": [
-        "La cat?gorie 12 correspond ? l'isolation thermique des murs par l'ext?rieur.",
-        "L'objectif est la performance ?nerg?tique, la continuit? de l'isolation, la r?duction des ponts thermiques et une qualit? prouvable au contr?le.",
-        "RGE/QUALIBAT exige la documentation, une mise en ?uvre correcte, les contr?les, la r?ception et le conseil au client."
+        "La catégorie 12 correspond à l'isolation thermique des murs par l'extérieur.",
+        "L'objectif est la performance énergétique, la continuité de l'isolation, la réduction des ponts thermiques et une qualité prouvable au contrôle.",
+        "RGE/QUALIBAT exige la documentation, une mise en œuvre correcte, les contrôles, la réception et le conseil au client."
       ]
     },
     {
@@ -27,10 +27,10 @@
       ],
       "titleFr": "Thermique de base",
       "itemsFr": [
-        "Le lambda est la conductivit? thermique : plus il est faible, meilleur est l'isolant.",
-        "R est la r?sistance thermique : plus R est ?lev?, meilleure est l'isolation.",
+        "Le lambda est la conductivité thermique : plus il est faible, meilleur est l'isolant.",
+        "R est la résistance thermique : plus R est élevé, meilleure est l'isolation.",
         "U est le coefficient de transmission thermique d'une paroi : plus U est faible, meilleure est la paroi.",
-        "Les chevilles/fixations peuvent cr?er des ponts thermiques et augmenter U."
+        "Les chevilles/fixations peuvent créer des ponts thermiques et augmenter U."
       ]
     },
     {
@@ -43,10 +43,10 @@
       ],
       "titleFr": "Choix de l'isolant",
       "itemsFr": [
-        "En bardage ventil?, diff?rents isolants peuvent ?tre utilis?s s'ils sont valid?s par le syst?me.",
-        "En ITE sous enduit, utiliser uniquement les isolants admis par le syst?me : PSE, XPS, mousse r?solique, laine min?rale, fibre de bois, li?ge expans?.",
-        "Le choix d?pend du support, de l'humidit?, du feu, de l'acoustique, de la r?sistance m?canique, de la finition et du prix.",
-        "Les isolants minces r?fl?chissants ne remplacent pas un isolant ?pais ; ils ne sont qu'un compl?ment lorsque c'est pr?vu."
+        "En bardage ventilé, différents isolants peuvent être utilisés s'ils sont validés par le système.",
+        "En ITE sous enduit, utiliser uniquement les isolants admis par le système : PSE, XPS, mousse résolique, laine minérale, fibre de bois, liège expansé.",
+        "Le choix dépend du support, de l'humidité, du feu, de l'acoustique, de la résistance mécanique, de la finition et du prix.",
+        "Les isolants minces réfléchissants ne remplacent pas un isolant épais ; ils ne sont qu'un complément lorsque c'est prévu."
       ]
     },
     {
@@ -58,13 +58,13 @@
         "Kod bardage bois sa biosourced izolatorima trazi se pare-pluie HPV, Sd < 0,10 m.",
         "Zid mora moci da se susi; na kamenu je PSE jako nepovoljan ako zatvara vlagu."
       ],
-      "titleFr": "Eau, vapeur et humidit?",
+      "titleFr": "Eau, vapeur et humidité",
       "itemsFr": [
-        "Sd indique la r?sistance ? la diffusion de vapeur d'eau : plus Sd est ?lev?, plus le mat?riau est ferm?.",
-        "Un pare-vapeur a g?n?ralement Sd >= 18 m ; un frein-vapeur a Sd < 18 m.",
-        "Le pare-vapeur n'est pas automatique : la d?cision d?pend du mur, du syst?me, de l'isolant et du calcul.",
-        "En bardage bois avec isolants biosourc?s, on utilise souvent un pare-pluie HPV, Sd < 0,10 m.",
-        "Le mur doit pouvoir s?cher ; sur pierre, le PSE est d?favorable s'il bloque l'humidit?."
+        "Sd indique la résistance à la diffusion de vapeur d'eau : plus Sd est élevé, plus le matériau est fermé.",
+        "Un pare-vapeur a généralement Sd >= 18 m ; un frein-vapeur a Sd < 18 m.",
+        "Le pare-vapeur n'est pas automatique : la décision dépend du mur, du système, de l'isolant et du calcul.",
+        "En bardage bois avec isolants biosourcés, on utilise souvent un pare-pluie HPV, Sd < 0,10 m.",
+        "Le mur doit pouvoir sécher ; sur pierre, le PSE est défavorable s'il bloque l'humidité."
       ]
     },
     {
@@ -77,10 +77,10 @@
       ],
       "titleFr": "Ventilation",
       "itemsFr": [
-        "L'ITE ne garantit ni l'?tanch?it? ? l'air ni la ventilation du b?timent.",
-        "Les entr?es d'air existantes doivent ?tre conserv?es ou remplac?es par une autre ventilation correcte.",
-        "Depuis le 1er janvier 2018, les pi?ces principales concern?es par les travaux doivent avoir des entr?es permanentes d'air neuf.",
-        "Module minimal : chambre 45, s?jour 90 ; en pratique s?jour 2x45 m3/h, chambre 1x45 m3/h."
+        "L'ITE ne garantit ni l'étanchéité à l'air ni la ventilation du bâtiment.",
+        "Les entrées d'air existantes doivent être conservées ou remplacées par une autre ventilation correcte.",
+        "Depuis le 1er janvier 2018, les pièces principales concernées par les travaux doivent avoir des entrées permanentes d'air neuf.",
+        "Module minimal : chambre 45, séjour 90 ; en pratique séjour 2x45 m3/h, chambre 1x45 m3/h."
       ]
     },
     {
@@ -91,12 +91,12 @@
         "Materijali osjetljivi na vlagu mogu biti izuzeti: pierre, terre crue, torchis, bois, briques artisanales.",
         "Rparoi minimum: 3,2 u H1/H2/H3 iznad 800 m; 2,2 u H3 do 800 m; 2,5 prema local non chauffe."
       ],
-      "titleFr": "RT par ?l?ments",
+      "titleFr": "RT par éléments",
       "itemsFr": [
-        "Elle concerne les murs de locaux chauff?s de plus de 0,5 m2 donnant sur l'ext?rieur, un local non chauff? ou le sol.",
-        "Mat?riaux vis?s : brique industrielle, bloc b?ton, b?ton banch?, bardage m?tallique.",
-        "Des mat?riaux sensibles ? l'humidit? peuvent ?tre exclus : pierre, terre crue, torchis, bois, briques artisanales.",
-        "Rparoi minimum : 3,2 en H1/H2/H3 au-dessus de 800 m ; 2,2 en H3 jusqu'? 800 m ; 2,5 vers un local non chauff?."
+        "Elle concerne les murs de locaux chauffés de plus de 0,5 m2 donnant sur l'extérieur, un local non chauffé ou le sol.",
+        "Matériaux visés : brique industrielle, bloc béton, béton banché, bardage métallique.",
+        "Des matériaux sensibles à l'humidité peuvent être exclus : pierre, terre crue, torchis, bois, briques artisanales.",
+        "Rparoi minimum : 3,2 en H1/H2/H3 au-dessus de 800 m ; 2,2 en H3 jusqu'à 800 m ; 2,5 vers un local non chauffé."
       ]
     },
     {
@@ -108,9 +108,9 @@
       ],
       "titleFr": "Incendie",
       "itemsFr": [
-        "Pour la fa?ade, v?rifier regles-feu-facade.fr, le type de b?timent et la cat?gorie.",
-        "Pour le PSE sous enduit, consulter le CPT 3714 et les bandes filantes lorsqu'elles sont exig?es.",
-        "Le respect de la r?glementation incendie est un point majeur de contr?le RGE."
+        "Pour la façade, vérifier regles-feu-facade.fr, le type de bâtiment et la catégorie.",
+        "Pour le PSE sous enduit, consulter le CPT 3714 et les bandes filantes lorsqu'elles sont exigées.",
+        "Le respect de la réglementation incendie est un point majeur de contrôle RGE."
       ]
     },
     {
@@ -121,12 +121,12 @@
         "Kod plots, raditi en plein ili boudins svaka 2 nivoa i u zadnjem redu da se ogranice zracne lamele.",
         "Mehanicka fiksacija zahtijeva calage za korekciju neravnina supporta."
       ],
-      "titleFr": "Mise en ?uvre sous enduit",
+      "titleFr": "Mise en œuvre sous enduit",
       "itemsFr": [
-        "Les panneaux se posent bord ? bord, sans interstice et sans lame d'air parasite derri?re l'isolant.",
-        "Le collage/calage peut ?tre en plein, par plots ou par boudins/cordons selon le support et le syst?me.",
-        "Avec les plots, r?aliser un collage en plein ou par boudins tous les 2 niveaux et au dernier rang pour limiter les lames d'air.",
-        "La fixation m?canique n?cessite un calage pour corriger les irr?gularit?s du support."
+        "Les panneaux se posent bord à bord, sans interstice et sans lame d'air parasite derrière l'isolant.",
+        "Le collage/calage peut être en plein, par plots ou par boudins/cordons selon le support et le système.",
+        "Avec les plots, réaliser un collage en plein ou par boudins tous les 2 niveaux et au dernier rang pour limiter les lames d'air.",
+        "La fixation mécanique nécessite un calage pour corriger les irrégularités du support."
       ]
     },
     {
@@ -136,11 +136,11 @@
         "Minimalna lame d'air je 2 cm izmedju izolatora i zadnje strane revetementa.",
         "Za bardage vertikalnih dasaka potreban je double tasseautage za ventilaciju."
       ],
-      "titleFr": "Mise en ?uvre bardage ventil?",
+      "titleFr": "Mise en œuvre bardage ventilé",
       "itemsFr": [
-        "La lame d'air doit ?tre continue du bas vers le haut.",
-        "La lame d'air minimale est de 2 cm entre l'isolant et l'arri?re du rev?tement.",
-        "Pour un bardage ? lames verticales, un double tasseautage est n?cessaire pour assurer la ventilation."
+        "La lame d'air doit être continue du bas vers le haut.",
+        "La lame d'air minimale est de 2 cm entre l'isolant et l'arrière du revêtement.",
+        "Pour un bardage à lames verticales, un double tasseautage est nécessaire pour assurer la ventilation."
       ]
     },
     {
@@ -151,12 +151,12 @@
         "Non-respect regles de l'art 29%, surface 8%, securite occupants 4%, performance technique 2%.",
         "Tipicno: losa homogenost izolatora, prekidi, lose fiksacije, ostecen parement, dimnjak, appuis de baie, izolator blizu tla, cijevi u ITE sistemu."
       ],
-      "titleFr": "Non-conformit?s BAR-EN-102",
+      "titleFr": "Non-conformités BAR-EN-102",
       "itemsFr": [
         "2023 : 59 % satisfaisant, 31 % non satisfaisant, 10 % non qualifiable.",
-        "Cause principale : pi?ces administratives 57 %.",
-        "Non-respect des r?gles de l'art 29 %, surface 8 %, s?curit? occupants 4 %, performance technique 2 %.",
-        "Cas fr?quents : mauvaise homog?n?it? de l'isolant, discontinuit?s, fixations incorrectes, parement d?grad?, conduit de fum?e, appuis de baie, isolant trop pr?s du sol, canalisations dans l'ITE."
+        "Cause principale : pièces administratives 57 %.",
+        "Non-respect des règles de l'art 29 %, surface 8 %, sécurité occupants 4 %, performance technique 2 %.",
+        "Cas fréquents : mauvaise homogénéité de l'isolant, discontinuités, fixations incorrectes, parement dégradé, conduit de fumée, appuis de baie, isolant trop près du sol, canalisations dans l'ITE."
       ]
     },
     {
@@ -168,13 +168,13 @@
         "Termalna kamera je korisna uz 10-15 C razlike unutra/spolja.",
         "Klijentu dati uputstvo za fixation, perforation, vegetation, nettoyage i reparation."
       ],
-      "titleFr": "R?ception et garanties",
+      "titleFr": "Réception et garanties",
       "itemsFr": [
-        "La r?ception est obligatoire en fin de lot/travaux : le client accepte ou inscrit des r?serves.",
-        "La date de r?ception d?clenche les garanties.",
-        "GPA : 1 an ; bon fonctionnement : 2 ans ; d?cennale : 10 ans pour solidit? ou impropri?t? ? destination.",
-        "La cam?ra thermique est utile avec 10 ? 15 C d'?cart entre int?rieur et ext?rieur.",
-        "Remettre au client les consignes : fixation, perforation, v?g?tation, nettoyage et r?paration."
+        "La réception est obligatoire en fin de lot/travaux : le client accepte ou inscrit des réserves.",
+        "La date de réception déclenche les garanties.",
+        "GPA : 1 an ; bon fonctionnement : 2 ans ; décennale : 10 ans pour solidité ou impropriété à destination.",
+        "La caméra thermique est utile avec 10 à 15 C d'écart entre intérieur et extérieur.",
+        "Remettre au client les consignes : fixation, perforation, végétation, nettoyage et réparation."
       ]
     },
     {
@@ -186,13 +186,13 @@
         "R za pomoci se odnosi na dodatni izolator, ne na cijeli zid.",
         "Uvijek provjeriti ANAH, France Renov, CEE FAQ, RENO REGLO i aktuelne tabele performansi."
       ],
-      "titleFr": "Aides financi?res",
+      "titleFr": "Aides financières",
       "itemsFr": [
-        "Aides nationales : MaPrimeR?nov', CEE BAR-EN-102, ?co-PTZ, TVA 5,5 %.",
-        "? partir de 2026, l'isolation des murs n'est pas ?ligible MPR par geste, mais peut entrer dans une r?novation d'ampleur.",
-        "R?novation d'ampleur : au moins 2 gestes d'isolation, 2 sauts DPE et traitement de la ventilation si n?cessaire.",
-        "Le R demand? pour les aides concerne l'isolant ajout?, pas tout le mur.",
-        "Toujours v?rifier ANAH, France R?nov', FAQ CEE, R?NO R?GLO et les tableaux de performances en vigueur."
+        "Aides nationales : MaPrimeRénov', CEE BAR-EN-102, Éco-PTZ, TVA 5,5 %.",
+        "À partir de 2026, l'isolation des murs n'est pas éligible MPR par geste, mais peut entrer dans une rénovation d'ampleur.",
+        "Rénovation d'ampleur : au moins 2 gestes d'isolation, 2 sauts DPE et traitement de la ventilation si nécessaire.",
+        "Le R demandé pour les aides concerne l'isolant ajouté, pas tout le mur.",
+        "Toujours vérifier ANAH, France Rénov', FAQ CEE, RENO REGLO et les tableaux de performances en vigueur."
       ]
     },
     {
@@ -203,12 +203,12 @@
         "Ne smije se zatvoriti donji ili gornji otvor ventilacije; zrak mora ulaziti dole i izlaziti gore.",
         "Bardage nije sam po sebi izolacija: termicki rezultat dolazi od kontinuiranog izolatora iza njega i korektnih detalja."
       ],
-      "titleFr": "Bardage ventil? - principe du syst?me",
+      "titleFr": "Bardage ventilé - principe du système",
       "itemsFr": [
-        "Le bardage ventil? est un rev?tement ext?rieur sur ossature avec lame d'air ventil?e entre l'isolant/pare-pluie et le rev?tement.",
-        "Le syst?me prot?ge de la pluie et des chocs, donne l'aspect final et ?vacue l'humidit? par la lame d'air ventil?e.",
-        "L'entr?e basse et la sortie haute de ventilation ne doivent pas ?tre ferm?es ; l'air entre en bas et sort en haut.",
-        "Le bardage n'est pas l'isolation en lui-m?me : la performance vient de l'isolant continu derri?re et des d?tails corrects."
+        "Le bardage ventilé est un revêtement extérieur sur ossature avec lame d'air ventilée entre l'isolant/pare-pluie et le revêtement.",
+        "Le système protège de la pluie et des chocs, donne l'aspect final et évacue l'humidité par la lame d'air ventilée.",
+        "L'entrée basse et la sortie haute de ventilation ne doivent pas être fermées ; l'air entre en bas et sort en haut.",
+        "Le bardage n'est pas l'isolation en lui-même : la performance vient de l'isolant continu derrière et des détails corrects."
       ]
     },
     {
@@ -221,10 +221,10 @@
       ],
       "titleFr": "Bardage bois",
       "itemsFr": [
-        "Pour le bardage bois, consulter NF DTU 41.2 et la notice fabricant : classe d'emploi, humidit?, profil, entraxe et fixations.",
-        "Le bois doit ?tre adapt? ? l'ext?rieur : durabilit?/traitement, classe d'emploi, stabilit? et fixations inox ou prot?g?es compatibles.",
-        "Avec des lames verticales, le double tasseautage est n?cessaire pour maintenir la ventilation continue.",
-        "Les abouts, angles et coupes doivent ?tre prot?g?s selon le syst?me pour ?viter l'absorption d'eau et le pourrissement."
+        "Pour le bardage bois, consulter NF DTU 41.2 et la notice fabricant : classe d'emploi, humidité, profil, entraxe et fixations.",
+        "Le bois doit être adapté à l'extérieur : durabilité/traitement, classe d'emploi, stabilité et fixations inox ou protégées compatibles.",
+        "Avec des lames verticales, le double tasseautage est nécessaire pour maintenir la ventilation continue.",
+        "Les abouts, angles et coupes doivent être protégés selon le système pour éviter l'absorption d'eau et le pourrissement."
       ]
     },
     {
@@ -235,12 +235,12 @@
         "Ne stezati panele kao da nema dilatacije; postovati tacke fixe/coulissantes kada sistem to trazi.",
         "Rezovi i probijanja moraju biti zasticeni od korozije, infiltracije i pucanja prema tehnickoj dokumentaciji."
       ],
-      "titleFr": "Bardage m?tallique et panneaux",
+      "titleFr": "Bardage métallique et panneaux",
       "itemsFr": [
-        "Pour un bardage rapport? avec lame d'air ventil?e, consulter NF DTU 45.4, Avis Technique/DTA ou cahier fabricant.",
-        "M?tal, fibro-ciment, HPL/Trespa, composite et autres panneaux exigent un entraxe d'ossature, une dilatation, des jeux, des fixations et rondelles compatibles.",
-        "Ne pas bloquer les panneaux comme s'il n'y avait pas de dilatation ; respecter les points fixes/coulissants lorsque le syst?me l'exige.",
-        "Les coupes et percements doivent ?tre prot?g?s contre corrosion, infiltration et fissuration selon la documentation technique."
+        "Pour un bardage rapporté avec lame d'air ventilée, consulter NF DTU 45.4, Avis Technique/DTA ou cahier fabricant.",
+        "Métal, fibro-ciment, HPL/Trespa, composite et autres panneaux exigent un entraxe d'ossature, une dilatation, des jeux, des fixations et rondelles compatibles.",
+        "Ne pas bloquer les panneaux comme s'il n'y avait pas de dilatation ; respecter les points fixes/coulissants lorsque le système l'exige.",
+        "Les coupes et percements doivent être protégés contre corrosion, infiltration et fissuration selon la documentation technique."
       ]
     },
     {
@@ -253,10 +253,10 @@
       ],
       "titleFr": "Ossature, fixations et support",
       "itemsFr": [
-        "Le support doit ?tre porteur, stable et v?rifi? avant la pose des ?querres/chevilles/rails/tasseaux.",
-        "L'ossature bois ou m?tallique se choisit selon le syst?me, les charges, la hauteur, le vent, le feu et le rev?tement.",
-        "L'entraxe des montants/tasseaux n'est pas libre : il vient du DTA/DTU/fabricant et du calcul au vent si n?cessaire.",
-        "Les fixations doivent ?tre compatibles avec le support et la classe de corrosion ; nombre, profondeur et r?partition doivent ?tre prouvables."
+        "Le support doit être porteur, stable et vérifié avant la pose des équerres/chevilles/rails/tasseaux.",
+        "L'ossature bois ou métallique se choisit selon le système, les charges, la hauteur, le vent, le feu et le revêtement.",
+        "L'entraxe des montants/tasseaux n'est pas libre : il vient du DTA/DTU/fabricant et du calcul au vent si nécessaire.",
+        "Les fixations doivent être compatibles avec le support et la classe de corrosion ; nombre, profondeur et répartition doivent être prouvables."
       ]
     },
     {
@@ -267,12 +267,12 @@
         "Svaku fazu slikati: support, equerres/ossature, izolator, pare-pluie, lame d'air, obloga, detalji prozora i zavrsni prijem.",
         "Ako sistem ima Avis Technique/DTA, ono je jace od navike sa gradilista: raditi po dokumentu, ne po sjecanju."
       ],
-      "titleFr": "Bardage - points critiques du contr?le RGE",
+      "titleFr": "Bardage - points critiques du contrôle RGE",
       "itemsFr": [
-        "Le contr?leur v?rifie les preuves administratives, fiches techniques, R de l'isolant, continuit?, pare-pluie, ventilation de la lame d'air et d?tails baies/soubassement/toiture.",
-        "Erreurs fr?quentes : ventilation interrompue, isolant au contact du rev?tement, mauvais pare-pluie, fixations incorrectes, soubassement et angles mal trait?s.",
-        "Photographier chaque phase : support, ?querres/ossature, isolant, pare-pluie, lame d'air, rev?tement, d?tails de fen?tres et r?ception finale.",
-        "Si le syst?me a un Avis Technique/DTA, il prime sur l'habitude de chantier : travailler selon le document, pas de m?moire."
+        "Le contrôleur vérifie les preuves administratives, fiches techniques, R de l'isolant, continuité, pare-pluie, ventilation de la lame d'air et détails baies/soubassement/toiture.",
+        "Erreurs fréquentes : ventilation interrompue, isolant au contact du revêtement, mauvais pare-pluie, fixations incorrectes, soubassement et angles mal traités.",
+        "Photographier chaque phase : support, équerres/ossature, isolant, pare-pluie, lame d'air, revêtement, détails de fenêtres et réception finale.",
+        "Si le système a un Avis Technique/DTA, il prime sur l'habitude de chantier : travailler selon le document, pas de mémoire."
       ]
     }
   ],
@@ -308,67 +308,67 @@
       "question": "Sta je ITE?",
       "answer": "Isolation thermique des murs par l'exterieur - izolacija zidova sa spoljne strane.",
       "questionFr": "Qu'est-ce que l'ITE ?",
-      "answerFr": "Isolation thermique des murs par l'ext?rieur."
+      "answerFr": "Isolation thermique des murs par l'extérieur."
     },
     {
       "question": "Koja je RGE kategorija za ITE?",
       "answer": "Kategorija 12.",
-      "questionFr": "Quelle est la cat?gorie RGE pour l'ITE ?",
-      "answerFr": "La cat?gorie 12."
+      "questionFr": "Quelle est la catégorie RGE pour l'ITE ?",
+      "answerFr": "La catégorie 12."
     },
     {
       "question": "Sta je kategorija 11?",
       "answer": "Isolation thermique par l'interieur des murs, rampants i plafonds de combles.",
-      "questionFr": "Qu'est-ce que kategoretja 11?",
-      "answerFr": "Isolation thermique par l'interieur des murs, rampants i plafonds de combles."
+      "questionFr": "Qu'est-ce que la catégorie 11 ?",
+      "answerFr": "Isolation thermique par l'intérieur des murs, rampants et plafonds de combles."
     },
     {
       "question": "Sta je kategorija 13?",
       "answer": "Isolation thermique des toitures-terrasses et toitures par l'exterieur.",
-      "questionFr": "Qu'est-ce que kategoretja 13?",
-      "answerFr": "Isolation thermique des toitures-terrasses et toitures par l'exterieur."
+      "questionFr": "Qu'est-ce que la catégorie 13 ?",
+      "answerFr": "Isolation thermique des toitures-terrasses et toitures par l'extérieur."
     },
     {
       "question": "Sta je kategorija 14?",
       "answer": "Isolation thermique des planchers de combles perdus.",
-      "questionFr": "Qu'est-ce que kategoretja 14?",
+      "questionFr": "Qu'est-ce que la catégorie 14 ?",
       "answerFr": "Isolation thermique des planchers de combles perdus."
     },
     {
       "question": "Sta je kategorija 15?",
       "answer": "Isolation thermique des planchers bas.",
-      "questionFr": "Qu'est-ce que kategoretja 15?",
+      "questionFr": "Qu'est-ce que la catégorie 15 ?",
       "answerFr": "Isolation thermique des planchers bas."
     },
     {
       "question": "Sta znaci X u vjezbi parois eligibles?",
       "answer": "Ta paroi nije eligible aux aides financieres.",
-      "questionFr": "Sta znacet X u vjezbet paroets eletgetbles?",
-      "answerFr": "Ta paroi nije eligible aux aides financieres."
+      "questionFr": "Que signifie X dans une paroi éligible ?",
+      "answerFr": "Cette paroi n'est pas éligible aux aides financières."
     },
     {
       "question": "Sta je lambda?",
       "answer": "Toplotna provodljivost materijala.",
       "questionFr": "Qu'est-ce que le lambda ?",
-      "answerFr": "La conductivit? thermique du mat?riau."
+      "answerFr": "La conductivité thermique du matériau."
     },
     {
       "question": "Je li bolja veca ili manja lambda?",
       "answer": "Manja lambda je bolja.",
-      "questionFr": "Vaut-il mieux un lambda ?lev? ou faible ?",
+      "questionFr": "Vaut-il mieux un lambda élevé ou faible ?",
       "answerFr": "Un lambda faible est meilleur."
     },
     {
       "question": "Sta je R?",
       "answer": "Toplotni otpor izolatora ili paroi.",
       "questionFr": "Qu'est-ce que R ?",
-      "answerFr": "La r?sistance thermique de l'isolant ou de la paroi."
+      "answerFr": "La résistance thermique de l'isolant ou de la paroi."
     },
     {
       "question": "Je li bolji veci ili manji R?",
       "answer": "Veci R je bolji.",
-      "questionFr": "Vaut-il mieux un R ?lev? ou faible ?",
-      "answerFr": "Un R ?lev? est meilleur."
+      "questionFr": "Vaut-il mieux un R élevé ou faible ?",
+      "answerFr": "Un R élevé est meilleur."
     },
     {
       "question": "Sta je U?",
@@ -379,253 +379,253 @@
     {
       "question": "Je li bolji veci ili manji U?",
       "answer": "Manji U je bolji.",
-      "questionFr": "Vaut-il mieux un U ?lev? ou faible ?",
+      "questionFr": "Vaut-il mieux un U élevé ou faible ?",
       "answerFr": "Un U faible est meilleur."
     },
     {
       "question": "Sta je Delta U?",
       "answer": "Kazna/gubitak zbog fiksacija i toplotnih mostova u sistemu.",
-      "questionFr": "Qu'est-ce que Delta U?",
-      "answerFr": "Kazna/gubitak ? cause de fiksacija i toplotnih mostova u sistemu."
+      "questionFr": "Qu'est-ce que Delta U ?",
+      "answerFr": "Pénalité/perte à cause des fixations et des ponts thermiques dans le système."
     },
     {
       "question": "Sta su ponts thermiques?",
       "answer": "Mjesta gdje toplota lakse prolazi zbog prekida izolacije ili konstrukcije.",
-      "questionFr": "Que sont ponts thermetques?",
-      "answerFr": "Mjesta gdje toplota lakse prolazi ? cause de prekida isolation ili konstrukcije."
+      "questionFr": "Que sont les ponts thermiques ?",
+      "answerFr": "Des zones où la chaleur passe plus facilement à cause d'une discontinuité de l'isolation ou de la construction."
     },
     {
       "question": "Kako chevilles uticu na ITE?",
       "answer": "Mogu stvoriti ponts thermiques i smanjiti performanse.",
-      "questionFr": "Comment chevetlles utetcu na ITE?",
-      "answerFr": "Peuvent stvoriti ponts thermiques i splus faibleti performanse."
+      "questionFr": "Comment les chevilles influencent-elles l'ITE ?",
+      "answerFr": "Elles peuvent créer des ponts thermiques et réduire les performances."
     },
     {
       "question": "Kako ograniciti uticaj chevilles?",
       "answer": "Birati fiksacije sa malim termickim uticajem, sinteticki materijal/rondelle isolante prema sistemu.",
-      "questionFr": "Comment ogranetcettet utetcaj chevetlles?",
-      "answerFr": "Birati fiksacije sa malim termickim uticajem, sinteticki materijal/rondelle isolante selon sistemu."
+      "questionFr": "Comment limiter l'impact des chevilles ?",
+      "answerFr": "Choisir des fixations à faible impact thermique, matériau synthétique/rondelle isolante selon le système."
     },
     {
       "question": "Koji izolatori idu kod bardage ventile?",
       "answer": "Mogu se sresti svi tipovi izolatora ako su odobreni sistemom.",
-      "questionFr": "Quels etzolatoret etdu pour bardage ventetle?",
-      "answerFr": "Peuvent se sresti svi tipovi isolanta ako su odobreni sistemom."
+      "questionFr": "Quels isolants pour un bardage ventilé ?",
+      "answerFr": "Tous les types d'isolants peuvent convenir s'ils sont validés par le système."
     },
     {
       "question": "Koji izolatori idu kod ITE sous enduit?",
       "answer": "PSE, XPS, mousse resolique, laine minerale, fibre de bois, liege expanse prema odobrenju.",
-      "questionFr": "Quels etzolatoret etdu pour ITE sous enduett?",
-      "answerFr": "PSE, XPS, mousse resolique, laine minerale, fibre de bois, liege expanse selon odobrenju."
+      "questionFr": "Quels isolants pour l'ITE sous enduit ?",
+      "answerFr": "PSE, XPS, mousse résolique, laine minérale, fibre de bois, liège expansé selon validation."
     },
     {
       "question": "Da li postoji najbolji izolator za sve?",
       "answer": "Ne, izbor zavisi od supporta, vlage, pozara, akustike, cijene i sistema.",
-      "questionFr": "Est-ce que postojet najboljet etzolator pour sve?",
-      "answerFr": "Non, izbor zavisi od supporta, humidite, pozara, akustike, cijene i sistema."
+      "questionFr": "Existe-t-il un isolant idéal pour tous les cas ?",
+      "answerFr": "Non, le choix dépend du support, de l'humidité, du feu, de l'acoustique, du prix et du système."
     },
     {
       "question": "Jesu li tanki reflektujuci izolatori glavna ITE izolacija?",
       "answer": "Ne, samo dopuna kada je predvidjeno.",
-      "questionFr": "Jesu let tanket reflektujucet etzolatoret glavna ITE etzolacetja?",
-      "answerFr": "Non, samo dopuna kada je predvidjeno."
+      "questionFr": "Les isolants minces réfléchissants sont-ils l'isolation principale de l'ITE ?",
+      "answerFr": "Non, seulement un complément lorsque c'est prévu."
     },
     {
       "question": "Sta je Sd?",
       "answer": "Otpor difuziji vodene pare izrazen kao ekvivalentna debljina zraka.",
-      "questionFr": "Qu'est-ce que Sd?",
-      "answerFr": "Otpor difuziji vodene pare izrazen kao ekvivalentna debljina zraka."
+      "questionFr": "Qu'est-ce que Sd ?",
+      "answerFr": "La résistance à la diffusion de vapeur d'eau, exprimée en épaisseur d'air équivalente."
     },
     {
       "question": "Sta znaci veliki Sd?",
       "answer": "Materijal je zatvoreniji za vodenu paru.",
-      "questionFr": "Sta znacet veletket Sd?",
-      "answerFr": "Materijal je zatvoreniji za vodenu paru."
+      "questionFr": "Que signifie un Sd élevé ?",
+      "answerFr": "Le matériau est plus fermé à la vapeur d'eau."
     },
     {
       "question": "Sta je pare-vapeur?",
       "answer": "Parna brana, obicno Sd >= 18 m.",
       "questionFr": "Qu'est-ce qu'un pare-vapeur ?",
-      "answerFr": "Une membrane freinant fortement la vapeur, g?n?ralement Sd >= 18 m."
+      "answerFr": "Une membrane freinant fortement la vapeur, généralement Sd >= 18 m."
     },
     {
       "question": "Sta je frein-vapeur?",
       "answer": "Parna kocnica, Sd < 18 m.",
       "questionFr": "Qu'est-ce qu'un frein-vapeur ?",
-      "answerFr": "Une membrane freinant la vapeur, g?n?ralement Sd < 18 m."
+      "answerFr": "Une membrane freinant la vapeur, généralement Sd < 18 m."
     },
     {
       "question": "Da li se pare-vapeur stavlja uvijek?",
       "answer": "Ne, samo kada analiza zida/sistema to zahtijeva.",
       "questionFr": "Pose-t-on toujours un pare-vapeur ?",
-      "answerFr": "Non, seulement si l'analyse de la paroi et du syst?me l'exige."
+      "answerFr": "Non, seulement si l'analyse de la paroi et du système l'exige."
     },
     {
       "question": "Sta je pare-pluie HPV?",
       "answer": "Membrana jako propusna za paru, Sd < 0,10 m, korisna kod bardage bois/biosourced.",
-      "questionFr": "Qu'est-ce que pare-pluete HPV?",
-      "answerFr": "Membrana jako propusna za paru, Sd < 0,10 m, korisna kod bardage bois/biosourced."
+      "questionFr": "Qu'est-ce qu'un pare-pluie HPV ?",
+      "answerFr": "Une membrane très perméable à la vapeur, Sd < 0,10 m, utile en bardage bois/biosourcé."
     },
     {
       "question": "Sta je pravilo 1/3 - 2/3?",
       "answer": "Raspored izolacije radi ogranicenja kondenzacije, veci otpor na hladnoj strani.",
-      "questionFr": "Qu'est-ce que pravetlo 1/3 - 2/3?",
-      "answerFr": "Raspored isolation radi ogranicenja kondenzacije, plus ?lev? otpor na hladnoj strani."
+      "questionFr": "Qu'est-ce que la règle 1/3 - 2/3 ?",
+      "answerFr": "La répartition de l'isolation pour limiter la condensation, avec une résistance plus élevée côté froid."
     },
     {
       "question": "Da li ITE osigurava etancheite a l'air?",
       "answer": "Ne, treba kontrolisati parement interieur i zaptivenost posebno.",
-      "questionFr": "Est-ce que ITE osetgurava etancheette a l'aetr?",
-      "answerFr": "Non, il faut kontrolisati parement interieur i zaptivenost posebno."
+      "questionFr": "L'ITE assure-t-elle l'étanchéité à l'air ?",
+      "answerFr": "Non, il faut contrôler le parement intérieur et l'étanchéité séparément."
     },
     {
       "question": "Sta je rizik ako zid ne moze da se susi?",
       "answer": "Kondenzacija, degradacija izolatora i razvoj gljivica.",
-      "questionFr": "Qu'est-ce que retzetk ako zetd ne moze da se suset?",
-      "answerFr": "Kondenzacija, degradacija isolanta i razvoj gljivica."
+      "questionFr": "Quel est le risque si le mur ne peut pas sécher ?",
+      "answerFr": "Condensation, dégradation de l'isolant et développement de moisissures."
     },
     {
       "question": "Da li je PSE dobar na kamenom zidu?",
       "answer": "U PDF-u je jako nepovoljan/deconseille zbog susenja i planiteta supporta.",
-      "questionFr": "Est-ce que je PSE dobar na kamenom zetdu?",
-      "answerFr": "U PDF-u je jako nepovoljan/deconseille ? cause de susenja i planiteta supporta."
+      "questionFr": "Le PSE convient-il sur un mur en pierre ?",
+      "answerFr": "Il est fortement déconseillé, à cause du séchage et de la planéité du support."
     },
     {
       "question": "Sta provjeriti prije ITE?",
       "answer": "Support, vlaga, pukotine, planitet, postojece izolacije, ventilacija i interfejsi.",
-      "questionFr": "Sta provjerettet pretje ITE?",
-      "answerFr": "Support, humidita, pukotine, planitet, postojece isolation, ventilacija i interfejsi."
+      "questionFr": "Que vérifier avant l'ITE ?",
+      "answerFr": "Le support, l'humidité, les fissures, la planéité, l'isolation existante, la ventilation et les interfaces."
     },
     {
       "question": "Smije li se raditi na mokroj/losoj podlozi?",
       "answer": "Ne, support mora biti zdrav, nosiv, pripremljen i kompatibilan.",
-      "questionFr": "Smetje let se radettet na mokroj/losoj podlozet?",
-      "answerFr": "Non, support doit biti zdrav, nosiv, pripremljen i kompatibilan."
+      "questionFr": "Peut-on travailler sur un support humide ou dégradé ?",
+      "answerFr": "Non, le support doit être sain, porteur, préparé et compatible."
     },
     {
       "question": "Sta je RT par elements?",
       "answer": "Regulativa termicke obnove po elementima zgrade.",
-      "questionFr": "Qu'est-ce que RT par elements?",
-      "answerFr": "Regulativa termicke obnove po elementima zgrade."
+      "questionFr": "Qu'est-ce que la RT par éléments ?",
+      "answerFr": "La réglementation thermique de rénovation par élément du bâtiment."
     },
     {
       "question": "Koji zidovi ulaze u RT par elements?",
       "answer": "Zidovi grijanih prostora >0,5 m2 prema spolja, negrijanom prostoru ili tlu.",
-      "questionFr": "Quels zetdovet ulaze u RT par elements?",
-      "answerFr": "Zidovi grijanih prostora >0,5 m2 selon spolja, negrijanom prostoru ili tlu."
+      "questionFr": "Quels murs entrent dans la RT par éléments ?",
+      "answerFr": "Les murs de locaux chauffés de plus de 0,5 m2 donnant sur l'extérieur, un local non chauffé ou le sol."
     },
     {
       "question": "Koji materijali zidova su navedeni?",
       "answer": "Brique industrielle, bloc beton, beton banche, bardage metallique.",
-      "questionFr": "Quels materetjalet zetdova su navedenet?",
-      "answerFr": "Brique industrielle, bloc beton, beton banche, bardage metallique."
+      "questionFr": "Quels matériaux de murs sont visés ?",
+      "answerFr": "Brique industrielle, bloc béton, béton banché, bardage métallique."
     },
     {
       "question": "Koje fasade mogu biti izuzete zbog vlage?",
       "answer": "Pierre, terre crue, torchis, bois, materijali zanatske proizvodnje.",
-      "questionFr": "Quelles fa?ade mogu bettet etzuzete zbog vlage?",
-      "answerFr": "Pierre, terre crue, torchis, bois, materijali zanatske proizvodnje."
+      "questionFr": "Quelles façades peuvent être exclues à cause de l'humidité ?",
+      "answerFr": "Pierre, terre crue, torchis, bois, matériaux de fabrication artisanale."
     },
     {
       "question": "Minimalni R prema spolja u H1/H2/H3 >800m?",
       "answer": "Rparoi 3,2 m2.K/W.",
-      "questionFr": "Quel est le metnetmum R prema spolja u H1/H2/H3 >800m?",
+      "questionFr": "Quel est le R minimum vers l'extérieur en H1/H2/H3 au-dessus de 800 m ?",
       "answerFr": "Rparoi 3,2 m2.K/W."
     },
     {
       "question": "Minimalni R prema spolja u H3 <=800m?",
       "answer": "Rparoi 2,2 m2.K/W.",
-      "questionFr": "Quel est le metnetmum R prema spolja u H3 <=800m?",
+      "questionFr": "Quel est le R minimum vers l'extérieur en H3 jusqu'à 800 m ?",
       "answerFr": "Rparoi 2,2 m2.K/W."
     },
     {
       "question": "Minimalni R prema local non chauffe?",
       "answer": "Rparoi 2,5 m2.K/W.",
-      "questionFr": "Quel est le metnetmum R prema local non chauffe?",
+      "questionFr": "Quel est le R minimum vers un local non chauffé ?",
       "answerFr": "Rparoi 2,5 m2.K/W."
     },
     {
       "question": "Da li aides financieres traze veci R?",
       "answer": "Cesto da, treba provjeriti aktuelne kriterije.",
-      "questionFr": "Est-ce que aetdes fetnanceteres traze vecet R?",
-      "answerFr": "Cesto da, il faut v?rifier aktuelne kriterije."
+      "questionFr": "Les aides financières demandent-elles un R plus élevé ?",
+      "answerFr": "Souvent oui, il faut vérifier les critères en vigueur."
     },
     {
       "question": "Sta mora biti sa ventilacijom?",
       "answer": "Postojece ulaze zraka sacuvati ili obezbijediti drugi sistem.",
-      "questionFr": "Sta mora bettet sa ventetlacetjom?",
-      "answerFr": "Postojece ulaze zraka sacuvati ili obezbijediti drugi sistem."
+      "questionFr": "Que faut-il assurer pour la ventilation ?",
+      "answerFr": "Conserver les entrées d'air existantes ou prévoir un autre système."
     },
     {
       "question": "Od kada se traze stalni ulazi svjezeg zraka?",
       "answer": "Od 1. januara 2018 za glavne prostorije obuhvacene radovima.",
-      "questionFr": "Depuets quand se traze stalnet ulazet svjezeg zraka?",
-      "answerFr": "Od 1. januara 2018 za glavne prostorije obuhvacene radovima."
+      "questionFr": "Depuis quand exige-t-on des entrées d'air neuf permanentes ?",
+      "answerFr": "Depuis le 1er janvier 2018 pour les pièces principales concernées par les travaux."
     },
     {
       "question": "Modul za chambre?",
       "answer": "Najmanje 45.",
-      "questionFr": "Modul pour chambre?",
-      "answerFr": "Najmanje 45."
+      "questionFr": "Module pour une chambre ?",
+      "answerFr": "Au minimum 45."
     },
     {
       "question": "Modul za sejour?",
       "answer": "Najmanje 90.",
-      "questionFr": "Modul pour sejour?",
-      "answerFr": "Najmanje 90."
+      "questionFr": "Module pour un séjour ?",
+      "answerFr": "Au minimum 90."
     },
     {
       "question": "Prakticno za sejour?",
       "answer": "Dvije resetke od 45 m3/h.",
-      "questionFr": "Praktetcno pour sejour?",
-      "answerFr": "Dvije resetke od 45 m3/h."
+      "questionFr": "En pratique pour un séjour ?",
+      "answerFr": "Deux grilles de 45 m3/h."
     },
     {
       "question": "Prakticno za chambre/bureau?",
       "answer": "Jedna resetka od 45 m3/h.",
-      "questionFr": "Praktetcno pour chambre/bureau?",
-      "answerFr": "Jedna resetka od 45 m3/h."
+      "questionFr": "En pratique pour une chambre/un bureau ?",
+      "answerFr": "Une grille de 45 m3/h."
     },
     {
       "question": "Ako nema vidljivih ulaza zraka sta se radi?",
       "answer": "Provjeriti postoji li drugi sistem, npr. double flux.",
-      "questionFr": "Ako nema vetdljetveth ulapour zraka sta se radet?",
-      "answerFr": "Provjeriti postoji li drugi sistem, npr. double flux."
+      "questionFr": "Que faire en l'absence d'entrées d'air visibles ?",
+      "answerFr": "Vérifier s'il existe un autre système, par exemple double flux."
     },
     {
       "question": "Koji alat za pozar fasade?",
       "answer": "regles-feu-facade.fr.",
-      "questionFr": "Quels alat pour popourr fa?ade?",
+      "questionFr": "Quel outil pour le feu en façade ?",
       "answerFr": "regles-feu-facade.fr."
     },
     {
       "question": "Koja pitanja daje alat za pozar?",
       "answer": "Tip zgrade, kategorija zgrade i parametri sistema/fasade.",
-      "questionFr": "Koja pettanja daje alat pour popourr?",
-      "answerFr": "Tip zgrade, kategorija zgrade i parametri sistema/fasade."
+      "questionFr": "Quelles questions pose l'outil incendie ?",
+      "answerFr": "Le type de bâtiment, la catégorie du bâtiment et les paramètres du système/de la façade."
     },
     {
       "question": "Koji CPT za PSE i bandes filantes incendie?",
       "answer": "CPT 3714_V2.",
-      "questionFr": "Quels CPT pour PSE et bandes fetlantes etncendete?",
+      "questionFr": "Quel CPT pour le PSE et les bandes filantes incendie ?",
       "answerFr": "CPT 3714_V2."
     },
     {
       "question": "Koji CPT za ITE enduit sur PSE?",
       "answer": "CPT 3035_V3.",
-      "questionFr": "Quels CPT pour ITE enduett sur PSE?",
+      "questionFr": "Quel CPT pour l'ITE enduit sur PSE ?",
       "answerFr": "CPT 3035_V3."
     },
     {
       "question": "Koji CPT za ITE oko baies/prozora?",
       "answer": "CPT 3709_V2.",
-      "questionFr": "Quels CPT pour ITE oko baetes/prozora?",
+      "questionFr": "Quel CPT pour l'ITE autour des baies/fenêtres ?",
       "answerFr": "CPT 3709_V2."
     },
     {
       "question": "Koji CPT za ossature bois?",
       "answer": "CPT 3729_V2.",
-      "questionFr": "Quels CPT pour ossature boets?",
+      "questionFr": "Quel CPT pour l'ossature bois ?",
       "answerFr": "CPT 3729_V2."
     },
     {
@@ -637,440 +637,440 @@
     {
       "question": "Koji DTU za bardage rapporte lame d'air ventilee?",
       "answer": "NF DTU 45.4.",
-      "questionFr": "Quels DTU pour bardage rapporte lame d'aetr ventetlee?",
+      "questionFr": "Quel DTU pour un bardage rapporté à lame d'air ventilée ?",
       "answerFr": "NF DTU 45.4."
     },
     {
       "question": "Koji CPT za ossature metallique bardage?",
       "answer": "CPT 3194_V2.",
-      "questionFr": "Quels CPT pour ossature metalletque bardage?",
+      "questionFr": "Quel CPT pour une ossature métallique de bardage ?",
       "answerFr": "CPT 3194_V2."
     },
     {
       "question": "Koji CPT za ossature bois bardage?",
       "answer": "CPT 3316_V3.",
-      "questionFr": "Quels CPT pour ossature boets bardage?",
+      "questionFr": "Quel CPT pour une ossature bois de bardage ?",
       "answerFr": "CPT 3316_V3."
     },
     {
       "question": "Kako se postavljaju paneli sous enduit?",
       "answer": "Bord a bord, bez interstice i bez parazitske lame d'air.",
-      "questionFr": "Comment se postavljaju panelet sous enduett?",
-      "answerFr": "Bord a bord, bez interstice i bez parazitske lame d'air."
+      "questionFr": "Comment poser les panneaux sous enduit ?",
+      "answerFr": "Bord à bord, sans interstice et sans lame d'air parasite."
     },
     {
       "question": "Nacini collage/calage?",
       "answer": "En plein, par plots, par boudins/cordons.",
-      "questionFr": "Nacetnet collage/calage?",
+      "questionFr": "Quels sont les modes de collage/calage ?",
       "answerFr": "En plein, par plots, par boudins/cordons."
     },
     {
       "question": "Kod plots koliko se navodi?",
       "answer": "6 do 9 prema dimenziji panela.",
-      "questionFr": "Kod plots koletko se navodet?",
-      "answerFr": "6 do 9 selon dimenziji panela."
+      "questionFr": "Combien de plots sont indiqués ?",
+      "answerFr": "De 6 à 9 selon la dimension du panneau."
     },
     {
       "question": "Kada ide collage?",
       "answer": "Na novim supportima ili poslije decapage.",
-      "questionFr": "Quand etde collage?",
-      "answerFr": "Na novim supportima ili poslije decapage."
+      "questionFr": "Quand utiliser le collage ?",
+      "answerFr": "Sur des supports neufs ou après décapage."
     },
     {
       "question": "Kada ide fixation mecanique?",
       "answer": "Na postojecim supportima bez obaveznog decapage.",
-      "questionFr": "Quand etde fetxateton mecanetque?",
-      "answerFr": "Na postojecim supportima bez obaveznog decapage."
+      "questionFr": "Quand utiliser la fixation mécanique ?",
+      "answerFr": "Sur des supports existants, sans décapage obligatoire."
     },
     {
       "question": "Zasto se radi calage kod fixation mecanique?",
       "answer": "Za ispravljanje neravnina supporta.",
-      "questionFr": "Pourquoet se radet calage pour fetxateton mecanetque?",
-      "answerFr": "Za ispravljanje neravnina supporta."
+      "questionFr": "Pourquoi faire un calage avec la fixation mécanique ?",
+      "answerFr": "Pour corriger les irrégularités du support."
     },
     {
       "question": "Kod plots, sta raditi svaka 2 nivoa?",
       "answer": "Collage en plein ili par boudins, plus zadnji red panela.",
-      "questionFr": "Kod plots, sta radettet svaka 2 netvoa?",
-      "answerFr": "Collage en plein ili par boudins, plus zadnji red panela."
+      "questionFr": "Avec les plots, que faire tous les 2 niveaux ?",
+      "answerFr": "Un collage en plein ou par boudins, ainsi qu'au dernier rang de panneaux."
     },
     {
       "question": "Zasto ograniciti lame d'air iza panela?",
       "answer": "Jer degradira termicke performanse.",
-      "questionFr": "Pourquoet ogranetcettet lame d'aetr etpour panela?",
-      "answerFr": "Jer degradira termicke performanse."
+      "questionFr": "Pourquoi limiter la lame d'air derrière le panneau ?",
+      "answerFr": "Parce qu'elle dégrade les performances thermiques."
     },
     {
       "question": "Minimalna lame d'air kod bardage ventile?",
       "answer": "2 cm.",
-      "questionFr": "Metnetmalna lame d'aetr pour bardage ventetle?",
+      "questionFr": "Lame d'air minimale en bardage ventilé ?",
       "answerFr": "2 cm."
     },
     {
       "question": "Da li lame d'air mora biti kontinuirana?",
       "answer": "Da, od dna do vrha.",
-      "questionFr": "Est-ce que lame d'aetr mora bettet kontetnuetrana?",
-      "answerFr": "Oui, od dna do vrha."
+      "questionFr": "La lame d'air doit-elle être continue ?",
+      "answerFr": "Oui, du bas vers le haut."
     },
     {
       "question": "Kod bardage vertikalnih dasaka sta je pravilo?",
       "answer": "Double tasseautage.",
-      "questionFr": "Kod bardage vertetkalneth dasaka sta je pravetlo?",
-      "answerFr": "Double tasseautage."
+      "questionFr": "Quelle est la règle pour un bardage à lames verticales ?",
+      "answerFr": "Le double tasseautage."
     },
     {
       "question": "Da li su cijevi u ITE sistemu dozvoljene?",
       "answer": "Ne, to je cesto non-conformite.",
-      "questionFr": "Est-ce que su cetjevet u ITE setstemu dozvoljene?",
-      "answerFr": "Non, to je cesto non-conformite."
+      "questionFr": "Les canalisations dans le système ITE sont-elles autorisées ?",
+      "answerFr": "Non, c'est souvent une non-conformité."
     },
     {
       "question": "Sta sa appuis de baie?",
       "answer": "Izolator mora biti zasticen i detalj vodonepropusan.",
-      "questionFr": "Sta sa appuets de baete?",
-      "answerFr": "Izolator doit biti zasticen i detalj vodonepropusan."
+      "questionFr": "Qu'en est-il des appuis de baie ?",
+      "answerFr": "L'isolant doit être protégé et le détail étanche à l'eau."
     },
     {
       "question": "Sta sa razmakom izolatora od tla?",
       "answer": "Mora biti dovoljan prema sistemu, inace non-conformite.",
-      "questionFr": "Sta sa razmakom etzolatora od tla?",
-      "answerFr": "Mora biti dovoljan selon sistemu, inace non-conformite."
+      "questionFr": "Qu'en est-il de la distance de l'isolant au sol ?",
+      "answerFr": "Elle doit être suffisante selon le système, sinon c'est une non-conformité."
     },
     {
       "question": "Rezultati BAR-EN-102 2023?",
       "answer": "59% satisfaisant, 31% non satisfaisant, 10% non qualifiable.",
-      "questionFr": "Rezultatet BAR-EN-102 2023?",
-      "answerFr": "59% satisfaisant, 31% non satisfaisant, 10% non qualifiable."
+      "questionFr": "Résultats BAR-EN-102 2023 ?",
+      "answerFr": "59 % satisfaisant, 31 % non satisfaisant, 10 % non qualifiable."
     },
     {
       "question": "Najveci razlog non-conformite?",
       "answer": "Pieces administratives 57%.",
-      "questionFr": "Quel est le pretncetpal razlog non-conformette?",
-      "answerFr": "Pieces administratives 57%."
+      "questionFr": "Quelle est la principale cause de non-conformité ?",
+      "answerFr": "Pièces administratives 57 %."
     },
     {
       "question": "Non-respect regles de l'art procenat?",
       "answer": "29%.",
-      "questionFr": "Non-respect regles de l'art pourcentage?",
-      "answerFr": "29%."
+      "questionFr": "Pourcentage de non-respect des règles de l'art ?",
+      "answerFr": "29 %."
     },
     {
       "question": "Probleme de surface procenat?",
       "answer": "8%.",
-      "questionFr": "Probleme de surface pourcentage?",
-      "answerFr": "8%."
+      "questionFr": "Pourcentage de problèmes de surface ?",
+      "answerFr": "8 %."
     },
     {
       "question": "Securite occupants procenat?",
       "answer": "4%.",
-      "questionFr": "Securette occupants pourcentage?",
-      "answerFr": "4%."
+      "questionFr": "Pourcentage de sécurité des occupants ?",
+      "answerFr": "4 %."
     },
     {
       "question": "Performance technique procenat?",
       "answer": "2%.",
-      "questionFr": "Performance technetque pourcentage?",
-      "answerFr": "2%."
+      "questionFr": "Pourcentage de performance technique ?",
+      "answerFr": "2 %."
     },
     {
       "question": "Homogeneite isolant procenat?",
       "answer": "5%.",
-      "questionFr": "Homogeneette etsolant pourcentage?",
-      "answerFr": "5%."
+      "questionFr": "Pourcentage d'homogénéité de l'isolant ?",
+      "answerFr": "5 %."
     },
     {
       "question": "Continuite de pose procenat?",
       "answer": "9%.",
-      "questionFr": "Contetnuette de pose pourcentage?",
-      "answerFr": "9%."
+      "questionFr": "Pourcentage de continuité de pose ?",
+      "answerFr": "9 %."
     },
     {
       "question": "Anomalies fixations/protection procenat?",
       "answer": "14%.",
-      "questionFr": "Anomaletes fetxatetons/protecteton pourcentage?",
-      "answerFr": "14%."
+      "questionFr": "Pourcentage d'anomalies fixations/protection ?",
+      "answerFr": "14 %."
     },
     {
       "question": "Degradation parement protection procenat?",
       "answer": "24%.",
-      "questionFr": "Degradateton parement protecteton pourcentage?",
-      "answerFr": "24%."
+      "questionFr": "Pourcentage de dégradation parement/protection ?",
+      "answerFr": "24 %."
     },
     {
       "question": "Conduit de fumees procenat?",
       "answer": "5%.",
-      "questionFr": "Conduett de fumees pourcentage?",
-      "answerFr": "5%."
+      "questionFr": "Pourcentage conduit de fumées ?",
+      "answerFr": "5 %."
     },
     {
       "question": "Appuis de baie procenat?",
       "answer": "10%.",
-      "questionFr": "Appuets de baete pourcentage?",
-      "answerFr": "10%."
+      "questionFr": "Pourcentage appuis de baie ?",
+      "answerFr": "10 %."
     },
     {
       "question": "Espace sol/isolant procenat?",
       "answer": "14%.",
-      "questionFr": "Espace sol/etsolant pourcentage?",
-      "answerFr": "14%."
+      "questionFr": "Pourcentage espace sol/isolant ?",
+      "answerFr": "14 %."
     },
     {
       "question": "Canalisations u sistemu procenat?",
       "answer": "19%.",
-      "questionFr": "Canaletsatetons u setstemu pourcentage?",
-      "answerFr": "19%."
+      "questionFr": "Pourcentage de canalisations dans le système ?",
+      "answerFr": "19 %."
     },
     {
       "question": "Sta je non-conformite majeure?",
       "answer": "Rizik za sigurnost ili ozbiljan kvalitet/performansu.",
-      "questionFr": "Qu'est-ce que non-conformette majeure?",
-      "answerFr": "Rizik za sigurnost ili ozbiljan kvalitet/performansu."
+      "questionFr": "Qu'est-ce qu'une non-conformité majeure ?",
+      "answerFr": "Un risque pour la sécurité ou un problème sérieux de qualité/performance."
     },
     {
       "question": "Sta je non-conformite mineure?",
       "answer": "Odstupanje bez direktnog rizika, ali mora se otkloniti.",
-      "questionFr": "Qu'est-ce que non-conformette metneure?",
-      "answerFr": "Odstupanje bez direktnog rizika, ali doit se otkloniti."
+      "questionFr": "Qu'est-ce qu'une non-conformité mineure ?",
+      "answerFr": "Un écart sans risque direct, mais qui doit être corrigé."
     },
     {
       "question": "Sta ako minor bude otklonjena u roku?",
       "answer": "Klasira se sans suite.",
-      "questionFr": "Sta ako metnor bude otklonjena u roku?",
-      "answerFr": "Klasira se sans suite."
+      "questionFr": "Que se passe-t-il si la non-conformité mineure est corrigée à temps ?",
+      "answerFr": "Elle est classée sans suite."
     },
     {
       "question": "Sta ako major ostane?",
       "answer": "Moze izazvati komisiju, povlacenje ili suspenziju RGE.",
-      "questionFr": "Sta ako major ostane?",
-      "answerFr": "Peut izazvati komisiju, povlacenje ili suspenziju RGE."
+      "questionFr": "Que se passe-t-il si la non-conformité majeure persiste ?",
+      "answerFr": "Elle peut entraîner une commission, un retrait ou une suspension RGE."
     },
     {
       "question": "Sta je reception?",
       "answer": "Formalni prijem radova: klijent prihvata ili upisuje reserve.",
-      "questionFr": "Qu'est-ce que recepteton?",
-      "answerFr": "Formalni prijem radova: klijent prihvata ili upisuje reserve."
+      "questionFr": "Qu'est-ce que la réception ?",
+      "answerFr": "La réception formelle des travaux : le client accepte ou inscrit des réserves."
     },
     {
       "question": "Od kada pocinju garancije?",
       "answer": "Od datuma reception.",
-      "questionFr": "Depuets quand pocetnju garancetje?",
-      "answerFr": "Od datuma reception."
+      "questionFr": "Depuis quand courent les garanties ?",
+      "answerFr": "Depuis la date de réception."
     },
     {
       "question": "Koliko traje GPA?",
       "answer": "1 godina.",
-      "questionFr": "Combeten traje GPA?",
-      "answerFr": "1 godina."
+      "questionFr": "Quelle est la durée de la GPA ?",
+      "answerFr": "1 an."
     },
     {
       "question": "Koliko traje bon fonctionnement?",
       "answer": "2 godine.",
-      "questionFr": "Combeten traje bon fonctetonnement?",
-      "answerFr": "2 godine."
+      "questionFr": "Quelle est la durée du bon fonctionnement ?",
+      "answerFr": "2 ans."
     },
     {
       "question": "Koliko traje decennale?",
       "answer": "10 godina.",
-      "questionFr": "Combeten traje decennale?",
-      "answerFr": "10 godina."
+      "questionFr": "Quelle est la durée de la décennale ?",
+      "answerFr": "10 ans."
     },
     {
       "question": "Kada vrijedi decennale?",
       "answer": "Kad je ugrozena solidite ili objekat postane impropre a destination.",
-      "questionFr": "Quand vretjedet decennale?",
-      "answerFr": "Kad je ugrozena solidite ili objekat postane impropre a destination."
+      "questionFr": "Quand s'applique la décennale ?",
+      "answerFr": "Lorsque la solidité est compromise ou que l'ouvrage devient impropre à sa destination."
     },
     {
       "question": "Da li estetski defekti spadaju u decennale?",
       "answer": "Ne sami po sebi.",
-      "questionFr": "Est-ce que estetsket defektet spadaju u decennale?",
-      "answerFr": "Ne sami po sebi."
+      "questionFr": "Les défauts esthétiques relèvent-ils de la décennale ?",
+      "answerFr": "Pas en eux-mêmes."
     },
     {
       "question": "Za sta sluzi termalna kamera?",
       "answer": "Detekcija anomalija, hladnih tacaka i ponts thermiques.",
-      "questionFr": "Za sta sluzet termalna kamera?",
-      "answerFr": "Detekcija anomalija, hladnih tacaka i ponts thermiques."
+      "questionFr": "À quoi sert la caméra thermique ?",
+      "answerFr": "À détecter les anomalies, points froids et ponts thermiques."
     },
     {
       "question": "Koja delta temperature za termogram?",
       "answer": "10 do 15 C unutra/spolja.",
-      "questionFr": "Koja delta temperature pour termogram?",
-      "answerFr": "10 do 15 C unutra/spolja."
+      "questionFr": "Quel écart de température pour un thermogramme ?",
+      "answerFr": "10 à 15 C entre intérieur et extérieur."
     },
     {
       "question": "Sta dati klijentu na kraju?",
       "answer": "Consignes d'usage i entretien: fixations, perforation, vegetation, nettoyage, reparation.",
-      "questionFr": "Sta datet kletjentu na kraju?",
-      "answerFr": "Consignes d'usage i entretien: fixations, perforation, vegetation, nettoyage, reparation."
+      "questionFr": "Que remettre au client à la fin ?",
+      "answerFr": "Les consignes d'usage et d'entretien : fixations, perforation, végétation, nettoyage, réparation."
     },
     {
       "question": "Kako dokazati da su consignes date?",
       "answer": "Upisati u PV reception ili dati pisani dokument.",
-      "questionFr": "Comment dokapourtet da su consetgnes date?",
-      "answerFr": "Upisati u PV reception ili dati pisani dokument."
+      "questionFr": "Comment prouver que les consignes ont été remises ?",
+      "answerFr": "En les inscrivant au PV de réception ou en remettant un document écrit."
     },
     {
       "question": "Koje pomoci se navode?",
       "answer": "MaPrimeRenov, CEE BAR-EN-102, Eco-PTZ, TVA 5,5%.",
-      "questionFr": "Quelles pomocet se navode?",
-      "answerFr": "MaPrimeRenov, CEE BAR-EN-102, Eco-PTZ, TVA 5,5%."
+      "questionFr": "Quelles aides sont mentionnées ?",
+      "answerFr": "MaPrimeRénov', CEE BAR-EN-102, Éco-PTZ, TVA 5,5 %."
     },
     {
       "question": "Od 2026 MPR par geste za zidove?",
       "answer": "Izolacija zidova nije eligible par geste, ali moze u renovation d'ampleur.",
-      "questionFr": "Od 2026 MPR par geste pour zetdove?",
-      "answerFr": "Izolacija murova nije eligible par geste, ali moze u renovation d'ampleur."
+      "questionFr": "MPR par geste pour les murs à partir de 2026 ?",
+      "answerFr": "L'isolation des murs n'est pas éligible par geste, mais peut entrer dans une rénovation d'ampleur."
     },
     {
       "question": "Sta je renovation d'ampleur?",
       "answer": "Najmanje 2 izolaciona gesta, 2 skoka DPE, ventilacija ako treba.",
-      "questionFr": "Qu'est-ce que renovateton d'ampleur?",
-      "answerFr": "Najmanje 2 izolaciona gesta, 2 skoka DPE, ventilacija ako il faut."
+      "questionFr": "Qu'est-ce qu'une rénovation d'ampleur ?",
+      "answerFr": "Au moins 2 gestes d'isolation, 2 sauts DPE, ventilation si nécessaire."
     },
     {
       "question": "Na sta se odnosi R za pomoci?",
       "answer": "Na dodatni izolator, isolant additionnel uniquement.",
-      "questionFr": "? quoet se odnoset R pour pomocet?",
-      "answerFr": "Na dodatni isolant, isolant additionnel uniquement."
+      "questionFr": "À quoi correspond le R exigé pour les aides ?",
+      "answerFr": "À l'isolant ajouté, isolant additionnel uniquement."
     },
     {
       "question": "Norme za R non-reflechissants?",
       "answer": "NF EN 12664, NF EN 12667, NF EN 12939 ili ekvivalent.",
-      "questionFr": "Norme pour R non-reflechetssants?",
-      "answerFr": "NF EN 12664, NF EN 12667, NF EN 12939 ili ekvivalent."
+      "questionFr": "Quelles normes pour le R des isolants non réfléchissants ?",
+      "answerFr": "NF EN 12664, NF EN 12667, NF EN 12939 ou équivalent."
     },
     {
       "question": "Norma za reflechissants za Eco-PTZ?",
       "answer": "NF EN 16012.",
-      "questionFr": "Norma pour reflechetssants pour Eco-PTZ?",
+      "questionFr": "Quelle norme pour les réfléchissants en Éco-PTZ ?",
       "answerFr": "NF EN 16012."
     },
     {
       "question": "Norma za reflechissants za MPR/TVA?",
       "answer": "NF EN ISO 22097 ili ekvivalent.",
-      "questionFr": "Norma pour reflechetssants pour MPR/TVA?",
-      "answerFr": "NF EN ISO 22097 ili ekvivalent."
+      "questionFr": "Quelle norme pour les réfléchissants en MPR/TVA ?",
+      "answerFr": "NF EN ISO 22097 ou équivalent."
     },
     {
       "question": "Kriterij od 2020?",
       "answer": "Zastita izolatora od transfera vlage pare-vapeur ili ekvivalentom kada treba.",
-      "questionFr": "Kretteretj od 2020?",
-      "answerFr": "Zastita isolanta od transfera humidite pare-vapeur ili ekvivalentom kada il faut."
+      "questionFr": "Quel est le critère depuis 2020 ?",
+      "answerFr": "Protéger l'isolant du transfert d'humidité par pare-vapeur ou équivalent lorsque nécessaire."
     },
     {
       "question": "Kriterij od 2021?",
       "answer": "Cijeli sistem zastite od degradacija po regles de l'art.",
-      "questionFr": "Kretteretj od 2021?",
-      "answerFr": "Cijeli sistem zastite od degradacija po regles de l'art."
+      "questionFr": "Quel est le critère depuis 2021 ?",
+      "answerFr": "L'ensemble du système doit être protégé des dégradations selon les règles de l'art."
     },
     {
       "question": "Gdje provjeriti derogacije MPR?",
       "answer": "FAQ ANAH, odgovor B.07 page 9.",
-      "questionFr": "O? provjerettet derogacetje MPR?",
-      "answerFr": "FAQ ANAH, odgovor B.07 page 9."
+      "questionFr": "Où vérifier les dérogations MPR ?",
+      "answerFr": "FAQ ANAH, réponse B.07 page 9."
     },
     {
       "question": "Gdje provjeriti derogacije CEE?",
       "answer": "FAQ CEE, Q II.c.BT.22.",
-      "questionFr": "O? provjerettet derogacetje CEE?",
+      "questionFr": "Où vérifier les dérogations CEE ?",
       "answerFr": "FAQ CEE, Q II.c.BT.22."
     },
     {
       "question": "Koji izvori za aides?",
       "answer": "ANAH, France Renov, CEE, tabele performansi, RENO REGLO.",
-      "questionFr": "Quels etzvoret pour aetdes?",
-      "answerFr": "ANAH, France Renov, CEE, tabele performansi, RENO REGLO."
+      "questionFr": "Quelles sont les sources pour les aides ?",
+      "answerFr": "ANAH, France Rénov', CEE, tableaux de performances, RENO REGLO."
     },
     {
       "question": "Sta je RENO REGLO?",
       "answer": "Online pomoc za RGE firme za klijente, devis, facture i uslove pomoci.",
-      "questionFr": "Qu'est-ce que RENO REGLO?",
-      "answerFr": "Online pomoc za RGE firme za klijente, devis, facture i uslove pomoci."
+      "questionFr": "Qu'est-ce que RENO REGLO ?",
+      "answerFr": "Une aide en ligne pour les entreprises RGE : clients, devis, factures et conditions des aides."
     },
     {
       "question": "Koliko traje RENO REGLO?",
       "answer": "Oko 3h30.",
-      "questionFr": "Combeten traje RENO REGLO?",
-      "answerFr": "Oko 3h30."
+      "questionFr": "Combien de temps dure RENO REGLO ?",
+      "answerFr": "Environ 3h30."
     },
     {
       "question": "Koji lotovi su u interakciji sa ventilacijom?",
       "answer": "Menuiseries, ITE, soufflage comble, isolation des rampants.",
-      "questionFr": "Quels lotovet su u etnterakcetjet sa ventetlacetjom?",
+      "questionFr": "Quels lots interagissent avec la ventilation ?",
       "answerFr": "Menuiseries, ITE, soufflage comble, isolation des rampants."
     },
     {
       "question": "Sta menuiseries moraju predvidjeti za VMC?",
       "answer": "Mortaises i entrees d'air uskladjene sa VMC.",
-      "questionFr": "Sta menuetseretes moraju predvetdjetet pour VMC?",
-      "answerFr": "Mortaises i entrees d'air uskladjene sa VMC."
+      "questionFr": "Que doivent prévoir les menuiseries pour la VMC ?",
+      "answerFr": "Des mortaises et entrées d'air compatibles avec la VMC."
     },
     {
       "question": "Sta uraditi sa starim ulazima zraka u zidovima kod ITE?",
       "answer": "Ukloniti ih samo ako ventilacija bude rijesena drugim ispravnim putem.",
-      "questionFr": "Sta uradettet sa staretm ulazetma zraka u zetdovetma pour ITE?",
-      "answerFr": "Ukloniti ih samo ako ventilacija bude rijesena drugim ispravnim putem."
+      "questionFr": "Que faire des anciennes entrées d'air dans les murs lors d'une ITE ?",
+      "answerFr": "Les supprimer uniquement si la ventilation est assurée correctement par un autre moyen."
     },
     {
       "question": "Sta s gaines kod soufflage comble?",
       "answer": "Postaviti prije soufflage; caisson van domasaja izolacije.",
-      "questionFr": "Sta s gaetnes pour soufflage comble?",
-      "answerFr": "Postaviti prije soufflage; caisson van domasaja isolation."
+      "questionFr": "Qu'en est-il des gaines lors du soufflage de comble ?",
+      "answerFr": "Les poser avant le soufflage ; caisson hors de portée de l'isolation."
     },
     {
       "question": "Koji lotovi su u interakciji sa ITE?",
       "answer": "Menuiseries, porte d'entree, isolation des rampants, ventilation.",
-      "questionFr": "Quels lotovet su u etnterakcetjet sa ITE?",
-      "answerFr": "Menuiseries, porte d'entree, isolation des rampants, ventilation."
+      "questionFr": "Quels lots interagissent avec l'ITE ?",
+      "answerFr": "Menuiseries, porte d'entrée, isolation des rampants, ventilation."
     },
     {
       "question": "Sta kod prozora i vrata?",
       "answer": "Nu exterieur ili retour d'isolant oko tableaux/cadre renovation.",
-      "questionFr": "Sta pour prozora et vrata?",
-      "answerFr": "Nu exterieur ili retour d'isolant oko tableaux/cadre renovation."
+      "questionFr": "Qu'en est-il des fenêtres et portes ?",
+      "answerFr": "Nu extérieur ou retour d'isolant autour des tableaux/cadre de rénovation."
     },
     {
       "question": "Sta sa debords de toit?",
       "answer": "Radove uraditi prije ITE.",
-      "questionFr": "Sta sa debords de toett?",
-      "answerFr": "Radove uraditi prije ITE."
+      "questionFr": "Qu'en est-il des débords de toit ?",
+      "answerFr": "Réaliser ces travaux avant l'ITE."
     },
     {
       "question": "Najvazniji odgovor za RGE/QUALIBAT?",
       "answer": "Odobren sistem, pravilan support, kontinuitet izolacije, vlaga/para, pozar, ventilacija, detalji, reception i dokazi.",
-      "questionFr": "Quelle est la r?ponse la plus importante pour RGE/QUALIBAT ?",
-      "answerFr": "Syst?me valid?, support correct, continuit? d'isolation, humidit?/vapeur, incendie, ventilation, d?tails, r?ception et preuves."
+      "questionFr": "Quelle est la réponse la plus importante pour RGE/QUALIBAT ?",
+      "answerFr": "Système validé, support correct, continuité d'isolation, humidité/vapeur, incendie, ventilation, détails, réception et preuves."
     },
     {
       "question": "Sta je bardage ventile?",
       "answer": "Spoljasnja obloga na podkonstrukciji sa ventilisanom lame d'air iza obloge.",
-      "questionFr": "Qu'est-ce qu'un bardage ventil? ?",
-      "answerFr": "Un rev?tement ext?rieur sur ossature avec une lame d'air ventil?e derri?re le rev?tement."
+      "questionFr": "Qu'est-ce qu'un bardage ventilé ?",
+      "answerFr": "Un revêtement extérieur sur ossature avec une lame d'air ventilée derrière le revêtement."
     },
     {
       "question": "Koja je osnovna funkcija lame d'air kod bardage?",
       "answer": "Da odvede vlagu i omoguci ventilaciju od dna prema vrhu.",
-      "questionFr": "Quelle est osnovna funkcetja lame d'aetr pour bardage?",
-      "answerFr": "Da odvede humiditu i omoguci ventilaciju od dna selon vrhu."
+      "questionFr": "Quelle est la fonction de base de la lame d'air en bardage ?",
+      "answerFr": "Évacuer l'humidité et permettre la ventilation du bas vers le haut."
     },
     {
       "question": "Kolika je minimalna lame d'air kod bardage ventile?",
       "answer": "Najmanje 2 cm izmedju izolatora/pare-pluie i zadnje strane obloge, ako dokument sistema ne trazi vise.",
-      "questionFr": "Quelle est la lame d'air minimale en bardage ventil? ?",
-      "answerFr": "Au moins 2 cm entre l'isolant/pare-pluie et l'arri?re du rev?tement, sauf exigence sup?rieure du syst?me."
+      "questionFr": "Quelle est la lame d'air minimale en bardage ventilé ?",
+      "answerFr": "Au moins 2 cm entre l'isolant/pare-pluie et l'arrière du revêtement, sauf exigence supérieure du système."
     },
     {
       "question": "Da li lame d'air smije biti prekinuta?",
       "answer": "Ne, mora biti kontinuirana od donjeg ulaza do gornjeg izlaza zraka.",
-      "questionFr": "La lame d'air peut-elle ?tre interrompue ?",
-      "answerFr": "Non, elle doit rester continue de l'entr?e basse ? la sortie haute."
+      "questionFr": "La lame d'air peut-elle être interrompue ?",
+      "answerFr": "Non, elle doit rester continue de l'entrée basse à la sortie haute."
     },
     {
       "question": "Sta ako izolator dodiruje zadnju stranu bardage obloge?",
       "answer": "Ventilacija je blokirana i to je rizik non-conformite, vlage i degradacije.",
-      "questionFr": "Sta ako etzolator dodetruje pourdnju stranu bardage obloge?",
-      "answerFr": "Ventilacija je blokirana i to je rizik non-conformite, humidite i degradacije."
+      "questionFr": "Que se passe-t-il si l'isolant touche l'arrière du bardage ?",
+      "answerFr": "La ventilation est bloquée, ce qui est un risque de non-conformité, d'humidité et de dégradation."
     },
     {
       "question": "Sta je double tasseautage?",
@@ -1081,245 +1081,245 @@
     {
       "question": "Kada treba double tasseautage?",
       "answer": "Kod bardage bois sa vertikalnim daskama da lame d'air ostane otvorena.",
-      "questionFr": "Quand treba double tasseautage?",
-      "answerFr": "Kod bardage bois sa vertikalnim daskama da lame d'air ostane otvorena."
+      "questionFr": "Quand faut-il un double tasseautage ?",
+      "answerFr": "Pour un bardage bois à lames verticales, afin que la lame d'air reste ouverte."
     },
     {
       "question": "Koji DTU za bardage rapporte sa ventilisanom lame d'air?",
       "answer": "NF DTU 45.4, uz DTA/Avis Technique sistema kada postoji.",
-      "questionFr": "Quel DTU pour un bardage rapport? avec lame d'air ventil?e ?",
-      "answerFr": "NF DTU 45.4, avec DTA/Avis Technique du syst?me lorsqu'il existe."
+      "questionFr": "Quel DTU pour un bardage rapporté avec lame d'air ventilée ?",
+      "answerFr": "NF DTU 45.4, avec DTA/Avis Technique du système lorsqu'il existe."
     },
     {
       "question": "Sta provjeriti za bardage bois prije ugradnje?",
       "answer": "Klasu upotrebe, trajnost/traitement, vlaznost, profil, fixations, razmak i ventilaciju.",
-      "questionFr": "Sta provjerettet pour bardage boets pretje ugradnje?",
-      "answerFr": "Klasu upotrebe, trajnost/traitement, vlaznost, profil, fixations, razmak i ventilaciju."
+      "questionFr": "Que vérifier pour un bardage bois avant la pose ?",
+      "answerFr": "La classe d'emploi, la durabilité/traitement, l'humidité, le profil, les fixations, l'entraxe et la ventilation."
     },
     {
       "question": "Koje fixations koristiti za bardage bois?",
       "answer": "Fixations kompatibilne sa drvetom i eksterijerom, najcesce inox ili zasticene prema proizvodjacu.",
-      "questionFr": "Quelles fetxatetons koretstettet pour bardage boets?",
-      "answerFr": "Fixations kompatibilne sa drvetom i eksterijerom, najcesce inox ili zasticene selon proizvodjacu."
+      "questionFr": "Quelles fixations utiliser pour le bardage bois ?",
+      "answerFr": "Des fixations compatibles avec le bois et l'extérieur, le plus souvent inox ou protégées selon le fabricant."
     },
     {
       "question": "Sta je rizik ako se koriste pogresni sarafi/ekseri na bardage bois?",
       "answer": "Korozija, fleke, pucanje, odvajanje dasaka i non-conformite.",
-      "questionFr": "Qu'est-ce que retzetk ako se koretste pogresnet sarafet/ekseret na bardage boets?",
-      "answerFr": "Korozija, fleke, pucanje, odvajanje dasaka i non-conformite."
+      "questionFr": "Quel est le risque avec des vis/clous inadaptés en bardage bois ?",
+      "answerFr": "Corrosion, taches, fissuration, décollement des lames et non-conformité."
     },
     {
       "question": "Sta provjeriti na krajevima dasaka bardage bois?",
       "answer": "Zastitu rezova/krajeva od vode prema uputstvu proizvodjaca.",
-      "questionFr": "Sta provjerettet na krajevetma dasaka bardage boets?",
-      "answerFr": "Zastitu rezova/krajeva od vode selon uputstvu proizvodjaca."
+      "questionFr": "Que vérifier aux extrémités des lames de bardage bois ?",
+      "answerFr": "La protection des coupes/extrémités contre l'eau, selon la notice du fabricant."
     },
     {
       "question": "Sta je bardage metallique?",
       "answer": "Metalna fasadna obloga postavljena na ossature, sa pravilnim fixations, dilatacijom i ventilacijom prema sistemu.",
-      "questionFr": "Qu'est-ce qu'un bardage m?tallique ?",
-      "answerFr": "Un rev?tement de fa?ade m?tallique pos? sur ossature, avec fixations, dilatation et ventilation conformes au syst?me."
+      "questionFr": "Qu'est-ce qu'un bardage métallique ?",
+      "answerFr": "Un revêtement de façade métallique posé sur ossature, avec fixations, dilatation et ventilation conformes au système."
     },
     {
       "question": "Sta paziti kod bardage metallique?",
       "answer": "Koroziju, dilataciju, pravilne fixations, rezove, spojeve i kompatibilnost materijala.",
-      "questionFr": "Sta pazettet pour bardage metalletque?",
-      "answerFr": "Koroziju, dilataciju, pravilne fixations, rezove, spojeve i kompatibilnost materijala."
+      "questionFr": "À quoi faire attention pour un bardage métallique ?",
+      "answerFr": "La corrosion, la dilatation, les fixations correctes, les coupes, les joints et la compatibilité des matériaux."
     },
     {
       "question": "Sta je bardage fibro-ciment?",
       "answer": "Fasadni panel/ploca od fibro-cimenta; mora se ugraditi prema DTA/proizvodjacu sa propisanim fixations i jeux.",
       "questionFr": "Qu'est-ce qu'un bardage fibro-ciment ?",
-      "answerFr": "Un panneau ou une plaque de fa?ade en fibro-ciment ? poser selon DTA/fabricant avec fixations et jeux prescrits."
+      "answerFr": "Un panneau ou une plaque de façade en fibro-ciment à poser selon DTA/fabricant avec fixations et jeux prescrits."
     },
     {
       "question": "Sta je bardage HPL ili Trespa?",
       "answer": "Kompaktni fasadni panel koji zahtijeva ventilisanu podkonstrukciju, dilataciju i tacan raspored fixations.",
       "questionFr": "Qu'est-ce qu'un bardage HPL ou Trespa ?",
-      "answerFr": "Un panneau compact de fa?ade n?cessitant une ossature ventil?e, des jeux de dilatation et un plan de fixation pr?cis."
+      "answerFr": "Un panneau compact de façade nécessitant une ossature ventilée, des jeux de dilatation et un plan de fixation précis."
     },
     {
       "question": "Da li se HPL/Trespa paneli smiju stegnuti bez dilatacije?",
       "answer": "Ne, treba postovati tacke fixe/coulissantes i jeux de dilatation iz sistema.",
-      "questionFr": "Est-ce que se HPL/Trespa panelet smetju stegnutet bez detlatacetje?",
-      "answerFr": "Non, il faut postovati tacke fixe/coulissantes i jeux de dilatation iz sistema."
+      "questionFr": "Les panneaux HPL/Trespa peuvent-ils être bloqués sans dilatation ?",
+      "answerFr": "Non, il faut respecter les points fixes/coulissants et les jeux de dilatation du système."
     },
     {
       "question": "Sta je ossature kod bardage?",
       "answer": "Podkonstrukcija od bois ili metal na koju se fiksira obloga i koja formira ventilisanu supljinu.",
       "questionFr": "Qu'est-ce que l'ossature d'un bardage ?",
-      "answerFr": "La structure bois ou m?tallique qui porte le rev?tement et forme la lame d'air ventil?e."
+      "answerFr": "La structure bois ou métallique qui porte le revêtement et forme la lame d'air ventilée."
     },
     {
       "question": "Od cega zavisi entraxe ossature?",
       "answer": "Od tipa obloge, visine, vjetra, supporta i tehnicke dokumentacije sistema.",
-      "questionFr": "Od cega pourvetset entraxe ossature?",
-      "answerFr": "Od tipa obloge, visine, vjetra, supporta i tehnicke dokumentacije sistema."
+      "questionFr": "De quoi dépend l'entraxe de l'ossature ?",
+      "answerFr": "Du type de revêtement, de la hauteur, du vent, du support et de la documentation technique du système."
     },
     {
       "question": "Da li je entraxe tasseaux/montants proizvoljan?",
       "answer": "Ne, mora pratiti DTU/DTA/proizvodjaca i po potrebi proracun vjetra.",
-      "questionFr": "Est-ce que je entraxe tasseaux/montants proetzvoljan?",
-      "answerFr": "Non, doit pratiti DTU/DTA/proizvodjaca i po potrebi proracun vjetra."
+      "questionFr": "L'entraxe des tasseaux/montants est-il libre ?",
+      "answerFr": "Non, il doit suivre le DTU/DTA/fabricant et, si nécessaire, le calcul au vent."
     },
     {
       "question": "Sta provjeriti na supportu prije bardage?",
       "answer": "Nosivost, ravnost, vlaga, pukotine, kompatibilnost i tip cheville/fixation.",
-      "questionFr": "Sta provjerettet na supportu pretje bardage?",
-      "answerFr": "Nosivost, ravnost, humidita, pukotine, kompatibilnost i tip cheville/fixation."
+      "questionFr": "Que vérifier sur le support avant un bardage ?",
+      "answerFr": "La portance, la planéité, l'humidité, les fissures, la compatibilité et le type de cheville/fixation."
     },
     {
       "question": "Sta ako support nije nosiv?",
       "answer": "Ne fiksirati bardage dok se support ne popravi ili dok se ne definise odgovarajuca fixation/proracun.",
-      "questionFr": "Sta ako support netje nosetv?",
-      "answerFr": "Ne fiksirati bardage dok se support ne popravi ili dok se ne definise odgovarajuca fixation/proracun."
+      "questionFr": "Que faire si le support n'est pas porteur ?",
+      "answerFr": "Ne pas fixer le bardage tant que le support n'est pas réparé ou qu'une fixation/un calcul adapté n'est défini."
     },
     {
       "question": "Sta je equerre kod bardage?",
       "answer": "Metalni nosac koji drzi ossature udaljenu od supporta i prenosi opterecenja.",
-      "questionFr": "Qu'est-ce que equerre pour bardage?",
-      "answerFr": "Metalni nosac koji drzi ossature udaljenu od supporta i prenosi opterecenja."
+      "questionFr": "Qu'est-ce qu'une équerre pour un bardage ?",
+      "answerFr": "Un support métallique qui écarte l'ossature du support et transmet les charges."
     },
     {
       "question": "Sta provjeriti za equerres?",
       "answer": "Tip, broj, raspored, dubinu fiksacije, thermal break ako je predvidjen i kompatibilnost sa supportom.",
-      "questionFr": "Sta provjerettet pour equerres?",
-      "answerFr": "Tip, broj, raspored, dubinu fiksacije, thermal break ako je predvidjen i kompatibilnost sa supportom."
+      "questionFr": "Que vérifier pour les équerres ?",
+      "answerFr": "Le type, le nombre, la répartition, la profondeur de fixation, la rupture de pont thermique si prévue et la compatibilité avec le support."
     },
     {
       "question": "Da li bardage pravi toplotne mostove?",
       "answer": "Moze, preko equerres/fixations; zato se bira sistem i thermal break prema dokumentaciji.",
-      "questionFr": "Est-ce que bardage pravet toplotne mostove?",
-      "answerFr": "Moze, preko equerres/fixations; zato se bira sistem i thermal break selon dokumentaciji."
+      "questionFr": "Le bardage crée-t-il des ponts thermiques ?",
+      "answerFr": "Cela peut arriver, via les équerres/fixations ; le système et la rupture de pont thermique se choisissent selon la documentation."
     },
     {
       "question": "Koja membrana se cesto koristi iza bardage sa izolatorom?",
       "answer": "Pare-pluie HPV kada sistem i izolator to zahtijevaju.",
-      "questionFr": "Koja membrana se cesto koretstet etpour bardage sa etzolatorom?",
-      "answerFr": "Pare-pluie HPV kada sistem i isolant to zahtijevaju."
+      "questionFr": "Quelle membrane est souvent utilisée derrière un bardage avec isolant ?",
+      "answerFr": "Le pare-pluie HPV lorsque le système et l'isolant l'exigent."
     },
     {
       "question": "Sta znaci HPV kod pare-pluie?",
       "answer": "Haute permeabilite a la vapeur: membrana propusta paru, tipicno Sd < 0,10 m.",
-      "questionFr": "Sta znacet HPV pour pare-pluete?",
-      "answerFr": "Haute permeabilite a la vapeur: membrana propusta paru, tipicno Sd < 0,10 m."
+      "questionFr": "Que signifie HPV pour un pare-pluie ?",
+      "answerFr": "Haute perméabilité à la vapeur : membrane perméable à la vapeur, typiquement Sd < 0,10 m."
     },
     {
       "question": "Da li pare-pluie smije zatvoriti izlaz vlage?",
       "answer": "Ne, treba biti kompatibilan sa zidom/izolatorom i propustan kada je to zahtijevano.",
-      "questionFr": "Est-ce que pare-pluete smetje pourtvorettet etzlaz vlage?",
-      "answerFr": "Non, il faut biti kompatibilan sa murom/isolantom i propustan kada je to zahtijevano."
+      "questionFr": "Le pare-pluie peut-il bloquer la sortie d'humidité ?",
+      "answerFr": "Non, il doit être compatible avec le mur/l'isolant et perméable lorsque c'est exigé."
     },
     {
       "question": "Sta je donji ulaz ventilacije kod bardage?",
       "answer": "Otvor pri dnu obloge kroz koji zrak ulazi u lame d'air, obicno sa zastitom od insekata/rongeurs.",
-      "questionFr": "Qu'est-ce que donjet ulaz ventetlacetje pour bardage?",
-      "answerFr": "Otvor pri dnu obloge kroz koji zrak ulazi u lame d'air, obicno sa zastitom od insekata/rongeurs."
+      "questionFr": "Qu'est-ce que l'entrée basse de ventilation d'un bardage ?",
+      "answerFr": "Une ouverture en bas du revêtement par laquelle l'air entre dans la lame d'air, généralement protégée des insectes/rongeurs."
     },
     {
       "question": "Sta je gornji izlaz ventilacije kod bardage?",
       "answer": "Otvor pri vrhu obloge kroz koji vlazan/topao zrak izlazi.",
-      "questionFr": "Qu'est-ce que gornjet etzlaz ventetlacetje pour bardage?",
-      "answerFr": "Otvor pri vrhu obloge kroz koji vlazan/topao zrak izlazi."
+      "questionFr": "Qu'est-ce que la sortie haute de ventilation d'un bardage ?",
+      "answerFr": "Une ouverture en haut du revêtement par laquelle l'air humide/chaud ressort."
     },
     {
       "question": "Sta su najcesce greske kod bardage ventile?",
       "answer": "Blokirana lame d'air, pogresna ossature, los pare-pluie, pogresne fixations, losi detalji sokla/prozora/uglova.",
-      "questionFr": "Que sont najcesce greske pour bardage ventetle?",
-      "answerFr": "Blokirana lame d'air, pogresna ossature, los pare-pluie, pogresne fixations, losi detalji sokla/prozora/uglova."
+      "questionFr": "Quelles sont les erreurs fréquentes en bardage ventilé ?",
+      "answerFr": "Lame d'air bloquée, ossature incorrecte, mauvais pare-pluie, fixations incorrectes, mauvais détails de soubassement/fenêtres/angles."
     },
     {
       "question": "Sta slikati za RGE dokaz kod bardage?",
       "answer": "Support, ossature/equerres, izolator, pare-pluie, lame d'air, fixations, detalje oko baies/sokla i zavrsenu fasadu.",
-      "questionFr": "Sta sletkatet pour RGE dokaz pour bardage?",
-      "answerFr": "Support, ossature/equerres, isolant, pare-pluie, lame d'air, fixations, detalje oko baies/sokla i zavrsenu fasadu."
+      "questionFr": "Que photographier comme preuve RGE pour un bardage ?",
+      "answerFr": "Le support, l'ossature/équerres, l'isolant, le pare-pluie, la lame d'air, les fixations, les détails baies/soubassement et la façade finie."
     },
     {
       "question": "Sta kontrolor RGE gleda kod bardage?",
       "answer": "Dokaze, uskladjenost sa DTU/DTA, R izolatora, kontinuitet izolacije, ventilaciju, fixations i zavrsne detalje.",
-      "questionFr": "Que v?rifie le contr?leur RGE sur un bardage ?",
-      "answerFr": "Les preuves, la conformit? DTU/DTA, le R de l'isolant, la continuit? de l'isolation, la ventilation, les fixations et les d?tails."
+      "questionFr": "Que vérifie le contrôleur RGE sur un bardage ?",
+      "answerFr": "Les preuves, la conformité DTU/DTA, le R de l'isolant, la continuité de l'isolation, la ventilation, les fixations et les détails."
     },
     {
       "question": "Da li se komponente bardage sistema smiju mijesati?",
       "answer": "Ne bez odobrenja; koristiti kompletan sistem prema DTA/Avis Technique/proizvodjacu.",
-      "questionFr": "Est-ce que se komponente bardage setstema smetju metjesatet?",
-      "answerFr": "Ne bez odobrenja; koristiti kompletan sistem selon DTA/Avis Technique/proizvodjacu."
+      "questionFr": "Peut-on mélanger les composants d'un système de bardage ?",
+      "answerFr": "Non sans validation ; utiliser le système complet selon DTA/Avis Technique/fabricant."
     },
     {
       "question": "Sta je rizik zatvorenog sokla kod bardage?",
       "answer": "Nema ulaza zraka, zadrzava se vlaga i raste rizik truljenja/korozije/non-conformite.",
-      "questionFr": "Qu'est-ce que retzetk pourtvorenog sokla pour bardage?",
-      "answerFr": "Nema ulaza zraka, zadrzava se humidita i raste rizik truljenja/korozije/non-conformite."
+      "questionFr": "Quel est le risque d'un soubassement fermé en bardage ?",
+      "answerFr": "Pas d'entrée d'air, l'humidité stagne et le risque de pourrissement/corrosion/non-conformité augmente."
     },
     {
       "question": "Sta paziti oko prozora kod bardage?",
       "answer": "Etancheite, bavette/appui, retour, ventilaciju, dilataciju i da voda ne ulazi iza sistema.",
-      "questionFr": "Sta pazettet oko prozora pour bardage?",
-      "answerFr": "Etancheite, bavette/appui, retour, ventilaciju, dilataciju i da voda ne ulazi iza sistema."
+      "questionFr": "À quoi faire attention autour des fenêtres pour un bardage ?",
+      "answerFr": "L'étanchéité, la bavette/l'appui, le retour, la ventilation, la dilatation et l'absence d'infiltration d'eau derrière le système."
     },
     {
       "question": "Sta paziti na uglovima bardage?",
       "answer": "Pravilne profile, fixations, jeux, zastitu rezova i kontinuitet ventilacije.",
-      "questionFr": "Sta pazettet na uglovetma bardage?",
-      "answerFr": "Pravilne profile, fixations, jeux, zastitu rezova i continuit? ventilacije."
+      "questionFr": "À quoi faire attention aux angles d'un bardage ?",
+      "answerFr": "Les profils corrects, les fixations, les jeux, la protection des coupes et la continuité de la ventilation."
     },
     {
       "question": "Sta paziti na spoju bardage i krova/atike?",
-      "answer": "Izlaz ventilacije, zastitu od vode, op?ivke i kompatibilnost sa krovnim detaljima.",
-      "questionFr": "Sta pazettet na spoju bardage et krova/atetke?",
-      "answerFr": "Izlaz ventilacije, zastitu od vode, op?ivke i kompatibilnost sa krovnim detaljima."
+      "answer": "Izlaz ventilacije, zastitu od vode, opsivke i kompatibilnost sa krovnim detaljima.",
+      "questionFr": "À quoi faire attention à la jonction bardage/toiture-acrotère ?",
+      "answerFr": "La sortie de ventilation, la protection contre l'eau, les solins et la compatibilité avec les détails de toiture."
     },
     {
       "question": "Da li bardage zamjenjuje ventilaciju kuce?",
       "answer": "Ne, ventilacija objekta ostaje poseban sistem kao VMC ili ulazi zraka.",
-      "questionFr": "Est-ce que bardage pourmjenjuje ventetlacetju kuce?",
-      "answerFr": "Non, ventilacija objekta ostaje poseban sistem kao VMC ili ulazi zraka."
+      "questionFr": "Le bardage remplace-t-il la ventilation de la maison ?",
+      "answerFr": "Non, la ventilation du bâtiment reste un système à part, comme la VMC ou les entrées d'air."
     },
     {
       "question": "Da li bardage sam garantuje RGE uspjeh?",
       "answer": "Ne, mora postojati dokaz o izolatoru, pravilnoj ugradnji, ventilaciji, dokumentaciji i reception.",
-      "questionFr": "Est-ce que bardage sam garantuje RGE uspjeh?",
-      "answerFr": "Non, doit postojati dokaz o isolantu, pravilnoj ugradnji, ventilaciji, dokumentaciji i reception."
+      "questionFr": "Le bardage garantit-il seul la conformité RGE ?",
+      "answerFr": "Non, il faut des preuves sur l'isolant, la pose correcte, la ventilation, la documentation et la réception."
     },
     {
       "question": "Sta je prva kontrola prije bardage?",
       "answer": "Etat des lieux supporta i provjera tehnicke dokumentacije sistema.",
-      "questionFr": "Qu'est-ce que prva contr?le pretje bardage?",
-      "answerFr": "Etat des lieux supporta i provjera tehnicke dokumentacije sistema."
+      "questionFr": "Quel est le premier contrôle avant un bardage ?",
+      "answerFr": "L'état des lieux du support et la vérification de la documentation technique du système."
     },
     {
       "question": "Sta je zadnja kontrola poslije bardage?",
       "answer": "Reception/PV, fotografije zavrsenih detalja i uputstva za odrzavanje klijentu.",
-      "questionFr": "Qu'est-ce que pourdnja contr?le posletje bardage?",
-      "answerFr": "Reception/PV, fotografije zavrsenih detalja i uputstva za odrzavanje klijentu."
+      "questionFr": "Quel est le dernier contrôle après un bardage ?",
+      "answerFr": "La réception/PV, les photos des détails finis et les consignes d'entretien remises au client."
     }
   ],
   "checklistFr": [
-    "Confirmer la cat?gorie RGE 12 pour l'ITE des murs.",
+    "Confirmer la catégorie RGE 12 pour l'ITE des murs.",
     "Conserver devis, factures, fiches techniques et preuves ACERMI/performances de l'isolant.",
-    "V?rifier l'Avis Technique/DTA/ETA/CPT/DTU du syst?me.",
-    "Ne pas m?langer les composants de syst?mes diff?rents sans validation.",
-    "R?aliser l'?tat des lieux : support, humidit?, fissures, plan?it?, isolation existante.",
-    "V?rifier les murs sensibles ? l'humidit? et leur capacit? de s?chage.",
-    "V?rifier la ventilation avant de fermer la fa?ade.",
+    "Vérifier l'Avis Technique/DTA/ETA/CPT/DTU du système.",
+    "Ne pas mélanger les composants de systèmes différents sans validation.",
+    "Réaliser l'état des lieux : support, humidité, fissures, planéité, isolation existante.",
+    "Vérifier les murs sensibles à l'humidité et leur capacité de séchage.",
+    "Vérifier la ventilation avant de fermer la façade.",
     "Photographier le support avant travaux.",
-    "Photographier l'isolant, les ?tiquettes et l'?paisseur.",
+    "Photographier l'isolant, les étiquettes et l'épaisseur.",
     "Photographier collage/calage/fixations avant fermeture.",
     "Photographier armature/treillis, angles et appuis de baie.",
     "Photographier le soubassement et la distance au sol.",
-    "Ne pas int?grer les descentes d'eau ou canalisations dans le syst?me ITE.",
-    "V?rifier les d?tails autour des fen?tres, portes, d?bords de toiture et ventilation.",
-    "Pour le bardage ventil?, conserver une lame d'air continue de 2 cm.",
-    "Faire la r?ception/PV final et remettre les consignes au client.",
-    "Bardage : v?rifier NF DTU 41.2 pour le bois ou NF DTU 45.4/DTA pour le bardage rapport?.",
-    "Bardage : v?rifier le support et le type de fixation avant per?age.",
-    "Bardage : prouver l'entraxe de l'ossature et la r?partition des ?querres/tasseaux.",
-    "Bardage : poser un pare-pluie HPV lorsque le syst?me et l'isolant l'exigent.",
-    "Bardage : garder une entr?e d'air basse et une sortie haute, avec protection insectes/rongeurs si pr?vue.",
-    "Bardage : v?rifier que la lame d'air n'est pas bloqu?e par l'isolant, du mortier, des copeaux ou des ?l?ments horizontaux.",
-    "Bardage : r?aliser un double tasseautage pour le bardage bois vertical.",
-    "Bardage : respecter les jeux de dilatation des panneaux m?talliques, fibro-ciment, HPL/Trespa et composites.",
-    "Bardage : photographier les finitions autour des fen?tres, angles, soubassement, acrot?re et jonctions."
+    "Ne pas intégrer les descentes d'eau ou canalisations dans le système ITE.",
+    "Vérifier les détails autour des fenêtres, portes, débords de toiture et ventilation.",
+    "Pour le bardage ventilé, conserver une lame d'air continue de 2 cm.",
+    "Faire la réception/PV final et remettre les consignes au client.",
+    "Bardage : vérifier NF DTU 41.2 pour le bois ou NF DTU 45.4/DTA pour le bardage rapporté.",
+    "Bardage : vérifier le support et le type de fixation avant perçage.",
+    "Bardage : prouver l'entraxe de l'ossature et la répartition des équerres/tasseaux.",
+    "Bardage : poser un pare-pluie HPV lorsque le système et l'isolant l'exigent.",
+    "Bardage : garder une entrée d'air basse et une sortie haute, avec protection insectes/rongeurs si prévue.",
+    "Bardage : vérifier que la lame d'air n'est pas bloquée par l'isolant, du mortier, des copeaux ou des éléments horizontaux.",
+    "Bardage : réaliser un double tasseautage pour le bardage bois vertical.",
+    "Bardage : respecter les jeux de dilatation des panneaux métalliques, fibro-ciment, HPL/Trespa et composites.",
+    "Bardage : photographier les finitions autour des fenêtres, angles, soubassement, acrotère et jonctions."
   ]
 }
