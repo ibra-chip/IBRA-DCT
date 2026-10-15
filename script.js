@@ -3340,6 +3340,13 @@ document.addEventListener('DOMContentLoaded', () => {
 		const modal = document.querySelector('#dxf-analyze-modal');
 		if (!modal) return;
 		modal.hidden = false; modal.setAttribute('aria-hidden', 'false');
+		dxfAnalyzeSwitchTab('detail');
+		const metrageDesc = document.querySelector('#dxf-metrage-description'); if (metrageDesc) metrageDesc.value = '';
+		const metrageW = document.querySelector('#dxf-metrage-width'); if (metrageW) metrageW.value = '';
+		const metrageH = document.querySelector('#dxf-metrage-height'); if (metrageH) metrageH.value = '';
+		const metrageP = document.querySelector('#dxf-metrage-price'); if (metrageP) metrageP.value = '';
+		dxfMetrageRecalcSurface();
+		const metrageStatus = document.querySelector('#dxf-metrage-status'); if (metrageStatus) metrageStatus.textContent = '';
 		const documents = await request('/documents');
 		const docItem = documents.find((item) => item.id === documentId);
 		dxfAnalyzeState = { documentId, layers: [], projectId: docItem?.projectId || null, planType: docItem?.planType || null, originalName: docItem?.originalName || 'plan' };
@@ -3572,6 +3579,54 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#dxf-analyze-layer')?.addEventListener('change', dxfAnalyzeRefresh);
 	document.querySelector('#dxf-analyze-axis')?.addEventListener('change', dxfAnalyzeRefresh);
 	document.querySelector('#dxf-analyze-mode')?.addEventListener('change', dxfAnalyzeRefresh);
+	// Two deliberately separate paths, never blended into one form: "Détail par mur" reads exact
+	// positions from the DWG geometry (what's already above); "Métrage" is a manual-entry surface
+	// (largeur × hauteur the user confirms themselves) for a single Fourniture-et-pose devis line. The
+	// second never reads or infers a number from the plan - mixing them would risk an auto-read
+	// quantity sitting next to a manually-typed one under the same label, with no way to tell which is
+	// which later.
+	function dxfAnalyzeSwitchTab(tab) {
+		const isDetail = tab === 'detail';
+		document.querySelector('#dxf-analyze-detail-section')?.toggleAttribute('hidden', !isDetail);
+		document.querySelector('#dxf-analyze-metrage-section')?.toggleAttribute('hidden', isDetail);
+		document.querySelector('#dxf-analyze-tab-detail')?.setAttribute('aria-pressed', String(isDetail));
+		document.querySelector('#dxf-analyze-tab-metrage')?.setAttribute('aria-pressed', String(!isDetail));
+	}
+	document.querySelector('#dxf-analyze-tab-detail')?.addEventListener('click', () => dxfAnalyzeSwitchTab('detail'));
+	document.querySelector('#dxf-analyze-tab-metrage')?.addEventListener('click', () => dxfAnalyzeSwitchTab('metrage'));
+	function dxfMetrageRecalcSurface() {
+		const width = Number(document.querySelector('#dxf-metrage-width')?.value) || 0;
+		const height = Number(document.querySelector('#dxf-metrage-height')?.value) || 0;
+		const surfaceEl = document.querySelector('#dxf-metrage-surface');
+		if (surfaceEl) surfaceEl.value = `${(width * height).toFixed(2)} m²`;
+	}
+	document.querySelector('#dxf-metrage-width')?.addEventListener('input', dxfMetrageRecalcSurface);
+	document.querySelector('#dxf-metrage-height')?.addEventListener('input', dxfMetrageRecalcSurface);
+	document.querySelector('#dxf-metrage-add-to-devis')?.addEventListener('click', async (event) => {
+		const button = event.currentTarget;
+		const statusEl = document.querySelector('#dxf-metrage-status');
+		if (statusEl) statusEl.textContent = '';
+		if (!dxfAnalyzeState?.projectId) { if (statusEl) statusEl.textContent = 'Aucun chantier associé à ce document.'; return; }
+		const material = document.querySelector('#dxf-metrage-description')?.value?.trim();
+		const width = Number(document.querySelector('#dxf-metrage-width')?.value);
+		const height = Number(document.querySelector('#dxf-metrage-height')?.value);
+		const unitPrice = Number(document.querySelector('#dxf-metrage-price')?.value) || 0;
+		if (!material) { if (statusEl) statusEl.textContent = 'Décrivez le matériau.'; return; }
+		if (!Number.isFinite(width) || width <= 0 || !Number.isFinite(height) || height <= 0) { if (statusEl) statusEl.textContent = 'Largeur et hauteur doivent être des nombres positifs.'; return; }
+		const surface = Number((width * height).toFixed(2));
+		const description = `Fourniture et pose — ${material} — ${width.toFixed(3)}m × ${height.toFixed(3)}m`;
+		button.disabled = true; button.setAttribute('aria-busy', 'true');
+		try {
+			if (!(await planMeasureConfirmAgainstExistingLineItem(description, surface, 'm²', dxfAnalyzeState.projectId))) return;
+			const category = dxfAnalyzeState.planType === 'existant' ? 'Démolition (plan existant)' : dxfAnalyzeState.planType === 'nouveau' ? 'Construction neuve (plan nouveau)' : 'Mesures du plan';
+			await request(`/projects/${dxfAnalyzeState.projectId}/budget/line-items`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items: [{ description, quantity: surface, unit: 'm²', unitPrice, lineTotal: Number((surface * unitPrice).toFixed(2)), category }], source: 'plan-measure' }) });
+			toast(`Ligne ajoutée au devis : ${surface} m².`);
+		} catch (error) {
+			if (statusEl) statusEl.textContent = error?.message || 'Ajout impossible.';
+		} finally {
+			button.disabled = false; button.removeAttribute('aria-busy');
+		}
+	});
 
 	async function openPlanMeasure(documentId) {
 		const modal = document.querySelector('#plan-measure-modal');

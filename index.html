@@ -290,7 +290,11 @@
 		<div id="dxf-analyze-modal" class="modal worker-detail-modal" hidden role="dialog" aria-modal="true" aria-labelledby="dxf-analyze-title">
 			<aside class="worker-detail-card" tabindex="-1">
 				<div class="worker-detail-header"><div><small>OSSATURE DWG</small><h2 id="dxf-analyze-title">Analyser l’ossature</h2><p>Lisez directement les positions réelles (ossature, équerres…) depuis la géométrie du DWG converti - aucune estimation, aucune IA.</p></div><button id="dxf-analyze-close" class="icon-close" type="button" aria-label="Fermer">×</button></div>
-				<div class="plan-measure-body" style="flex-direction:column;gap:12px">
+				<div class="form-row" role="tablist">
+					<button type="button" class="secondary" id="dxf-analyze-tab-detail" aria-pressed="true">Détail par mur</button>
+					<button type="button" class="secondary" id="dxf-analyze-tab-metrage" aria-pressed="false">Métrage (Fourniture et pose)</button>
+				</div>
+				<div id="dxf-analyze-detail-section" class="plan-measure-body" style="flex-direction:column;gap:12px">
 					<div class="form-row">
 						<label>Calque<select id="dxf-analyze-layer"></select></label>
 						<label>Axe de l’écart<select id="dxf-analyze-axis"><option value="y">Hauteur (y)</option><option value="x">Largeur (x)</option></select></label>
@@ -302,6 +306,20 @@
 					<button type="button" class="secondary" id="dxf-analyze-add-to-devis" hidden></button>
 					<div id="dxf-analyze-results" class="list"></div>
 					<button type="button" class="secondary" id="dxf-analyze-show-more" hidden></button>
+				</div>
+				<div id="dxf-analyze-metrage-section" class="plan-measure-body" style="flex-direction:column;gap:12px" hidden>
+					<p class="plan-measure-status">Saisissez la largeur et la hauteur réelles (confirmées par vous, pas lues automatiquement) pour obtenir une surface et une ligne de devis « Fourniture et pose ».</p>
+					<div class="form-row">
+						<label>Description du matériau<input type="text" id="dxf-metrage-description" placeholder="ex. Bardage SINUS 18B-13, RAL 9016" /></label>
+					</div>
+					<div class="form-row">
+						<label>Largeur (m)<input type="number" id="dxf-metrage-width" min="0" step="0.001" /></label>
+						<label>Hauteur (m)<input type="number" id="dxf-metrage-height" min="0" step="0.001" /></label>
+						<label>Surface<input type="text" id="dxf-metrage-surface" readonly value="0 m²" /></label>
+						<label>Prix unitaire (€/m²)<input type="number" id="dxf-metrage-price" min="0" step="0.01" /></label>
+					</div>
+					<div id="dxf-metrage-status" class="plan-measure-status"></div>
+					<button type="button" class="secondary" id="dxf-metrage-add-to-devis">Ajouter au devis (Fourniture et pose)</button>
 				</div>
 			</aside>
 		</div>
