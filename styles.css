@@ -700,6 +700,13 @@ label{font-size:.86rem;color:#3d5a8a}
 .list-item small{color:var(--muted);font-size:.79rem;line-height:1.55;margin-top:3px}
 .list-item:hover{border-left-color:var(--blue);box-shadow:0 6px 18px #1c25300f}
 .list-item .document-actions,.list-item .production-report-actions{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)}
+.document-more{position:relative;display:inline-block}
+.document-more>summary{list-style:none;cursor:pointer;display:inline-flex;align-items:center;padding:6px 12px;border-radius:999px;border:1px solid var(--border-soft);font-size:.82rem;color:var(--text);background:var(--panel)}
+.document-more>summary::-webkit-details-marker{display:none}
+.document-more>summary:hover{border-color:#72b9ff55;background:#72b9ff0d}
+.document-more[open]>summary{border-color:var(--blue)}
+.document-more-menu{position:absolute;z-index:5;top:calc(100% + 6px);right:0;display:flex;flex-direction:column;gap:4px;min-width:200px;padding:8px;border-radius:12px;border:1px solid var(--border-soft);background:var(--panel);box-shadow:var(--shadow-panel)}
+.document-more-menu button{justify-self:stretch;text-align:left;width:100%}
 .document-group h4{color:var(--blue-strong);font-weight:700}
 .purchase-category h3,.purchase-groups h3{color:var(--text)}
 
