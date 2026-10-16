@@ -75,7 +75,7 @@ form.panel{margin-top:0}
 form.panel h3,.panel h3{margin-top:0}
 label{font-weight:700}
 input,select,textarea{min-height:44px;border-radius:11px;background:#061421}
-.primary,.secondary{min-height:42px}
+.primary,.secondary{min-height:40px;padding:9px 14px;font-weight:600}
 .list{margin-top:12px}
 .list-item{display:grid;gap:6px;border-radius:14px;background:linear-gradient(180deg,#ffffff09,#ffffff04)}
 .list-item button{justify-self:start}
