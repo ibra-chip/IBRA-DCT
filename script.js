@@ -2705,8 +2705,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureRedraw();
 		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
 		const parts = [];
-		if (mergedV.length) { const spacing = planMeasureDescribeSpacing(result.verticals, 'v', pxPerM); parts.push(`${mergedV.length} vertical(aux) (${planMeasureDescribeLineBoxes(result.verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
-		if (mergedH.length) { const spacing = planMeasureDescribeSpacing(result.horizontals, 'h', pxPerM); parts.push(`${mergedH.length} horizontal(aux) (${planMeasureDescribeLineBoxes(result.horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
+		if (mergedV.length) { const spacing = planMeasureDescribeSpacing(result.verticals, 'v', pxPerM); const totalM = planMeasureTotalLengthM(result.verticals, 'v', pxPerM); parts.push(`${mergedV.length} vertical(aux) (${planMeasureDescribeLineBoxes(result.verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''}, total ${totalM.toFixed(2)}m)`); }
+		if (mergedH.length) { const spacing = planMeasureDescribeSpacing(result.horizontals, 'h', pxPerM); const totalM = planMeasureTotalLengthM(result.horizontals, 'h', pxPerM); parts.push(`${mergedH.length} horizontal(aux) (${planMeasureDescribeLineBoxes(result.horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''}, total ${totalM.toFixed(2)}m)`); }
 		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(result.blobs, pxPerM)})`);
 		toast(parts.length
 			? `« ${label} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
@@ -2846,11 +2846,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			? `<strong>Texte technique trouvé sur ce plan (à vérifier sur le dessin)</strong><div class="plan-measure-color-scan-list">${callouts.map((entry) => `<span class="plan-measure-color-scan-entry">${escapeHtml(entry.text)}${entry.count > 1 ? ` <small>(×${entry.count})</small>` : ''}</span>`).join('')}</div>`
 			: '';
 		const colorsHtml = results.length
-			? `<strong>Couleurs trouvées sur ce plan</strong><small class="plan-measure-color-scan-help">Vertical(aux) = montants, horizontal(aux) = rails/traverses de cette couleur. Entraxe = distance moyenne entre deux éléments consécutifs, calculée depuis l’échelle calibrée - exacte pour ce qui est détecté, mais vérifiez sur le plan que la détection correspond bien à de vrais profils avant de l’utiliser pour commander du matériel.</small><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
+			? `<strong>Couleurs trouvées sur ce plan</strong><small class="plan-measure-color-scan-help">Vertical(aux) = montants, horizontal(aux) = rails/traverses de cette couleur. Entraxe = distance moyenne entre deux éléments consécutifs ; total = somme des longueurs (métrage pour le devis) - les deux calculés depuis l’échelle calibrée, exacts pour ce qui est détecté. Cliquez « Choisir » pour voir chaque élément numéroté sur le plan. Vérifiez toujours que la détection correspond à de vrais profils avant de commander du matériel ou de poser des fixations - pour l’entraxe des fixations, référez-vous à la fiche technique du fabricant (visible plus bas si le plan la mentionne).</small><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
 				const { color, verticals, horizontals, blobs } = entry;
 				const parts = [];
-				if (verticals.length) { const spacing = planMeasureDescribeSpacing(verticals, 'v', pxPerM); parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
-				if (horizontals.length) { const spacing = planMeasureDescribeSpacing(horizontals, 'h', pxPerM); parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
+				if (verticals.length) { const spacing = planMeasureDescribeSpacing(verticals, 'v', pxPerM); const totalM = planMeasureTotalLengthM(verticals, 'v', pxPerM); parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''}, total ${totalM.toFixed(2)}m)`); }
+				if (horizontals.length) { const spacing = planMeasureDescribeSpacing(horizontals, 'h', pxPerM); const totalM = planMeasureTotalLengthM(horizontals, 'h', pxPerM); parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''}, total ${totalM.toFixed(2)}m)`); }
 				if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(blobs, pxPerM)})`);
 				return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
 			}).join('')}</div>`
@@ -2930,6 +2930,14 @@ document.addEventListener('DOMContentLoaded', () => {
 	// mm (computed straight from the calibrated scale, never a visual guess) and whether the run was
 	// continuous or reconstructed from dashes/gaps in the source drawing. Purely descriptive: it never
 	// renames or reclassifies anything, just tells the gérant what the geometry itself already shows.
+	// Sum of each detected profile's own length (not its thickness) along the axis it runs on, converted
+	// to metres from the calibrated scale - how many metres of this profile the drawing actually shows,
+	// the same number a material takeoff for the devis needs. Exact for what was detected, same caveat
+	// as everything else here: verify the detection matches real profiles before ordering from it.
+	function planMeasureTotalLengthM(boxes, axis, pixelsPerMeter) {
+		if (!boxes.length || !pixelsPerMeter) return 0;
+		return boxes.reduce((sum, box) => sum + (axis === 'v' ? box.y1 - box.y0 : box.x1 - box.x0), 0) / pixelsPerMeter;
+	}
 	function planMeasureDescribeLineBoxes(boxes, axis, pixelsPerMeter) {
 		if (!boxes.length || !pixelsPerMeter) return '';
 		const thicknessesMm = boxes.map((box) => ((axis === 'v' ? box.x1 - box.x0 : box.y1 - box.y0) / pixelsPerMeter) * 1000);
