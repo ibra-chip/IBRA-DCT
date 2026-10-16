@@ -2381,10 +2381,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#plan-measure-line')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-polygon')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-opening')?.toggleAttribute('disabled', disabled);
-		document.querySelector('#plan-measure-detect-openings')?.toggleAttribute('disabled', disabled);
-		document.querySelector('#plan-measure-detect-rails')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-run-detect')?.toggleAttribute('disabled', disabled);
+		document.querySelector('#plan-measure-detect-mode')?.toggleAttribute('disabled', disabled);
 		document.querySelector('#plan-measure-pick-color')?.toggleAttribute('disabled', disabled);
-		document.querySelector('#plan-measure-scan-colors')?.toggleAttribute('disabled', disabled);
 		const actions = document.querySelector('#plan-measure-candidates-actions');
 		const candidates = planMeasureState?.candidates || [];
 		if (actions) {
@@ -2752,7 +2751,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const natW = image.naturalWidth;
 		const natH = image.naturalHeight;
 		if (natW * natH > 60_000_000) { toast('Plan trop grand pour analyser toutes les couleurs à pleine résolution - utilisez « Reconnaître une couleur » sur un exemple précis.'); return; }
-		const button = document.querySelector('#plan-measure-scan-colors');
+		const button = document.querySelector('#plan-measure-run-detect');
 		if (button) { button.disabled = true; button.setAttribute('aria-busy', 'true'); }
 		toast('Analyse de toutes les couleurs du plan en cours…');
 		try {
@@ -3788,7 +3787,6 @@ document.addEventListener('DOMContentLoaded', () => {
 	document.querySelector('#plan-measure-line')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'line' ? null : 'line'));
 	document.querySelector('#plan-measure-chain')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'chain' ? null : 'chain'));
 	document.querySelector('#plan-measure-pick-color')?.addEventListener('click', () => planMeasureState && planMeasureSetMode(planMeasureState.mode === 'pick-color' ? null : 'pick-color'));
-	document.querySelector('#plan-measure-scan-colors')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureScanAllColors());
 	document.querySelector('#plan-measure-color-scan')?.addEventListener('click', (event) => {
 		const button = event.target.closest('[data-color-scan-choose]');
 		if (!button) return;
@@ -3826,8 +3824,25 @@ document.addEventListener('DOMContentLoaded', () => {
 			planMeasureApplyZoom(planMeasureState.baseScale);
 		});
 	});
-	document.querySelector('#plan-measure-detect-openings')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectOpenings());
-	document.querySelector('#plan-measure-detect-rails')?.addEventListener('click', () => planMeasureState?.calibration && planMeasureDetectRails());
+	const detectHints = {
+		all: 'Analyse toutes les couleurs du plan, le texte technique imprimé (côtes, notes) et les détails - un seul clic, résultat complet à trier ensuite.',
+		openings: 'Cherche les fenêtres et portes (zones claires entourées d’un contour) pour les ajouter comme ouvertures à déduire.',
+		rails: 'Cherche les lignes de l’ossature (montants verticaux, rails horizontaux) pour calculer leur métrage et leur entraxe.',
+	};
+	const updateDetectHint = () => {
+		const hintEl = document.querySelector('#plan-measure-detect-hint');
+		if (!hintEl) return;
+		hintEl.textContent = detectHints[document.querySelector('#plan-measure-detect-mode')?.value] || '';
+	};
+	document.querySelector('#plan-measure-detect-mode')?.addEventListener('change', updateDetectHint);
+	updateDetectHint();
+	document.querySelector('#plan-measure-run-detect')?.addEventListener('click', () => {
+		if (!planMeasureState?.calibration) return;
+		const mode = document.querySelector('#plan-measure-detect-mode')?.value || 'all';
+		if (mode === 'openings') planMeasureDetectOpenings();
+		else if (mode === 'rails') planMeasureDetectRails();
+		else planMeasureScanAllColors();
+	});
 	document.querySelector('#plan-measure-candidates-confirm')?.addEventListener('click', () => planMeasureConfirmCandidates());
 	document.querySelector('#plan-measure-candidates-rails-v')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-v'));
 	document.querySelector('#plan-measure-candidates-rails-h')?.addEventListener('click', () => planMeasureAddRailTotalToDevis('rail-h'));
