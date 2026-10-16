@@ -1472,6 +1472,8 @@ document.addEventListener('DOMContentLoaded', () => {
 				form.elements.quantity.value = value.toFixed(2);
 				form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 				form.elements.m2Source.value = `ar-${unit}`;
+				form.elements.m2Source.dispatchEvent(new Event('change'));
+				form.dataset.fillingFromTool = '1';
 				form.elements.quantity.dispatchEvent(new Event('input'));
 				status.textContent = `AR mjera: ${value.toFixed(2)} ${unit}. Prenez maintenant une photo comme preuve et enregistrez le rapport.`;
 				await close();
@@ -1569,6 +1571,8 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.elements.quantity.value = value.toFixed(2);
 			form.elements.quantityM2.value = unit === 'm2' ? value.toFixed(2) : '';
 			form.elements.m2Source.value = `photo-calibrated-${unit}`;
+			form.elements.m2Source.dispatchEvent(new Event('change'));
+			form.dataset.fillingFromTool = '1';
 			form.elements.quantity.dispatchEvent(new Event('input'));
 			status.textContent = `Mjera iz slike: ${value.toFixed(2)} ${unit}. Kalibracija: ${referenceLength} m. Provjerite da je slika bila prava (ne ukosa) prije nego sačuvate izvještaj.`;
 			close();
@@ -1587,7 +1591,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		section.className = 'panel production-panel';
 		section.id = 'production-panel';
 		section.setAttribute('data-tab-hidden', '');
-		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail réalisé (optionnel)<input name="photo" type="file" accept="image/*" /></label><label>Date (optionnel)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unité à calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - mètre linéaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec caméra AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantité</span><input name="quantity" type="number" min="0" step="0.01" value="" required /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unité EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><div id="production-live-calc" class="production-live-calc">0.00 × 0,00 € = 0,00 €</div><small>La validation humaine du Gérant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
+		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail réalisé (optionnel)<input name="photo" type="file" accept="image/*" /></label><label>Date (optionnel)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unité à calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - mètre linéaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec caméra AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantité</span><input name="quantity" type="number" min="0" step="0.01" value="" required /></label><small id="quantity-source-badge" class="quantity-source-badge" hidden></small><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unité EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><div id="production-live-calc" class="production-live-calc">0.00 × 0,00 € = 0,00 €</div><small>La validation humaine du Gérant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
 		container.append(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
@@ -1604,7 +1608,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const rate = Number(form.elements.unitRate.value) || 0;
 			liveCalcTarget.textContent = `${quantity.toFixed(2)} ${unit} × ${formatEUR(rate)} = ${formatEUR(quantity * rate)}`;
 		};
-		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; form.elements.m2Source.value = ''; updateUnitLabels(); updateLiveCalc(); });
+		form.elements.quantityUnit.addEventListener('change', () => { quantityInput.value = ''; form.elements.quantityM2.value = ''; if (form.elements.m2Source) { form.elements.m2Source.value = ''; form.elements.m2Source.dispatchEvent(new Event('change')); } updateUnitLabels(); updateLiveCalc(); });
 		form.elements.unitRate.addEventListener('input', updateLiveCalc);
 		quantityInput.addEventListener('input', updateLiveCalc);
 		updateUnitLabels();
@@ -1629,6 +1633,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				quantityInput.value = result.estimatedQuantity;
 				form.elements.quantityM2.value = unit === 'm2' ? result.estimatedQuantity : '';
 				form.elements.m2Source.value = `ai-${unit}`;
+				form.elements.m2Source.dispatchEvent(new Event('change'));
 				updateLiveCalc();
 				status.textContent = `Proposition IA : ${result.estimatedQuantity} ${unit}. Confiance ${Math.round(Number(result.confidence || 0) * 100)}%. Verifiez et confirmez avant l'enregistrement. ${result.answer || ''}`;
 			} catch (error) {
@@ -1666,8 +1671,26 @@ document.addEventListener('DOMContentLoaded', () => {
 			form.elements.capturedAt.value = now.toISOString();
 			form.elements.captureTime.value = now.toTimeString().slice(0, 5);
 			form.elements.m2Source.value = '';
+			form.elements.m2Source.dispatchEvent(new Event('change'));
 			form.elements.quantityM2.value = '';
 			quantityInput.value = '';
+		});
+		// Lets anyone glance at the quantity field and tell a human-entered number apart from one that
+		// came from the AI estimate, the AR meter or the calibrated-photo tool - all three are
+		// approximations with real error margins, so this is a "check this before saving" nudge, not
+		// a claim that the automated figure is already correct.
+		const sourceBadge = form.querySelector('#quantity-source-badge');
+		const sourceBadgeLabels = { ai: '⚠ Estimation IA — vérifiez le chiffre avant d’enregistrer.', ar: '📐 Mesure AR — vérifiez le chiffre avant d’enregistrer.', photo: '📷 Mesure photo calibrée — vérifiez l’angle et la référence avant d’enregistrer.' };
+		const updateSourceBadge = () => {
+			const source = form.elements.m2Source.value;
+			const key = source.startsWith('ai-') ? 'ai' : source.startsWith('ar-') ? 'ar' : source.startsWith('photo-calibrated') ? 'photo' : '';
+			sourceBadge.textContent = sourceBadgeLabels[key] || '';
+			sourceBadge.hidden = !key;
+		};
+		form.elements.m2Source.addEventListener('change', updateSourceBadge);
+		quantityInput.addEventListener('input', () => {
+			if (form.dataset.fillingFromTool === '1') { form.dataset.fillingFromTool = ''; }
+			else if (form.elements.m2Source.value) { form.elements.m2Source.value = ''; updateSourceBadge(); }
 		});
 	}
 	async function loadProduction() {
