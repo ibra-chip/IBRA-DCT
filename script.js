@@ -442,7 +442,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('.view').forEach((view) => view.classList.toggle('active', view.id === id));
 		document.querySelectorAll('.nav:not(.nav-group-toggle), .nav-sub').forEach((item) => item.classList.toggle('active', item.dataset.view === id));
 		document.querySelector('#page-title').textContent = document.querySelector(`[data-view="${id}"]`)?.dataset.title || 'IBRA-BA';
-		if (id === 'tasks-view') { unreadMessageCount = 0; setChatBadge(0); }
+		if (id === 'communication-view') { unreadMessageCount = 0; setChatBadge(0); }
 		// Keep the category open once a page inside it is current, so coming back to it isn't a second click.
 		document.querySelectorAll('.nav-item-group').forEach((group) => {
 			const toggle = group.querySelector('.nav-group-toggle');
@@ -453,13 +453,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','tasks-view','settings-view','account-settings-view'],
-			worker: ['tasks-view','evidence-summary-view','account-settings-view'],
-			user: ['tasks-view','evidence-summary-view','account-settings-view']
+			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			worker: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view'],
+			user: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view']
 		};
-		const allowed = access[role] || ['dashboard-view','tasks-view'];
+		const allowed = access[role] || ['dashboard-view','production-view','communication-view','time-view','my-tasks-view'];
 		document.querySelectorAll('.nav:not(.nav-group-toggle), .nav-sub').forEach((item) => { item.hidden = !allowed.includes(item.dataset.view); });
 		document.querySelectorAll('.nav-item-group').forEach((group) => { group.hidden = ![...group.querySelectorAll('.nav-sub')].some((item) => !item.hidden); });
 		const canSeeFinancials = isOwner(role);
@@ -470,6 +470,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#goto-documents-button')?.toggleAttribute('hidden', !canSeeFinancials);
 		document.querySelector('#my-tasks-tab-button')?.toggleAttribute('hidden', canSeeFinancials);
 		document.querySelector('#my-tasks-panel')?.toggleAttribute('hidden', canSeeFinancials);
+		document.querySelector('[data-view="my-tasks-view"]')?.toggleAttribute('hidden', canSeeFinancials);
 		if (!allowed.includes(document.querySelector('.view.active')?.id)) showView(allowed[0]);
 	};
 	const selectSubTab = (viewId, tabTarget) => {
@@ -642,7 +643,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				sections.push({
 					title: `Message(s) non lu(s) (${unread.length})`,
 					items: unread.slice(0, 5).map((item) => `${escapeHtml(item.senderName || 'Expéditeur')} : ${escapeHtml(item.text)}`),
-					action: () => showView('tasks-view'),
+					action: () => showView('communication-view'),
 					actionLabel: 'Voir les messages',
 				});
 			}
@@ -1352,7 +1353,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	let unreadMessageCount = 0;
 	let messagePollTimer = null;
 	function setChatBadge(count) {
-		const navButton = document.querySelector('[data-view="tasks-view"]');
+		const navButton = document.querySelector('[data-view="communication-view"]');
 		if (!navButton) return;
 		let badge = navButton.querySelector('.nav-badge');
 		if (!badge) { badge = document.createElement('span'); badge.className = 'nav-badge'; navButton.append(badge); }
@@ -1368,7 +1369,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			const previousIds = new Set(latestChatMessages.map((item) => item.id));
 			const newIncoming = messages.filter((item) => !previousIds.has(item.id) && item.type !== 'rendezvous-notification' && item.senderId !== currentUserId);
 			latestChatMessages = messages;
-			const tasksActive = document.querySelector('#tasks-view')?.classList.contains('active');
+			const tasksActive = document.querySelector('#communication-view')?.classList.contains('active');
 			if (tasksActive) renderChatThread();
 			if (newIncoming.length) {
 				newIncoming.forEach((item) => toast(`💬 ${item.senderName} : ${item.text.length > 60 ? `${item.text.slice(0, 60)}…` : item.text}`));
@@ -1580,14 +1581,14 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	function ensureProductionPanel() {
 		if (document.querySelector('#production-form')) return;
-		const panel = document.querySelector('#tasks-view .panel');
-		if (!panel) return;
+		const container = document.querySelector('#production-view');
+		if (!container) return;
 		const section = document.createElement('section');
 		section.className = 'panel production-panel';
 		section.id = 'production-panel';
 		section.setAttribute('data-tab-hidden', '');
 		section.innerHTML = `<div class="section-head production-head"><div><small>PRODUCTION CHANTIER</small><h2>Production et situations</h2><p>Photo preuve, mesure m2/ml, GPS et validation avant situation.</p></div><span class="status">Validation requise</span></div><form id="production-form" class="production-form"><div class="production-grid"><fieldset><legend>1. Preuve photo</legend><label>Photo du travail réalisé (optionnel)<input name="photo" type="file" accept="image/*" /></label><label>Date (optionnel)<input name="date" type="date" /></label></fieldset><fieldset><legend>2. Mesure</legend><label>Unité à calculer<select name="quantityUnit"><option value="m2">m2 - surface</option><option value="ml">ml - mètre linéaire</option></select></label><div class="measure-actions"><button class="secondary" id="estimate-area" type="button">Estimer avec l'IA</button><button class="secondary" id="ar-meter" type="button">Mesurer avec caméra AR</button><button class="secondary" id="photo-meter" type="button">Mesurer une photo uploadée</button></div><small id="area-estimate-status">IA utilise les plans/fiches. AR mesure en direct. Photo uploadée se mesure avec une calibration connue.</small></fieldset><fieldset><legend>3. Travaux</legend><label>Description des travaux<input name="description" required /></label><label><span data-quantity-label>Quantité</span><input name="quantity" type="number" min="0" step="0.01" value="" required /></label><input name="quantityM2" type="hidden" value="" /></fieldset><fieldset><legend>4. Prix</legend><label><span data-rate-label>Prix par unité EUR</span><input name="unitRate" type="number" min="0" step="0.01" required /></label><div id="production-live-calc" class="production-live-calc">0.00 × 0,00 € = 0,00 €</div><small>La validation humaine du Gérant reste obligatoire avant la Situation.</small></fieldset></div><button class="primary production-submit" type="submit">Enregistrer la production</button></form><div class="production-results"><div id="production-summary" class="list"></div><div id="production-reports" class="list"></div></div>`;
-		panel.after(section);
+		container.append(section);
 		const form = section.querySelector('#production-form');
 		const quantityInput = form.elements.quantity;
 		const updateUnitLabels = () => {
@@ -1957,7 +1958,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		if (!isOwner()) { document.querySelector('#worker-month-summary')?.remove(); return null; }
 		const existing = document.querySelector('#worker-month-summary');
 		if (existing) return existing;
-		const panel = document.querySelector('#time-form')?.closest('.panel') || document.querySelector('#tasks-view .panel');
+		const panel = document.querySelector('#time-form')?.closest('.panel') || document.querySelector('#time-view .panel');
 		if (!panel) return null;
 		const section = document.createElement('section');
 		section.id = 'worker-month-summary';
@@ -4189,7 +4190,10 @@ document.addEventListener('DOMContentLoaded', () => {
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary(), loadRgeSiteChecklist()]),
 			'evidence-summary-view': () => Promise.allSettled([loadEvidenceSummary(), loadDocuments(), loadWorkSequence()]),
 			'documents-view': () => Promise.allSettled([loadDocuments(), loadEvidenceSummary(), loadWorkSequence()]),
-			'tasks-view': () => Promise.allSettled([loadMessages(), loadTime(), loadPayroll(), loadProduction(), loadWeather(currentProjectId()), loadMyTasks()]),
+			'production-view': () => Promise.allSettled([loadProduction(), loadWeather(currentProjectId())]),
+			'communication-view': () => Promise.allSettled([loadMessages()]),
+			'time-view': () => Promise.allSettled([loadTime(), loadPayroll()]),
+			'my-tasks-view': () => Promise.allSettled([loadMyTasks()]),
 			'settings-view': () => Promise.allSettled([loadUsers(), loadMessages()]),
 			'account-settings-view': () => Promise.allSettled([loadAccountSettings(), loadMyDocuments()])
 		};
