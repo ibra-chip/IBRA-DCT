@@ -3010,19 +3010,33 @@ app.post('/api/documents/:id/explain', auth, async (request, response) => {
 	if (!item) return response.status(404).json({ error: 'Document not found' });
 	if (!canAccessProject(data, request.user, item.projectId)) return response.status(403).json({ error: 'Access denied' });
 	if (!['plan', 'fiche-technique'].includes(item.evidenceType)) return response.status(400).json({ error: 'Explanation is only available for plans and fiches techniques' });
-	if (item.plainExplanation) return response.json({ status: 'cached', explanation: item.plainExplanation });
-	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', explanation: null });
+	// Read directly off the PDF's own text layer, never through the AI - works even with no Gemini key
+	// configured, and never drifts from what's actually printed the way an AI paraphrase could. Same
+	// detector already used for a plan's text layer and a DXF's TEXT/MTEXT entities (extractPlanTextCallouts).
+	// Best-effort only: a storage/parse failure here must never turn into a 502 for the whole endpoint -
+	// the cached/not_configured paths below report their own status without ever needing the file at all,
+	// same as before this was added, so one extra, optional thing failing can't take them down with it.
+	let textCallouts = [];
+	if (item.mimeType === 'application/pdf') {
+		try {
+			const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
+			const extractedText = (await parsePdf(buffer)).text || '';
+			textCallouts = extractPlanTextCallouts(extractedText).callouts;
+		} catch (error) { console.error('Document text-callout extraction failed (non-fatal):', error.message); }
+	}
+	if (item.plainExplanation) return response.json({ status: 'cached', explanation: item.plainExplanation, textCallouts });
+	if (!process.env.GEMINI_API_KEY && !process.env.GOOGLE_AI_API_KEY) return response.json({ status: 'not_configured', explanation: null, textCallouts });
+	const language = request.body?.responseLanguage || 'sr';
 	let buffer;
 	try { buffer = await downloadFile(UPLOADS_BUCKET, item.storedName); } catch (error) { return response.status(502).json({ error: 'Document download failed: ' + error.message }); }
-	const language = request.body?.responseLanguage || 'sr';
 	let extractedText = '';
 	if (item.mimeType === 'application/pdf') { try { extractedText = (await parsePdf(buffer)).text || ''; } catch (error) { console.error('Document PDF text parse failed:', error.message); } }
 	const explanation = await explainDocumentForLaypeople({ buffer, mimeType: item.mimeType, fileName: item.originalName, language, extractedText });
-	if (!explanation) return response.json({ status: 'not_configured', explanation: null });
+	if (!explanation) return response.json({ status: 'not_configured', explanation: null, textCallouts });
 	item.plainExplanation = explanation;
 	item.plainExplanationAt = new Date().toISOString();
 	await writeData(data);
-	response.json({ status: 'generated', explanation });
+	response.json({ status: 'generated', explanation, textCallouts });
 });
 app.get('/api/documents/:id/download', auth, async (request, response) => {
 	const data = await readData();
