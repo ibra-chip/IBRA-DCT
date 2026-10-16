@@ -54,7 +54,7 @@ button.worker-status{background:transparent;font:inherit;cursor:pointer;transiti
 .sidebar .brand strong{font-size:.92rem}
 .sidebar nav{gap:6px;overflow:auto;padding-right:4px}
 .nav-group{margin:14px 10px 4px;color:#72b9ff;text-transform:uppercase;letter-spacing:.12em;font-size:.68rem;font-weight:900}
-.nav,.nav-sub{border:1px solid transparent;border-radius:12px;padding:10px 12px}
+.nav,.nav-sub{border:1px solid transparent;border-radius:10px;padding:8px 10px}
 .nav.active,.nav-sub.active{border-color:#72b9ff33;background:linear-gradient(135deg,#72b9ff22,#31d3a414)}
 .sidebar>.secondary{margin-top:0}
 .sidebar nav+.secondary{margin-top:auto}
@@ -661,7 +661,7 @@ h1,h2,h3,.primary,.secondary,.nav,.nav-sub{font-family:"IBM Plex Sans",Inter,Seg
 #company-identity-edit:hover{color:#ffffff;background:#ffffff14}
 .nav-group{color:#5f6d87}
 .nav,.nav-sub{color:#aab5c9;display:flex;align-items:center;gap:10px}
-.nav-icon{width:17px;height:17px;flex:none;opacity:.85}
+.nav-icon{width:16px;height:16px;flex:none;opacity:.85}
 .nav:hover,.nav-sub:hover{background:#ffffff0d;color:#dfe5f0}
 .nav.active,.nav-sub.active{background:#5b8def29;color:#ffffff;border-color:transparent}
 .nav.active .nav-icon{opacity:1;color:#5b8def}
@@ -827,7 +827,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 /* Sidebar nav: every item is a flat, direct link to its own page (no category to open first) -
    .nav-sub shares every .nav rule above, it only exists as a separate class so applyRole()/showView()
    keep working unchanged. */
-.nav-sub{border:0;font-size:.85rem;font-weight:600;text-align:left;cursor:pointer}
+.nav-sub{border:0;font-size:.82rem;font-weight:600;text-align:left;cursor:pointer}
 
 /* Plan measurement tool (calibrated on-screen takeoff): centered wide modal instead of the right drawer
    other worker-detail-* modals use, since the canvas needs horizontal room. The DWG ossature analysis
