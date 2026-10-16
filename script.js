@@ -4199,7 +4199,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		// every purchase shows up in exactly one of the two panels, with no category that falls through.
 		const purchases = await request('/purchases');
 		const subcontracting = purchases.filter((item) => item.category === 'subcontracting');
-		const materialToolsMachines = purchases.filter((item) => item.category !== 'subcontracting');
+		const fuelTransport = purchases.filter((item) => item.category === 'fuel' || item.category === 'transport');
+		const meals = purchases.filter((item) => item.category === 'meals');
+		const materialToolsMachines = purchases.filter((item) => !['subcontracting', 'fuel', 'transport', 'meals'].includes(item.category));
 		// Same chantier-folder language as Documents/Factures/Devis - a purchase belongs to exactly one
 		// chantier (item.projectId), so grouping by it here answers "which chantier is this expense for"
 		// at a glance instead of a flat list mixing every chantier's purchases together.
@@ -4213,6 +4215,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		};
 		render(materialToolsMachines, 'purchase-material-tools', 'purchase-total-material-tools');
 		render(subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting');
+		render(fuelTransport, 'purchase-fuel-transport', 'purchase-total-fuel-transport');
+		render(meals, 'purchase-meals', 'purchase-total-meals');
 		document.querySelectorAll('.delete-purchase').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm('Supprimer définitivement cette dépense ?')) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
@@ -4958,6 +4962,18 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	document.querySelector('#documents-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#documents'), event.currentTarget.value));
 	document.querySelector('#documents-refresh')?.addEventListener('click', () => { const search = document.querySelector('#documents-search'); if (search) search.value = ''; loadDocuments(); });
+	{
+		const addPanel = document.querySelector('#upload-form-panel');
+		const toggleAddDocument = (open) => { if (!addPanel) return; addPanel.hidden = !open; document.querySelector('#toggle-add-document')?.setAttribute('aria-expanded', String(open)); if (open) { addPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }); addPanel.querySelector('input')?.focus(); } else document.querySelector('#toggle-add-document')?.focus(); };
+		document.querySelector('#toggle-add-document')?.addEventListener('click', () => toggleAddDocument(true));
+		document.querySelector('#close-add-document')?.addEventListener('click', () => toggleAddDocument(false));
+	}
+	{
+		const addPanel = document.querySelector('#purchase-form-panel');
+		const toggleAddPurchase = (open) => { if (!addPanel) return; addPanel.hidden = !open; document.querySelector('#toggle-add-purchase')?.setAttribute('aria-expanded', String(open)); if (open) { addPanel.scrollIntoView({ behavior: 'smooth', block: 'start' }); addPanel.querySelector('input')?.focus(); } else document.querySelector('#toggle-add-purchase')?.focus(); };
+		document.querySelector('#toggle-add-purchase')?.addEventListener('click', () => toggleAddPurchase(true));
+		document.querySelector('#close-add-purchase')?.addEventListener('click', () => toggleAddPurchase(false));
+	}
 	document.querySelector('#factures-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#factures-list'), event.currentTarget.value));
 	document.querySelector('#factures-refresh')?.addEventListener('click', () => { const search = document.querySelector('#factures-search'); if (search) search.value = ''; loadFactures(); });
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture, un ticket ou une photo du justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et le justificatif ont été enregistrés ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });

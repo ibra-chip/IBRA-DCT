@@ -2358,7 +2358,7 @@ app.post('/api/purchases', auth, manager, upload.single('invoice'), fixUploadFil
 	if (!request.file || !isAllowedPersonalDocument(request.file)) return response.status(400).json({ error: 'A purchase invoice PDF or photo is required' });
 	const amount = Number(request.body.amount || 0);
 	const category = String(request.body.category || 'other');
-	if (!request.body.projectId || !request.body.supplier || !request.body.description || !Number.isFinite(amount) || amount <= 0 || !['material', 'tools', 'machines', 'workers', 'subcontracting', 'other'].includes(category)) return response.status(400).json({ error: 'Purchase fields are incomplete' });
+	if (!request.body.projectId || !request.body.supplier || !request.body.description || !Number.isFinite(amount) || amount <= 0 || !['material', 'tools', 'machines', 'workers', 'subcontracting', 'fuel', 'transport', 'meals', 'other'].includes(category)) return response.status(400).json({ error: 'Purchase fields are incomplete' });
 	const data = await readData();
 	let context;
 	try { assertProjectAccess(data, request.user, request.body.projectId); context = projectContextFor(data, request.body.projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
