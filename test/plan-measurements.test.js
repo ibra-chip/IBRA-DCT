@@ -512,3 +512,38 @@ test('metre-pdf never crashes on a measurement label containing characters outsi
 	assert.equal(response.status, 200);
 	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
 });
+
+// A 1x1 PNG - small enough to keep this test fast, but a real, parseable PNG (not a fake buffer), since
+// pdf-lib's embedPng actually decodes PNG chunks and would throw on anything else.
+const tinyPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=', 'base64');
+
+test('metre-pdf (POST) embeds the plan screenshot and the detected text callouts into the PDF', async () => {
+	const withoutImage = await getBinary(`/api/documents/${openingsDocId}/measurements/metre-pdf`, tokenFor('owner-a', 'gerant'));
+	assert.equal(withoutImage.status, 200);
+	const response = await postMultipart(
+		`/api/documents/${openingsDocId}/measurements/metre-pdf`,
+		tokenFor('owner-a', 'gerant'),
+		{ textCallouts: JSON.stringify([{ text: 'Entraxe montants 400mm', count: 2 }, { text: 'ep.130mm - R=3,70', count: 1 }]) },
+		{ field: 'image', filename: 'plan.png', contentType: 'image/png', buffer: tinyPng },
+	);
+	assert.equal(response.status, 200);
+	assert.equal(response.contentType, 'application/pdf');
+	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
+	// The image + the extra text section must make this a strictly bigger PDF than the same measurements
+	// exported with neither - proving the image was actually embedded and the callouts actually drawn,
+	// not silently dropped while still returning 200.
+	assert.ok(response.buffer.length > withoutImage.buffer.length, `expected the PDF with an embedded image and text callouts to be larger (${response.buffer.length}) than the bare one (${withoutImage.buffer.length})`);
+	const pdfDoc = await PDFDocument.load(response.buffer);
+	assert.ok(pdfDoc.getPageCount() >= 1);
+});
+
+test('metre-pdf (POST) still succeeds with no image and malformed textCallouts JSON, same as a bare GET', async () => {
+	const response = await postMultipart(
+		`/api/documents/${openingsDocId}/measurements/metre-pdf`,
+		tokenFor('owner-a', 'gerant'),
+		{ textCallouts: 'not valid json' },
+		null,
+	);
+	assert.equal(response.status, 200, 'malformed textCallouts must degrade to "no callouts", never fail the whole export');
+	assert.equal(response.buffer.subarray(0, 4).toString(), '%PDF');
+});

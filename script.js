@@ -4055,7 +4055,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		const button = event.currentTarget;
 		button.disabled = true; button.setAttribute('aria-busy', 'true');
 		try {
-			const response = await fetch(`${api}/documents/${planMeasureState.documentId}/measurements/metre-pdf`, { headers: { Authorization: `Bearer ${token()}` } });
+			const canvas = document.querySelector('#plan-measure-canvas');
+			const imageBlob = canvas ? await new Promise((resolve) => canvas.toBlob(resolve, 'image/png')) : null;
+			const body = new FormData();
+			if (imageBlob) body.append('image', imageBlob, 'plan.png');
+			body.append('textCallouts', JSON.stringify(planMeasureState.textCallouts || []));
+			const response = await fetch(`${api}/documents/${planMeasureState.documentId}/measurements/metre-pdf`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
 			if (!response.ok) throw new Error();
 			const blob = await response.blob();
 			const url = URL.createObjectURL(blob);

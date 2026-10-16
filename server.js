@@ -796,7 +796,7 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 // totals the plan-measure UI shows - so what's on the PDF handed to a client, architect, or prime
 // contractor is provably the same arithmetic as what the gerant saw on screen, not a re-derivation that
 // could drift from it.
-async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectName, documentName, calibrationLabel, measurements, generatedAt }) {
+async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectName, documentName, calibrationLabel, measurements, generatedAt, planImageBuffer, textCallouts }) {
 	const doc = await PDFDocument.create();
 	const pageSize = [595.28, 841.89];
 	let page = doc.addPage(pageSize);
@@ -855,6 +855,22 @@ async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectN
 	leftY -= 14;
 	page.drawText(`Généré le ${safeText(generatedAt)}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
 	y = Math.min(leftY, brandY) - 16;
+	// A screenshot of the calibrated plan as the gerant last saw it on screen (candidates, measurements
+	// and all) - so this PDF is something an installer can actually look at, not only a bare number
+	// table. Capped well under the remaining page height so it can never push the table onto a second
+	// page by itself; skipped silently (not an error) if the client didn't provide one.
+	if (planImageBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(planImageBuffer); } catch { image = await doc.embedJpg(planImageBuffer); }
+			const maxWidth = rightEdge - marginX; const maxHeight = 260;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: marginX, y: y - height, width, height });
+			page.drawRectangle({ x: marginX, y: y - height, width, height, borderColor: rgb(0.7, 0.7, 0.7), borderWidth: 0.6 });
+			y -= height + 16;
+		} catch { /* image unreadable, continue without it */ }
+	}
 	const columns = [
 		{ label: 'Désignation', x: marginX },
 		{ label: 'Type', x: marginX + 195 },
@@ -905,6 +921,20 @@ async function buildMetrePdf({ companyName, companyAddress, logoBuffer, projectN
 	}
 	y -= 8;
 	page.drawText('Mesures calibrées directement sur le plan (géométrie exacte, pixel par pixel) - aucune reconnaissance IA.', { x: marginX, y, size: 8, font, color: rgb(0.45, 0.45, 0.45) });
+	y -= 20;
+	// Dimension labels/spec notes printed on the plan itself (not computed, not reworded) - the "explained
+	// in text" half of this export, same honesty as everywhere else this is shown: an index to check
+	// against the drawing, never presented as an already-confirmed value.
+	if (textCallouts?.length) {
+		if (y < 100) { page = doc.addPage(pageSize); y = 800; }
+		page.drawText('Texte technique trouvé sur ce plan (à vérifier sur le dessin) :', { x: marginX, y, size: 10, font: fontBold });
+		y -= 16;
+		for (const callout of textCallouts) {
+			if (y < 60) { page = doc.addPage(pageSize); y = 800; }
+			page.drawText(`- ${safeText(truncate(callout.text, 85))}`, { x: marginX, y, size: 9, font });
+			y -= 14;
+		}
+	}
 	return Buffer.from(await doc.save());
 }
 // Generates the devis itself from this chantier's own line items (with their prices), instead of only
@@ -3408,7 +3438,12 @@ app.get('/api/documents/:id/measurements', auth, async (request, response) => {
 	const calibrations = (item.calibrations || (item.calibration ? [item.calibration] : [])).map((calibration) => ({ ...calibration, page: calibration.page || 1 }));
 	response.json({ calibration: item.calibration ? { ...item.calibration, page: item.calibration.page || 1 } : null, calibrations, measurements });
 });
-app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, response) => {
+// GET still works with no image/callouts (same as before, for any caller that doesn't send a screenshot) -
+// POST (multipart, reusing the same `upload` middleware/size limit as every other file field in this app)
+// additionally accepts the plan screenshot the client already has on its canvas, and the text callouts
+// already detected server-side by /dxf-layers or client-side by the PDF text-callout scan, so the PDF
+// handed to an installer shows the plan itself, not only a number table.
+async function handleMetrePdf(request, response) {
 	const data = await readData();
 	const item = data.documents.find((document) => document.id === request.params.id);
 	if (!item) return response.status(404).json({ error: 'Document not found' });
@@ -3422,6 +3457,10 @@ app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, respo
 	const calibrationLabel = (item.calibration
 		? (item.calibration.method === 'pdf-scale' ? `Échelle du plan : 1:${item.calibration.scaleDenominator} (lue dans le texte du PDF)` : `Calibration manuelle : ${item.calibration.pixelsPerMeter.toFixed(2)} px/m`)
 		: 'Plan non calibré') + zoneSuffix;
+	let textCallouts = [];
+	try { textCallouts = JSON.parse(request.body?.textCallouts || '[]'); } catch { textCallouts = []; }
+	if (!Array.isArray(textCallouts)) textCallouts = [];
+	textCallouts = textCallouts.filter((entry) => entry && typeof entry.text === 'string').slice(0, 60);
 	const pdf = await buildMetrePdf({
 		...branding,
 		projectName: project?.name || item.projectId,
@@ -3429,11 +3468,15 @@ app.get('/api/documents/:id/measurements/metre-pdf', auth, async (request, respo
 		calibrationLabel,
 		measurements,
 		generatedAt: new Date().toLocaleDateString('fr-FR'),
+		planImageBuffer: request.file?.buffer || null,
+		textCallouts,
 	});
 	response.setHeader('Content-Type', 'application/pdf');
 	response.setHeader('Content-Disposition', `attachment; filename="metre-${String(project?.name || item.projectId).replace(/[^a-zA-Z0-9]+/g, '-')}.pdf"`);
 	response.send(pdf);
-});
+}
+app.get('/api/documents/:id/measurements/metre-pdf', auth, handleMetrePdf);
+app.post('/api/documents/:id/measurements/metre-pdf', auth, upload.single('image'), handleMetrePdf);
 const polygonAreaPx = (points) => {
 	let sum = 0;
 	for (let index = 0; index < points.length; index += 1) {
