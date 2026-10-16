@@ -30,7 +30,7 @@ button.worker-status{background:transparent;font:inherit;cursor:pointer;transiti
 
 /* Professional layout polish */
 .app-shell{grid-template-columns:280px minmax(0,1fr)}
-.sidebar{gap:18px;padding:22px 18px}
+.sidebar{gap:12px;padding:16px 14px}
 .sidebar .brand{padding:10px 8px 16px;border-bottom:1px solid #ffffff12}
 .sidebar nav{gap:6px;overflow:auto;padding-right:4px}
 .nav-group{margin:14px 10px 4px;color:#72b9ff;text-transform:uppercase;letter-spacing:.12em;font-size:.68rem;font-weight:900}
@@ -628,6 +628,8 @@ h1,h2,h3,.primary,.secondary,.nav,.nav-sub{font-family:"IBM Plex Sans",Inter,Seg
 .sidebar .brand strong{color:#ffffff}
 .company-identity-strip{background:#ffffff0d;border-color:#ffffff16}
 .company-identity-strip strong{color:#ffffff}
+.sidebar-user-copy strong{color:#ffffff}
+.sidebar-user-copy small{color:#ffffff99}
 .company-identity-strip small{color:#8a97ac}
 #company-identity-edit{color:#8a97ac}
 #company-identity-edit:hover{color:#ffffff;background:#ffffff14}
@@ -861,19 +863,15 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 /* Sidebar user-status card + sectioned nav headers (Gestion / Parametres), styled after a mobile
    time-tracking app's slide-out menu: a compact identity card up top with quick account/logout
    pills, then the existing nav regrouped under two labeled sections instead of one flat list. */
-.sidebar-user-card{display:grid;gap:10px;padding:14px;border:1px solid var(--roster-line,#ffffff14);border-radius:var(--radius-card,14px);background:linear-gradient(180deg,#ffffff09,#ffffff03)}
-.sidebar-user-card-row{display:flex;align-items:center;gap:10px;min-width:0}
-.sidebar-user-icon{display:grid;place-items:center;flex:none;width:34px;height:34px;border-radius:999px;background:#72b9ff1c;color:var(--blue)}
-.sidebar-user-icon svg{width:18px;height:18px}
-.sidebar-user-copy{display:grid;gap:2px;min-width:0}
-.sidebar-user-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.92rem}
-.sidebar-user-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize}
-.sidebar-user-actions{display:grid;grid-template-columns:.85fr 1.15fr;gap:8px}
-.sidebar-pill{display:flex;align-items:center;justify-content:center;gap:5px;min-height:38px;padding:8px 6px;border:1px solid var(--border-soft,#ffffff18);border-radius:999px;background:#ffffff06;color:var(--text);font:inherit;font-size:.72rem;font-weight:800;cursor:pointer;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sidebar-pill:hover{background:#72b9ff14;border-color:#72b9ff40}
-.sidebar-pill .nav-icon{width:14px;height:14px;flex:none}
-.sidebar-pill-danger{border-color:#f77d7d4a;color:#ffd5d5;background:#f77d7d0d}
-.sidebar-pill-danger:hover{border-color:var(--red);background:#f77d7d1c}
+/* Replaces the old full-size identity card (icon + name + two pill buttons) that sat above the nav -
+   this is just the signed-in name/role plus a small logout icon, next to "Installer l'application" at
+   the bottom. "Mon compte" already exists as its own nav item under Paramètres, so dropping the
+   separate "Compte" pill here isn't a loss of functionality, just one fewer way to reach the same page. */
+.sidebar-user-compact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;border:1px solid var(--roster-line,#ffffff14);border-radius:10px;background:#ffffff06}
+.sidebar-user-copy{display:grid;gap:1px;min-width:0}
+.sidebar-user-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.82rem}
+.sidebar-user-copy small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-transform:capitalize;font-size:.7rem}
+#logout-button:hover{border-color:#f77d7d4a;color:#ffd5d5;background:#f77d7d0d}
 .nav-section{display:flex;flex-direction:column;gap:6px}
 .nav-section+.nav-section{margin-top:8px;padding-top:12px;border-top:1px solid var(--roster-line,#ffffff14)}
 .nav-section-head{display:flex;align-items:center;gap:8px;margin:2px 4px 2px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;font-size:.68rem;font-weight:900}

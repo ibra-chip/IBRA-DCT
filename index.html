@@ -76,16 +76,6 @@
 		<aside class="sidebar">
 			<div class="brand"><img class="brand-logo brand-mark" src="logo.svg" alt="IBRA-BA" /><strong>IBRA-BA</strong></div>
 			<section id="company-identity-strip" class="company-identity-strip" hidden aria-label="Entreprise active"><span id="company-identity-logo" class="identity-logo identity-logo--initials" aria-hidden="true">IB</span><span class="company-identity-copy"><strong id="company-identity-name">Entreprise non renseignée</strong><small id="company-identity-meta">Entreprise active</small></span><button id="company-identity-edit" class="icon-button" type="button" aria-label="Modifier l’identité de l’entreprise">✎</button></section>
-			<section class="sidebar-user-card" aria-label="Compte connecté">
-				<div class="sidebar-user-card-row">
-					<span class="sidebar-user-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg></span>
-					<span class="sidebar-user-copy"><strong id="sidebar-user-name">Non connecté</strong><small id="sidebar-user-role">—</small></span>
-				</div>
-				<div class="sidebar-user-actions">
-					<button type="button" class="nav sidebar-pill" data-view="account-settings-view" data-title="Mon compte"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>Compte</button>
-					<button type="button" id="logout-button" class="sidebar-pill sidebar-pill-danger"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>Se déconnecter</button>
-				</div>
-			</section>
 			<nav id="primary-nav" aria-label="Navigation principale">
 				<div class="nav-section">
 					<div class="nav-section-head"><span class="nav-section-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span><span>Gestion</span></div>
@@ -106,6 +96,10 @@
 					<button class="nav" data-view="account-settings-view" data-title="Mon compte"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Mon compte</span></button>
 				</div>
 			</nav>
+			<div class="sidebar-user-compact">
+				<span class="sidebar-user-copy"><strong id="sidebar-user-name">Non connecté</strong><small id="sidebar-user-role">—</small></span>
+				<button type="button" id="logout-button" class="icon-button" aria-label="Se déconnecter" title="Se déconnecter"><svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg></button>
+			</div>
 			<button id="install-app-btn" type="button" class="secondary">Installer l’application</button>
 		</aside>
 		<main>
