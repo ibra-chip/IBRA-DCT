@@ -3,7 +3,7 @@
 # the resulting binary only needs musl's libc.so, already present in the
 # runtime image, so just the binary is copied in below.
 FROM node:24-alpine AS libredwg-builder
-RUN apk add --no-cache build-base automake autoconf libtool pkgconfig git texinfo
+RUN apk add --no-cache build-base automake autoconf libtool pkgconfig git texinfo python3
 WORKDIR /build
 RUN git clone https://github.com/LibreDWG/libredwg.git
 WORKDIR /build/libredwg
