@@ -1498,6 +1498,7 @@ app.delete('/api/projects/:id', auth, manager, async (request, response) => {
 	data.controlHistory = (data.controlHistory || []).filter((item) => item.projectId !== request.params.id);
 	data.documents = (data.documents || []).filter((item) => item.projectId !== request.params.id);
 	data.purchases = (data.purchases || []).filter((item) => item.projectId !== request.params.id);
+	data.vehicleTrips = (data.vehicleTrips || []).filter((item) => item.projectId !== request.params.id);
 	data.workReports = (data.workReports || []).filter((item) => item.projectId !== request.params.id);
 	data.messages = (data.messages || []).filter((item) => item.projectId !== request.params.id);
 	data.rendezvous = (data.rendezvous || []).filter((item) => item.projectId !== request.params.id);
@@ -2377,6 +2378,68 @@ app.delete('/api/purchases/:id', auth, manager, async (request, response) => {
 	data.purchases = data.purchases.filter((item) => item.id !== purchase.id);
 	await writeData(data);
 	response.json({ deleted: true, id: purchase.id });
+});
+// Carnet de bord: vehicles are shared company-wide (not tied to one chantier - the same van visits every
+// chantier), scoped by sameCompany like the worker roster. A trip, though, must be tied to one chantier
+// (the normal canAccessProject/assertProjectAccess rule) so a worker without access to a chantier can't
+// see or log trips against it - a "trajet privé" still needs a chantier context, same as every other
+// Dépenses entry in this app.
+app.get('/api/vehicles', auth, manager, async (request, response) => {
+	const data = await readData();
+	response.json((data.vehicles || []).filter((vehicle) => { const creator = (data.users || []).find((user) => user.id === vehicle.createdBy); return creator && sameCompany(data, creator, request.userRecord); }));
+});
+app.post('/api/vehicles', auth, manager, async (request, response) => {
+	const name = String(request.body.name || '').trim();
+	if (!name) return response.status(400).json({ error: 'Vehicle name is required' });
+	const data = await readData();
+	const vehicle = { id: `vehicle-${Date.now()}`, name, plate: String(request.body.plate || '').trim(), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.vehicles = [...(data.vehicles || []), vehicle];
+	await writeData(data);
+	response.status(201).json(vehicle);
+});
+app.delete('/api/vehicles/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const vehicle = (data.vehicles || []).find((item) => item.id === request.params.id);
+	if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
+	const creator = (data.users || []).find((user) => user.id === vehicle.createdBy);
+	if (!creator || !sameCompany(data, creator, request.userRecord)) return response.status(403).json({ error: 'Access denied' });
+	data.vehicles = data.vehicles.filter((item) => item.id !== vehicle.id);
+	data.vehicleTrips = (data.vehicleTrips || []).filter((trip) => trip.vehicleId !== vehicle.id);
+	await writeData(data);
+	response.json({ deleted: true, id: vehicle.id });
+});
+app.get('/api/vehicle-trips', auth, manager, async (request, response) => {
+	const data = await readData();
+	response.json((data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
+});
+app.post('/api/vehicle-trips', auth, manager, async (request, response) => {
+	const vehicleId = String(request.body.vehicleId || '');
+	const projectId = String(request.body.projectId || '');
+	const type = String(request.body.type || 'professionnel');
+	const startKm = Number(request.body.startKm);
+	const endKm = Number(request.body.endKm);
+	if (!vehicleId || !projectId || !['professionnel', 'prive', 'domicile-travail'].includes(type) || !Number.isFinite(startKm) || !Number.isFinite(endKm) || startKm < 0 || endKm <= startKm) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
+	const data = await readData();
+	const vehicle = (data.vehicles || []).find((item) => item.id === vehicleId);
+	if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
+	let context;
+	try { assertProjectAccess(data, request.user, projectId); context = projectContextFor(data, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	// Distance is never trusted from the client - always recomputed from startKm/endKm server-side, same
+	// "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter calibration.
+	const distanceKm = Math.round((endKm - startKm) * 100) / 100;
+	const trip = { id: `trip-${Date.now()}`, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date: String(request.body.date || new Date().toISOString().slice(0, 10)), startKm, endKm, distanceKm, note: String(request.body.note || ''), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	data.vehicleTrips = [...(data.vehicleTrips || []), trip];
+	await writeData(data);
+	response.status(201).json(trip);
+});
+app.delete('/api/vehicle-trips/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const trip = (data.vehicleTrips || []).find((item) => item.id === request.params.id);
+	if (!trip) return response.status(404).json({ error: 'Vehicle trip not found' });
+	if (!canAccessProject(data, request.user, trip.projectId)) return response.status(403).json({ error: 'Access denied' });
+	data.vehicleTrips = data.vehicleTrips.filter((item) => item.id !== trip.id);
+	await writeData(data);
+	response.json({ deleted: true, id: trip.id });
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
 	const data = await readData();
