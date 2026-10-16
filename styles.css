@@ -19,6 +19,8 @@
 .document-chantier-group[open]>summary::before{transform:rotate(45deg)}
 .document-chantier-group>summary .nav-icon{width:15px;height:15px;opacity:.85}
 .document-chantier-group-body{display:grid;gap:8px}
+.chantier-quicklinks{display:flex;gap:8px;flex-wrap:wrap;padding:12px}
+.chantier-quicklinks button{display:inline-flex;align-items:center;gap:8px}
 .panel-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
 .panel-head h3{margin:0}
 .panel-toolbar{display:flex;align-items:center;gap:8px}
