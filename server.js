@@ -579,14 +579,19 @@ const allowedWorkEvidenceTypes = ['plan', 'fiche-technique', 'photo-before', 'ph
 function isDwgFile(file) {
 	return file.originalname.toLowerCase().endsWith('.dwg');
 }
+function isDxfFile(file) {
+	return file.originalname.toLowerCase().endsWith('.dxf');
+}
 function isAllowedWorkDocument(file, evidenceType) {
 	const type = String(evidenceType || '');
 	const isPdf = file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf');
 	const isImage = file.mimetype.startsWith('image/');
 	// A plan/fiche-technique is very often a photographed page (a "carnet de détail" shot on a phone,
 	// not scanned to PDF) - it needs the same PDF-or-photo tolerance as devis/facture uploads.
-	// A plan can also be a native AutoCAD .dwg - converted to .dxf server-side before storage, below.
-	if (type === 'plan') return isPdf || isImage || isDwgFile(file);
+	// A plan can also be a native AutoCAD .dwg (converted to .dxf server-side before storage, below)
+	// or already a .dxf - the exact-geometry analysis reads DXF layers either way, so there is no
+	// reason to force a DXF through a DWG round-trip just to be accepted here.
+	if (type === 'plan') return isPdf || isImage || isDwgFile(file) || isDxfFile(file);
 	if (type === 'fiche-technique') return isPdf || isImage;
 	return allowedWorkEvidenceTypes.includes(type) && isImage;
 }
@@ -2918,6 +2923,11 @@ app.post('/api/documents/upload', auth, upload.single('file'), fixUploadFilename
 		catch (conversionError) { return response.status(502).json({ error: 'DWG conversion failed: ' + conversionError.message }); }
 		storageMimeType = 'application/dxf';
 		storageName = request.file.originalname.replace(/\.dwg$/i, '.dxf');
+	} else if (isDxfFile(request.file)) {
+		// Already the format the exact-geometry tool reads - the browser's own mimetype guess for .dxf
+		// is unreliable (often empty or octet-stream), so this is set explicitly instead of trusted, same
+		// as the DWG-conversion path above always sets it rather than inferring it.
+		storageMimeType = 'application/dxf';
 	}
 	const storedName = storageKeyFor(storageName);
 	request.file.buffer = await compressUpload(request.file.buffer, storageMimeType);

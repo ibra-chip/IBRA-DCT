@@ -2126,8 +2126,11 @@ document.addEventListener('DOMContentLoaded', () => {
 		const explainable = (item) => ['plan', 'fiche-technique'].includes(item.evidenceType);
 		const isPhoto = (item) => (item.evidenceType || '').startsWith('photo-');
 		const planTypeTag = (item) => item.planType === 'existant' ? `<span class="production-method-tag plan-type-existant-tag">Plan existant</span>` : item.planType === 'nouveau' ? `<span class="production-method-tag plan-type-nouveau-tag">Plan nouveau</span>` : '';
-		// A converted DWG is stored as .dxf text - the canvas measurement tool (calibration, color scan)
-		// has no DXF renderer yet, so "Mesurer" is hidden rather than shown and failing with an error.
+		// A DXF document - whether converted from an uploaded .dwg or uploaded as .dxf directly - is stored
+		// as DXF text. The canvas measurement tool (calibration, color scan) has no DXF renderer and only
+		// understands PDF/image, so "Mesurer" is hidden for it either way; "Analyser l'ossature" (exact
+		// DXF-layer reading) is shown instead, matching the same check the server itself uses.
+		const isDxfDocument = (item) => item.convertedFromDwg || item.mimeType === 'application/dxf';
 		const dwgTag = (item) => item.convertedFromDwg ? `<span class="production-method-tag" title="Fichier DWG converti automatiquement en DXF">DWG → DXF</span>` : '';
 		// Only "Voir" and the plan-specific action (Mesurer / Analyser l'ossature) stay as direct buttons -
 		// everything else (Objasni, Renommer, Copier, Envoyer par email, Supprimer) is used far less often
@@ -2142,7 +2145,7 @@ document.addEventListener('DOMContentLoaded', () => {
 				canManage ? `<button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button>` : '',
 				canManage ? `<button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : '',
 			].filter(Boolean).join('');
-			return `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${escapeHtml(projectsCache.find((project) => project.id === item.projectId)?.name || item.projectId)}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !item.convertedFromDwg ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${canManage && item.convertedFromDwg ? `<button class="secondary dxf-analyze" data-document="${item.id}">Analyser l’ossature (DWG)</button>` : ''}${moreItems ? `<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${moreItems}</div></details>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
+			return `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${escapeHtml(projectsCache.find((project) => project.id === item.projectId)?.name || item.projectId)}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !isDxfDocument(item) ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${canManage && isDxfDocument(item) ? `<button class="secondary dxf-analyze" data-document="${item.id}">Analyser l’ossature (DXF)</button>` : ''}${moreItems ? `<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${moreItems}</div></details>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
 		};
 		const renderTypeGroups = (docs) => documentGroupOrder.map((type) => ({ type, items: docs.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length).map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('');
 		if (activeProject) {
@@ -2702,8 +2705,8 @@ document.addEventListener('DOMContentLoaded', () => {
 		planMeasureRedraw();
 		const pxPerM = planMeasureState?.calibration?.pixelsPerMeter;
 		const parts = [];
-		if (mergedV.length) parts.push(`${mergedV.length} vertical(aux) (${planMeasureDescribeLineBoxes(result.verticals, 'v', pxPerM)})`);
-		if (mergedH.length) parts.push(`${mergedH.length} horizontal(aux) (${planMeasureDescribeLineBoxes(result.horizontals, 'h', pxPerM)})`);
+		if (mergedV.length) { const spacing = planMeasureDescribeSpacing(result.verticals, 'v', pxPerM); parts.push(`${mergedV.length} vertical(aux) (${planMeasureDescribeLineBoxes(result.verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
+		if (mergedH.length) { const spacing = planMeasureDescribeSpacing(result.horizontals, 'h', pxPerM); parts.push(`${mergedH.length} horizontal(aux) (${planMeasureDescribeLineBoxes(result.horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
 		if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(result.blobs, pxPerM)})`);
 		toast(parts.length
 			? `« ${label} » : ${parts.join(' + ')} trouvé(s) de cette couleur - vérifiez avant de confirmer.`
@@ -2843,11 +2846,11 @@ document.addEventListener('DOMContentLoaded', () => {
 			? `<strong>Texte technique trouvé sur ce plan (à vérifier sur le dessin)</strong><div class="plan-measure-color-scan-list">${callouts.map((entry) => `<span class="plan-measure-color-scan-entry">${escapeHtml(entry.text)}${entry.count > 1 ? ` <small>(×${entry.count})</small>` : ''}</span>`).join('')}</div>`
 			: '';
 		const colorsHtml = results.length
-			? `<strong>Couleurs trouvées sur ce plan</strong><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
+			? `<strong>Couleurs trouvées sur ce plan</strong><small class="plan-measure-color-scan-help">Vertical(aux) = montants, horizontal(aux) = rails/traverses de cette couleur. Entraxe = distance moyenne entre deux éléments consécutifs, calculée depuis l’échelle calibrée - exacte pour ce qui est détecté, mais vérifiez sur le plan que la détection correspond bien à de vrais profils avant de l’utiliser pour commander du matériel.</small><div class="plan-measure-color-scan-list">${results.map((entry, index) => {
 				const { color, verticals, horizontals, blobs } = entry;
 				const parts = [];
-				if (verticals.length) parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)})`);
-				if (horizontals.length) parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)})`);
+				if (verticals.length) { const spacing = planMeasureDescribeSpacing(verticals, 'v', pxPerM); parts.push(`${verticals.length} vertical(aux) (${planMeasureDescribeLineBoxes(verticals, 'v', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
+				if (horizontals.length) { const spacing = planMeasureDescribeSpacing(horizontals, 'h', pxPerM); parts.push(`${horizontals.length} horizontal(aux) (${planMeasureDescribeLineBoxes(horizontals, 'h', pxPerM)}${spacing ? `, ${spacing}` : ''})`); }
 				if (blobs.length) parts.push(`${blobs.length} élément(s) compact(s) (${planMeasureDescribeBlobBoxes(blobs, pxPerM)})`);
 				return `<span class="plan-measure-color-scan-entry"><span class="plan-measure-color-swatch" style="background:rgb(${color.r},${color.g},${color.b})"></span><span>${parts.join(', ')}</span><button type="button" class="secondary" data-color-scan-choose="${index}">Choisir</button></span>`;
 			}).join('')}</div>`
@@ -2943,6 +2946,22 @@ document.addEventListener('DOMContentLoaded', () => {
 		const avgW = sizesCm.reduce((sum, s) => sum + s.w, 0) / sizesCm.length;
 		const avgH = sizesCm.reduce((sum, s) => sum + s.h, 0) / sizesCm.length;
 		return `~${avgW.toFixed(1)}×${avgH.toFixed(1)}cm`;
+	}
+	// The entraxe (centre-to-centre spacing) between consecutive detected profiles along the axis they run
+	// on - computed from the same calibrated geometry as everything else here, never guessed. Flags an
+	// uneven spread instead of quietly averaging it away, since an irregular run (e.g. one profile moved for
+	// an opening) reads very differently from a true constant entraxe and the gérant needs to know which one
+	// this is before using the number to order material or place new profiles.
+	function planMeasureDescribeSpacing(boxes, axis, pixelsPerMeter) {
+		if (boxes.length < 2 || !pixelsPerMeter) return '';
+		const centers = boxes.map((box) => (axis === 'v' ? (box.x0 + box.x1) / 2 : (box.y0 + box.y1) / 2)).sort((a, b) => a - b);
+		const gapsMm = [];
+		for (let i = 1; i < centers.length; i++) gapsMm.push(((centers[i] - centers[i - 1]) / pixelsPerMeter) * 1000);
+		const avgGapMm = gapsMm.reduce((sum, v) => sum + v, 0) / gapsMm.length;
+		const minGapMm = Math.min(...gapsMm);
+		const maxGapMm = Math.max(...gapsMm);
+		const consistent = maxGapMm - minGapMm <= avgGapMm * 0.15;
+		return consistent ? `entraxe ~${Math.round(avgGapMm)}mm` : `entraxe irrégulier ${Math.round(minGapMm)}–${Math.round(maxGapMm)}mm`;
 	}
 	async function planMeasureConfirmCandidates() {
 		const openingBoxes = (planMeasureState?.candidates || []).filter((box) => box.kind === 'opening');
@@ -3382,11 +3401,12 @@ document.addEventListener('DOMContentLoaded', () => {
 			document.querySelector('#plan-measure-status').textContent = error?.message || 'Impossible de charger le plan.';
 		}
 	}
-	// Reads real geometry (layer names, block positions) straight out of the DWG's converted .dxf -
-	// no AI, no OCR, no pixel/color guessing. Every number here is an exact DXF coordinate, same
-	// mechanism as the calibrated plan-measure tool's own "no AI" line/surface tracing, just reading
-	// CAD entities instead of clicked points. Only meaningful for a DWG-converted plan (see
-	// item.convertedFromDwg) - a scanned or drawn PDF has no DXF layers to read.
+	// Reads real geometry (layer names, block positions) straight out of the document's .dxf - converted
+	// from an uploaded .dwg, or already .dxf when uploaded directly - no AI, no OCR, no pixel/color
+	// guessing. Every number here is an exact DXF coordinate, same mechanism as the calibrated
+	// plan-measure tool's own "no AI" line/surface tracing, just reading CAD entities instead of clicked
+	// points. Only meaningful for a DXF-backed document (see isDxfDocument) - a scanned or drawn PDF has
+	// no DXF layers to read.
 	async function openDxfAnalyze(documentId) {
 		const modal = document.querySelector('#dxf-analyze-modal');
 		if (!modal) return;

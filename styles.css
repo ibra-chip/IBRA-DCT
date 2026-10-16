@@ -858,6 +858,7 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
 .plan-measure-info-box{padding:10px 12px;border:1px solid var(--roster-line);border-radius:10px;background:#ffffff05;font-size:.84rem;display:grid;gap:4px}
 .plan-measure-info-box strong{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 .plan-measure-info-box>div{display:flex;gap:8px;margin-top:4px}
+.plan-measure-color-scan-help{display:block;margin:4px 0 8px;color:var(--muted);line-height:1.4}
 .plan-measure-color-scan-list{flex-direction:column;gap:6px}
 .plan-measure-color-scan-entry{display:flex;align-items:center;gap:8px}
 .plan-measure-detail-entry{display:block}
