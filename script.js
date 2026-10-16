@@ -4159,7 +4159,15 @@ document.addEventListener('DOMContentLoaded', () => {
 			const rowsHtml = [...categories.entries()].map(([category, items]) => `<div class="budget-line-items-category"><strong>${escapeHtml(category)}</strong>${items.map((item) => `<div class="budget-line-item-row"><span>${escapeHtml(item.description)}</span><span>${Number(item.quantity || 0)} ${escapeHtml(item.unit || '')}</span><span>${formatEUR(item.unitPrice)}</span><span>${formatEUR(item.lineTotal)}</span></div>`).join('')}</div>`).join('');
 			return `<details class="budget-line-items-detail"><summary>Voir le détail du devis (${lineItems.length} stavke)</summary>${rowsHtml}</details>`;
 		};
-		target.innerHTML = rows.length ? rows.map(({ project, budget, financial, lineItems }) => `<div class="list-item"><strong>${escapeHtml(project.name)}</strong><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${renderLineItemsDetail(lineItems)}<div>${lineItems.length ? `<button class="secondary download-devis-pdf" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Télécharger le devis PDF</button>` : ''}${isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div></div>`).join('') : '<small>Nema registrovanih chantiers.</small>';
+		// Same folder-per-chantier language as Documents/Factures, so a devis/budget card reads as "this
+		// chantier's folder" too instead of a plain list - yellow accent (budget-folder) keeps it visually
+		// distinct from the neutral document/facture folders while using the identical collapsible pattern.
+		target.innerHTML = rows.length ? rows.map(({ project, budget, financial, lineItems }) => `<details class="document-chantier-group budget-folder" open><summary>${folderIcon}<span>${escapeHtml(project.name)}</span><small>${budget.status === 'missing' ? 'Aucun Devis enregistré' : `${escapeHtml(budget.devisNumber || 'Devis')} · ${escapeHtml(budget.client || 'Client')} · ${formatEUR(financial.budget)}`}</small></summary><div class="document-chantier-group-body"><div>Nabavke: ${formatEUR(financial.purchases)} · Rad: ${Number(financial.approvedWorkHours || 0).toFixed(2)} h (${formatEUR(financial.approvedWorkAmount || 0)}) · Ukupno potrošeno: ${formatEUR(financial.spent)} · Preostalo: ${financial.remaining === null ? 'N/A' : formatEUR(financial.remaining)}</div>${renderLineItemsDetail(lineItems)}<div><button class="secondary open-chantier" data-project="${project.id}" type="button">Voir ce chantier →</button>${lineItems.length ? `<button class="secondary download-devis-pdf" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Télécharger le devis PDF</button>` : ''}${isOwner() ? `<button class="secondary remove-project" data-project="${project.id}" data-name="${escapeHtml(project.name)}" type="button">Obrisi chantier</button>` : ''}</div></div></details>`).join('') : '<small>Nema registrovanih chantiers.</small>';
+		document.querySelectorAll('.open-chantier').forEach((button) => button.addEventListener('click', () => {
+			activeProjectId = button.dataset.project;
+			localStorage.setItem('ibra-active-project', activeProjectId);
+			document.querySelector('.nav-sub[data-view="chantier-view"]')?.click();
+		}));
 		document.querySelectorAll('.remove-project').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm(`Supprimer le chantier ${button.dataset.name} et les données associées ?`)) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
@@ -4192,7 +4200,17 @@ document.addEventListener('DOMContentLoaded', () => {
 		const purchases = await request('/purchases');
 		const subcontracting = purchases.filter((item) => item.category === 'subcontracting');
 		const materialToolsMachines = purchases.filter((item) => item.category !== 'subcontracting');
-		const render = (items, target, totalTarget) => { document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`; document.querySelector(`#${target}`).innerHTML = items.length ? items.map((item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small><div class="form-row"><button type="button" class="secondary danger delete-purchase" data-purchase-delete="${item.id}">Supprimer</button></div></div>`).join('') : '<small>Aucune dépense.</small>'; };
+		// Same chantier-folder language as Documents/Factures/Devis - a purchase belongs to exactly one
+		// chantier (item.projectId), so grouping by it here answers "which chantier is this expense for"
+		// at a glance instead of a flat list mixing every chantier's purchases together.
+		const renderPurchaseItem = (item) => `<div class="list-item"><strong>${item.category} · ${item.supplier}</strong><small>${item.description} · ${Number(item.amount).toFixed(2)} EUR · ${item.purchaseDate}</small><div class="form-row"><button type="button" class="secondary danger delete-purchase" data-purchase-delete="${item.id}">Supprimer</button></div></div>`;
+		const render = (items, target, totalTarget) => {
+			document.querySelector(`#${totalTarget}`).textContent = `${items.reduce((sum, item) => sum + Number(item.amount || 0), 0).toFixed(2)} EUR`;
+			const byProject = new Map();
+			items.forEach((item) => { if (!byProject.has(item.projectId)) byProject.set(item.projectId, []); byProject.get(item.projectId).push(item); });
+			const groups = [...byProject.entries()].map(([projectId, groupItems]) => ({ projectId, name: projectsCache.find((project) => project.id === projectId)?.name || projectId, items: groupItems })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
+			document.querySelector(`#${target}`).innerHTML = groups.length ? groups.map((group) => renderChantierFolder(group.name, group.items.length, group.items.map(renderPurchaseItem).join(''))).join('') : '<small>Aucune dépense.</small>';
+		};
 		render(materialToolsMachines, 'purchase-material-tools', 'purchase-total-material-tools');
 		render(subcontracting, 'purchase-subcontracting', 'purchase-total-subcontracting');
 		document.querySelectorAll('.delete-purchase').forEach((button) => button.addEventListener('click', async () => {

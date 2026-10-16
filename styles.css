@@ -18,6 +18,9 @@
 .document-chantier-group>summary::before{content:'';flex:none;width:7px;height:7px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:rotate(-45deg);transition:transform .15s ease;margin-left:1px}
 .document-chantier-group[open]>summary::before{transform:rotate(45deg)}
 .document-chantier-group>summary .nav-icon{width:15px;height:15px;opacity:.85}
+.budget-folder>summary{color:var(--yellow);flex-wrap:wrap}
+.budget-folder>summary span{color:var(--text);font-size:.92rem}
+.budget-folder>summary small{flex-basis:100%;margin-left:23px;color:var(--muted);font-size:.74rem;font-weight:500}
 .document-chantier-group-body{display:grid;gap:8px}
 .chantier-quicklinks{display:flex;gap:8px;flex-wrap:wrap;padding:12px}
 .chantier-quicklinks button{display:inline-flex;align-items:center;gap:8px}
