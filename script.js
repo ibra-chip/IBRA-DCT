@@ -559,9 +559,12 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelectorAll('select[name="projectId"]').forEach((select) => {
 			const current = select.value;
 			const isBudgetSelect = select.closest('#budget-form');
+			const isFactureSelect = select.id === 'facture-project-select';
 			const projectOptions = projects.map((project) => `<option value="${project.id}">${escapeHtml(project.name)}</option>`).join('');
-			select.innerHTML = isBudgetSelect ? `<option value="__new">+ Nouveau chantier depuis ce Devis</option>${projectOptions}` : (projectOptions || '<option value="">Creer un chantier dans Devis</option>');
-			select.value = projects.some((project) => project.id === current) ? current : (isBudgetSelect ? '__new' : (currentProjectId() || ''));
+			select.innerHTML = isBudgetSelect ? `<option value="__new">+ Nouveau chantier depuis ce Devis</option>${projectOptions}`
+				: isFactureSelect ? `<option value="">Tous les chantiers</option>${projectOptions}`
+				: (projectOptions || '<option value="">Creer un chantier dans Devis</option>');
+			select.value = projects.some((project) => project.id === current) ? current : (isBudgetSelect ? '__new' : isFactureSelect ? '' : (currentProjectId() || ''));
 			select.disabled = !isBudgetSelect && !projects.length;
 		});
 		const uploadDeleteButton = document.querySelector('#upload-form-delete-chantier');
@@ -2115,10 +2118,19 @@ document.addEventListener('DOMContentLoaded', () => {
 				canManage ? `<button class="secondary send-document-email" data-document="${item.id}" data-name="${escapeHtml(item.originalName)}">Envoyer par email</button>` : '',
 				canManage ? `<button class="secondary delete-document" data-document="${item.id}">Supprimer</button>` : '',
 			].filter(Boolean).join('');
-			return `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${item.projectId}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !item.convertedFromDwg ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${canManage && item.convertedFromDwg ? `<button class="secondary dxf-analyze" data-document="${item.id}">Analyser l’ossature (DWG)</button>` : ''}${moreItems ? `<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${moreItems}</div></details>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
+			return `<div class="list-item">${isPhoto(item) ? `<img class="document-thumb" data-thumb-doc="${item.id}" alt="" />` : ''}<strong>${item.originalName}</strong>${planTypeTag(item)}${dwgTag(item)}${item.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Un fichier identique a déjà été ajouté : ${escapeHtml(item.duplicateOfName || '')}">⚠ Doublon possible</span>` : ''}<small>${item.phase || 'general'} · ${Math.max(1, Math.round(item.size / 1024))} KB · ${escapeHtml(projectsCache.find((project) => project.id === item.projectId)?.name || item.projectId)}</small><div class="document-actions"><button class="secondary view-document" data-document="${item.id}">Voir</button>${canManage && item.evidenceType === 'plan' && !item.convertedFromDwg ? `<button class="secondary measure-plan" data-document="${item.id}">Mesurer</button>` : ''}${canManage && item.convertedFromDwg ? `<button class="secondary dxf-analyze" data-document="${item.id}">Analyser l’ossature (DWG)</button>` : ''}${moreItems ? `<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${moreItems}</div></details>` : ''}</div>${explainable(item) ? `<div class="document-explanation" data-document-explanation="${item.id}" hidden></div>` : ''}</div>`;
 		};
-		const groups = documentGroupOrder.map((type) => ({ type, items: documents.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length);
-		document.querySelector('#documents').innerHTML = groups.length ? groups.map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('') : '<small>Aucun document enregistré.</small>';
+		const renderTypeGroups = (docs) => documentGroupOrder.map((type) => ({ type, items: docs.filter((item) => (item.evidenceType || 'other') === type) })).filter((group) => group.items.length).map((group) => `<div class="document-group"><h4>${documentGroupLabels[group.type]} · ${group.items.length}</h4>${group.items.map(renderItem).join('')}</div>`).join('');
+		if (activeProject) {
+			document.querySelector('#documents').innerHTML = documents.length ? renderTypeGroups(documents) : '<small>Aucun document enregistré.</small>';
+		} else {
+			// No single chantier selected - group by chantier first so it's clear at a glance which
+			// documents belong to which chantier, instead of mixing everything under flat type headers.
+			const byProject = new Map();
+			documents.forEach((item) => { if (!byProject.has(item.projectId)) byProject.set(item.projectId, []); byProject.get(item.projectId).push(item); });
+			const chantierGroups = [...byProject.entries()].map(([projectId, items]) => ({ projectId, name: projectsCache.find((project) => project.id === projectId)?.name || projectId, items })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
+			document.querySelector('#documents').innerHTML = chantierGroups.length ? chantierGroups.map((group) => `<div class="document-chantier-group"><h3>${escapeHtml(group.name)} · ${group.items.length}</h3>${renderTypeGroups(group.items)}</div>`).join('') : '<small>Aucun document enregistré.</small>';
+		}
 		document.querySelectorAll('.rename-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); const name = window.prompt('Novo ime dokumenta:', item?.originalName || ''); if (!name?.trim()) return; button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: name.trim() }) }); await refreshActiveView(); toast('Document renommé.'); } catch { toast('Document non renommé.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.copy-document').forEach((button) => button.addEventListener('click', async () => { button.disabled = true; button.setAttribute('aria-busy', 'true'); try { await request(`/documents/${button.dataset.document}/copy`, { method: 'POST' }); await refreshActiveView(); toast('Copie du document ajoutée.'); } catch { toast('Copie non ajoutée.'); button.disabled = false; button.removeAttribute('aria-busy'); } })); document.querySelectorAll('.delete-document').forEach((button) => button.addEventListener('click', async () => { const item = documents.find((document) => document.id === button.dataset.document); if (!item || !window.confirm(`Obrisati dokument „${item.originalName}“?`)) return; const originalLabel = button.textContent; button.disabled = true; button.textContent = 'Brisanje...'; try { await request(`/documents/${button.dataset.document}`, { method: 'DELETE' }); await refreshActiveView(); toast('Dokument je obrisan.'); } catch { toast('Dokument nije obrisan.'); button.disabled = false; button.textContent = originalLabel; } })); document.querySelectorAll('.send-document-email').forEach((button) => button.addEventListener('click', () => sendDocumentByEmail(`/documents/${button.dataset.document}/download`, button.dataset.name, button))); document.querySelectorAll('.view-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/documents/${button.dataset.document}/download`, button))); document.querySelectorAll('.measure-plan').forEach((button) => button.addEventListener('click', () => openPlanMeasure(button.dataset.document)));
 		document.querySelectorAll('.dxf-analyze').forEach((button) => button.addEventListener('click', () => openDxfAnalyze(button.dataset.document)));
 			document.querySelectorAll('.document-thumb').forEach((img) => {
@@ -4715,27 +4727,38 @@ document.addEventListener('DOMContentLoaded', () => {
 		orange: { label: 'En attente', className: 'status-attention' },
 		red: { label: 'En retard', className: 'status-critical' }
 	};
+	function renderFactureItem(facture) {
+		const meta = factureStatusMeta[facture.colorStatus] || factureStatusMeta.orange;
+		// Same reasoning as the documents list: "Voir le PDF" stays a direct button (the one action
+		// taken on almost every row), the rest (Marquer payée, Envoyer un rappel, Supprimer) move into
+		// the same "⋯ Plus" <details> dropdown so a row with all four doesn't wrap to two lines.
+		const factureMore = [
+			facture.status !== 'paid' ? `<button type="button" class="secondary mark-facture-paid" data-facture-mark-paid="${facture.id}">Marquer payée</button>` : '',
+			facture.colorStatus === 'red' ? `<button type="button" class="secondary send-facture-relance" data-facture-relance="${facture.id}">Envoyer un rappel</button>` : '',
+			`<button type="button" class="secondary danger delete-facture" data-facture-delete="${facture.id}">Supprimer</button>`,
+		].filter(Boolean).join('');
+		return `<div class="list-item" data-facture="${facture.id}"><strong>${escapeHtml(facture.invoiceNumber || 'Facture')} · ${escapeHtml(facture.clientName || '')}</strong>${facture.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Doublon possible d’une facture déjà enregistrée">⚠ Doublon possible</span>` : ''}<span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><span>${formatEUR(facture.amount)} · échéance ${escapeHtml(facture.dueDate || '')}</span><div class="form-row">${facture.sourceFile ? `<button type="button" class="secondary view-facture-document" data-facture-document="${facture.id}">Voir le PDF</button>` : ''}<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${factureMore}</div></details></div></div>`;
+	}
 	async function loadFactures() {
 		const container = document.querySelector('#factures-list');
 		if (!container) return;
 		const select = document.querySelector('#facture-project-select');
-		const projectId = select?.value || currentProjectId();
-		if (!projectId) { container.innerHTML = '<small>Sélectionnez un chantier.</small>'; return; }
+		const projectId = select ? select.value : currentProjectId();
 		try {
-			const factures = await request(`/projects/${projectId}/factures`);
-			if (!factures.length) { container.innerHTML = '<small>Aucune facture.</small>'; return; }
-			container.innerHTML = factures.map((facture) => {
-				const meta = factureStatusMeta[facture.colorStatus] || factureStatusMeta.orange;
-				// Same reasoning as the documents list: "Voir le PDF" stays a direct button (the one action
-				// taken on almost every row), the rest (Marquer payée, Envoyer un rappel, Supprimer) move into
-				// the same "⋯ Plus" <details> dropdown so a row with all four doesn't wrap to two lines.
-				const factureMore = [
-					facture.status !== 'paid' ? `<button type="button" class="secondary mark-facture-paid" data-facture-mark-paid="${facture.id}">Marquer payée</button>` : '',
-					facture.colorStatus === 'red' ? `<button type="button" class="secondary send-facture-relance" data-facture-relance="${facture.id}">Envoyer un rappel</button>` : '',
-					`<button type="button" class="secondary danger delete-facture" data-facture-delete="${facture.id}">Supprimer</button>`,
-				].filter(Boolean).join('');
-				return `<div class="list-item" data-facture="${facture.id}"><strong>${escapeHtml(facture.invoiceNumber || 'Facture')} · ${escapeHtml(facture.clientName || '')}</strong>${facture.duplicateOfId ? `<span class="production-method-tag duplicate-tag" title="Doublon possible d’une facture déjà enregistrée">⚠ Doublon possible</span>` : ''}<span class="worker-status ${meta.className}"><span class="worker-status-dot" aria-hidden="true"></span>${meta.label}</span><span>${formatEUR(facture.amount)} · échéance ${escapeHtml(facture.dueDate || '')}</span><div class="form-row">${facture.sourceFile ? `<button type="button" class="secondary view-facture-document" data-facture-document="${facture.id}">Voir le PDF</button>` : ''}<details class="document-more"><summary>⋯ Plus</summary><div class="document-more-menu">${factureMore}</div></details></div></div>`;
-			}).join('');
+			if (!projectId) {
+				// "Tous les chantiers" - so it's clear at a glance which facture belongs to which
+				// chantier, instead of forcing one chantier to be picked before anything shows.
+				const projects = visibleProjects();
+				if (!projects.length) { container.innerHTML = '<small>Aucun chantier.</small>'; return; }
+				const perProject = await Promise.all(projects.map(async (project) => ({ project, factures: await request(`/projects/${project.id}/factures`).catch(() => []) })));
+				const nonEmpty = perProject.filter((entry) => entry.factures.length).sort((first, second) => first.project.name.localeCompare(second.project.name, 'fr', { sensitivity: 'base' }));
+				if (!nonEmpty.length) { container.innerHTML = '<small>Aucune facture.</small>'; return; }
+				container.innerHTML = nonEmpty.map((entry) => `<div class="document-chantier-group"><h3>${escapeHtml(entry.project.name)} · ${entry.factures.length}</h3>${entry.factures.map(renderFactureItem).join('')}</div>`).join('');
+			} else {
+				const factures = await request(`/projects/${projectId}/factures`);
+				if (!factures.length) { container.innerHTML = '<small>Aucune facture.</small>'; return; }
+				container.innerHTML = factures.map(renderFactureItem).join('');
+			}
 			container.querySelectorAll('.view-facture-document').forEach((button) => button.addEventListener('click', () => viewDocument(`/factures/${button.dataset.factureDocument}/document`, button)));
 			container.querySelectorAll('.mark-facture-paid').forEach((button) => button.addEventListener('click', async () => {
 				button.disabled = true; button.setAttribute('aria-busy', 'true');
