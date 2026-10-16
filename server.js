@@ -20,7 +20,7 @@ import { cleanSiret, companyKeyForUser, isAllowedIdentityAsset, normalizeProject
 import { UPLOADS_BUCKET, IDENTITY_BUCKET, ensureBuckets, uploadFile, downloadFile, deleteFile, publicUrl, poolAsset, getDownloadUrl } from './lib/storage.js';
 import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { convertDwgToDxf } from './lib/dwg-convert.js';
-import { parseDxfEntities, extractInserts, summarizeLayers, axisSpacing, rowSpacing } from './lib/dxf-parse.js';
+import { parseDxfEntities, extractInserts, extractTextEntities, summarizeLayers, axisSpacing, rowSpacing } from './lib/dxf-parse.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
@@ -3157,7 +3157,12 @@ app.get('/api/documents/:id/dxf-layers', auth, async (request, response) => {
 	try {
 		const buffer = await downloadFile(UPLOADS_BUCKET, item.storedName);
 		const entities = parseDxfEntities(buffer.toString('utf8'));
-		response.json({ layers: summarizeLayers(entities) });
+		// Dimension labels and spec notes the drafter actually printed (TEXT/MTEXT entities), run through
+		// the exact same callout detector already used for a PDF's text layer - same honesty: an index of
+		// what the drawing itself says to cross-check against it, not a value computed or interpreted here.
+		const textLines = extractTextEntities(entities).map((item) => item.text).join('\n');
+		const { callouts } = extractPlanTextCallouts(textLines);
+		response.json({ layers: summarizeLayers(entities), textCallouts: callouts });
 	} catch (error) {
 		response.status(502).json({ error: 'DXF read failed: ' + error.message });
 	}

@@ -107,6 +107,7 @@ const sampleDxf = Buffer.from([
 	'0', 'INSERT', '8', 'OSSATURE', '10', '100.0', '20', '200.0',
 	'0', 'INSERT', '8', 'OSSATURE', '10', '160.0', '20', '200.0',
 	'0', 'INSERT', '8', 'OSSATURE', '10', '220.0', '20', '200.0',
+	'0', 'TEXT', '8', 'COTES', '1', 'Entraxe montants 400mm',
 	'0', 'ENDSEC',
 ].join('\n'));
 
@@ -122,9 +123,19 @@ test('the exact-geometry layer reader works on a native .dxf, not only on a DWG-
 	assert.equal(upload.status, 201);
 	const layers = await get(`/api/documents/${upload.body.id}/dxf-layers`, token());
 	assert.equal(layers.status, 200);
-	assert.equal(layers.body.layers.length, 1, 'the one OSSATURE layer in the sample file must be found');
-	assert.equal(layers.body.layers[0].layer, 'OSSATURE');
-	assert.equal(layers.body.layers[0].byType.INSERT, 3, 'all three INSERT block placements on that layer must be counted');
+	const ossature = layers.body.layers.find((entry) => entry.layer === 'OSSATURE');
+	assert.ok(ossature, 'the OSSATURE layer in the sample file must be found');
+	assert.equal(ossature.byType.INSERT, 3, 'all three INSERT block placements on that layer must be counted');
+});
+
+test('dxf-layers also surfaces TEXT entities printed on the drawing as technical callouts', async () => {
+	const upload = await postMultipart('/api/documents/upload', token(), { projectId: 'proj-1', evidenceType: 'plan' }, { field: 'file', filename: 'ossature-3.dxf', contentType: 'application/octet-stream', buffer: sampleDxf });
+	assert.equal(upload.status, 201);
+	const layers = await get(`/api/documents/${upload.body.id}/dxf-layers`, token());
+	assert.equal(layers.status, 200);
+	assert.ok(Array.isArray(layers.body.textCallouts), 'textCallouts must be present even when empty');
+	assert.equal(layers.body.textCallouts.length, 1, 'the one printed TEXT entity with a dimension unit must be picked up');
+	assert.equal(layers.body.textCallouts[0].text, 'Entraxe montants 400mm', 'the callout must be reported exactly as printed on the drawing, never reworded');
 });
 
 test('/api/documents/upload still rejects a .dxf for an evidenceType that only takes PDF/photo (fiche-technique)', async () => {

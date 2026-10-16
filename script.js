@@ -3438,6 +3438,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		try {
 			const result = await request(`/documents/${documentId}/dxf-layers`);
 			dxfAnalyzeState.layers = result.layers || [];
+			const textCalloutsEl = document.querySelector('#dxf-analyze-text-callouts');
+			if (textCalloutsEl) {
+				const callouts = result.textCallouts || [];
+				textCalloutsEl.hidden = callouts.length === 0;
+				textCalloutsEl.innerHTML = callouts.length
+					? `<strong>Texte technique trouvé sur ce plan (à vérifier sur le dessin)</strong><div class="plan-measure-color-scan-list">${callouts.map((entry) => `<span class="plan-measure-color-scan-entry">${escapeHtml(entry.text)}${entry.count > 1 ? ` <small>(×${entry.count})</small>` : ''}</span>`).join('')}</div>`
+					: '';
+			}
 			if (!dxfAnalyzeState.layers.length) {
 				if (statusEl) statusEl.textContent = 'Aucun calque trouvé (le plan a-t-il bien été converti depuis un DWG ?).';
 				return;
