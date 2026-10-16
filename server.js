@@ -24,6 +24,7 @@ import { parseDxfEntities, extractInserts, extractTextEntities, summarizeLayers,
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
+import { estimateRoadDistanceKm } from './lib/distance.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
@@ -2440,6 +2441,33 @@ app.delete('/api/vehicle-trips/:id', auth, manager, async (request, response) =>
 	data.vehicleTrips = data.vehicleTrips.filter((item) => item.id !== trip.id);
 	await writeData(data);
 	response.json({ deleted: true, id: trip.id });
+});
+// A trajet's recorded distanceKm always comes from the real startKm/endKm the worker reads off the
+// vehicle - this endpoint only ever offers a road-routing ESTIMATE (company address -> chantier
+// address, both already known: companyAddress from the SIRET lookup at registration, project.location
+// from the chantier itself) as a sanity-check hint in the form, never as the saved value. Both
+// addresses are geocoded once and cached (same pattern as the weather forecast's project.weatherLat/
+// weatherLon) so repeat requests for the same chantier/company don't re-hit the geocoder.
+app.get('/api/vehicle-trips/estimate-distance', auth, manager, async (request, response) => {
+	const projectId = String(request.query.projectId || '');
+	const data = await readData();
+	try { assertProjectAccess(data, request.user, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
+	const project = (data.projects || []).find((item) => item.id === projectId);
+	if (!project) return response.status(404).json({ error: 'Chantier not found' });
+	const owner = companyOwnerForUser(data, request.userRecord) || request.userRecord;
+	let changed = false;
+	if (project.weatherLat == null || project.weatherLon == null) {
+		const geocoded = await geocodeLocation(project.location || project.name).catch(() => null);
+		if (geocoded) { project.weatherLat = geocoded.lat; project.weatherLon = geocoded.lon; project.weatherLabel = geocoded.label; changed = true; }
+	}
+	if (owner.companyAddress && (owner.companyAddressLat == null || owner.companyAddressLon == null)) {
+		const geocoded = await geocodeLocation(owner.companyAddress).catch(() => null);
+		if (geocoded) { owner.companyAddressLat = geocoded.lat; owner.companyAddressLon = geocoded.lon; changed = true; }
+	}
+	if (changed) await writeData(data);
+	if (project.weatherLat == null || owner.companyAddressLat == null) return response.json({ available: false });
+	const estimatedKm = await estimateRoadDistanceKm({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
+	response.json(estimatedKm == null ? { available: false } : { available: true, estimatedKm });
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
 	const data = await readData();

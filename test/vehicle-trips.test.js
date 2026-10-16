@@ -107,6 +107,19 @@ test('owner B never sees owner A\'s trip in the list, and cannot delete it', asy
 	assert.equal(del.status, 403);
 });
 
+test('the route-distance estimate is a convenience only: it degrades to unavailable, never an error, when the company has no registered address to geocode', async () => {
+	// owner-a's seed record has no companyAddress - the estimate must never block or crash the trip
+	// form over a missing/ungeocodable address, it just reports nothing to show.
+	const response = await get('/api/vehicle-trips/estimate-distance?projectId=proj-a', tokenFor('owner-a', 'gerant'));
+	assert.equal(response.status, 200);
+	assert.equal(response.body.available, false);
+});
+
+test('owner B cannot request a distance estimate for owner A\'s chantier', async () => {
+	const response = await get('/api/vehicle-trips/estimate-distance?projectId=proj-a', tokenFor('owner-b', 'gerant'));
+	assert.equal(response.status, 403);
+});
+
 test('deleting a vehicle cascades to remove its trips too', async () => {
 	const before = await get('/api/vehicle-trips', tokenFor('owner-a', 'gerant'));
 	assert.ok(before.body.length > 0);

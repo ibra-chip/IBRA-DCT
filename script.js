@@ -5072,6 +5072,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#trip-form [name="startKm"]')?.addEventListener('input', recalcTripDistance);
 		document.querySelector('#trip-form [name="endKm"]')?.addEventListener('input', recalcTripDistance);
 	}
+	// Convenience only: a one-way road-route estimate between the company's registered address and the
+	// chosen chantier, to sanity-check against - never written into startKm/endKm, which always stay the
+	// worker's own real odometer reading. Degrades silently (empty hint) if either address can't be
+	// geocoded or the routing service is unreachable - this must never block logging a trip.
+	document.querySelector('#trip-form [name="projectId"]')?.addEventListener('change', async (event) => {
+		const estimateEl = document.querySelector('#trip-route-estimate');
+		const projectId = event.currentTarget.value;
+		if (!estimateEl) return;
+		if (!projectId) { estimateEl.textContent = ''; return; }
+		estimateEl.textContent = 'Estimation de la distance...';
+		try {
+			const result = await request(`/vehicle-trips/estimate-distance?projectId=${encodeURIComponent(projectId)}`);
+			estimateEl.textContent = result.available ? `Estimation route (aller simple) : ~${result.estimatedKm} km - à vérifier avec le compteur, pas la valeur enregistrée.` : '';
+		} catch { estimateEl.textContent = ''; }
+	});
 	document.querySelector('#trip-form')?.addEventListener('submit', async (event) => {
 		event.preventDefault();
 		const form = event.currentTarget;
