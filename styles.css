@@ -956,3 +956,20 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
    between the now-always-visible sibling panels; .schedule-panel and .audit-history already had their
    own margin-top:18px from before, this just covers the other panels in the stack too. */
 #chantier-view .panel+.panel{margin-top:18px}
+.trip-route-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.trip-route-options button{font-size:.8rem;padding:8px 12px}
+.bank-upload-label{display:inline-flex;align-items:center;cursor:pointer;margin:0}
+.bank-transaction-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #ffffff10}
+.bank-transaction-row:last-child{border-bottom:0}
+.bank-transaction-row .bank-tx-desc{flex:1 1 220px;min-width:0}
+.bank-transaction-row select{width:auto;min-width:140px}
+.bank-tx-amount{font-weight:700;white-space:nowrap}
+.bank-tx-amount.positive{color:var(--green)}
+.bank-group-tabs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}
+.bank-group-tab,.bank-category-tab{font-size:.82rem;padding:9px 14px}
+.bank-group-tab.active,.bank-category-tab.active{background:var(--blue);color:#061522;border-color:var(--blue)}
+.bank-transaction-list{display:grid;gap:4px}
+.bank-match-note{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:-2px 0 8px;padding:8px 10px;border-radius:8px;background:#f77d7d1c;border:1px solid #f77d7d44;font-size:.82rem;color:var(--red)}
+.bank-match-note.bank-match-confirmed{background:#31d3a41c;border-color:#31d3a433;color:var(--green)}
+.bank-match-note button{font-size:.78rem;padding:5px 10px}
+.link-button{background:none;border:0;padding:0;color:var(--blue);text-decoration:underline;cursor:pointer;font:inherit}

@@ -25,7 +25,8 @@ import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import ExcelJS from 'exceljs';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
-import { estimateRoadDistanceKm } from './lib/distance.js';
+import { estimateRoadRoutes } from './lib/distance.js';
+import { parseBankStatementText, parseBankStatementSummary } from './lib/bank-statement-parse.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
@@ -832,7 +833,7 @@ async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, b
 	leftY -= 22;
 	page.drawText(`Généré le ${generatedAt}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
 	y = Math.min(leftY, brandY) - 18;
-	const columns = [{ label: 'Date', x: marginX }, { label: 'Véhicule', x: marginX + 55 }, { label: 'Type', x: marginX + 185 }, { label: 'Km', x: marginX + 290 }, { label: 'Coût', x: rightEdge - 55 }];
+	const columns = [{ label: 'Date', x: marginX }, { label: 'Description', x: marginX + 55 }, { label: 'Type', x: marginX + 185 }, { label: 'Déplacement (km)', x: marginX + 290 }, { label: 'Indemnité', x: rightEdge - 55 }];
 	const drawColumnHeader = () => {
 		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
 		y -= 6;
@@ -856,7 +857,7 @@ async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, b
 			page.drawText(trip.date || '', { x: columns[0].x, y, size: 9, font });
 			page.drawText(truncate(trip.vehicleName, 24), { x: columns[1].x, y, size: 9, font });
 			page.drawText(tripTypeLabelsFr[trip.type] || trip.type, { x: columns[2].x, y, size: 9, font });
-			page.drawText(`${Number(trip.distanceKm || 0).toFixed(1)} km`, { x: columns[3].x, y, size: 9, font });
+			page.drawText(trip.distanceKm != null ? `${Number(trip.distanceKm).toFixed(1)} km` : 'Billet', { x: columns[3].x, y, size: 9, font });
 			page.drawText(trip.costEur != null ? `${Number(trip.costEur).toFixed(2)} €` : '-', { x: columns[4].x, y, size: 9, font });
 			y -= 15;
 		}
@@ -887,13 +888,13 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	sheet.columns = [
 		{ header: 'Chantier', key: 'project', width: 30 },
 		{ header: 'Date', key: 'date', width: 12 },
-		{ header: 'Véhicule', key: 'vehicle', width: 22 },
+		{ header: 'Description', key: 'vehicle', width: 22 },
 		{ header: 'Type', key: 'type', width: 18 },
 		{ header: 'Compteur départ', key: 'startKm', width: 16 },
 		{ header: 'Compteur arrivée', key: 'endKm', width: 16 },
-		{ header: 'Distance (km)', key: 'distanceKm', width: 14 },
+		{ header: 'Déplacement (km)', key: 'distanceKm', width: 16 },
 		{ header: 'Tarif (€/km)', key: 'ratePerKm', width: 13 },
-		{ header: 'Coût (€)', key: 'costEur', width: 12 },
+		{ header: 'Indemnité (€)', key: 'costEur', width: 13 },
 		{ header: 'Note', key: 'note', width: 30 },
 	];
 	sheet.getRow(1).font = { bold: true };
@@ -902,7 +903,7 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	for (const trip of sorted) {
 		totalKm += Number(trip.distanceKm || 0);
 		totalCost += Number(trip.costEur || 0);
-		sheet.addRow({ project: trip.projectName, date: trip.date, vehicle: trip.vehicleName, type: tripTypeLabelsFr[trip.type] || trip.type, startKm: trip.startKm, endKm: trip.endKm, distanceKm: Number(trip.distanceKm || 0), ratePerKm: trip.ratePerKm ?? '', costEur: trip.costEur ?? '', note: trip.note || '' });
+		sheet.addRow({ project: trip.projectName, date: trip.date, vehicle: trip.vehicleName, type: tripTypeLabelsFr[trip.type] || trip.type, startKm: trip.startKm ?? '', endKm: trip.endKm ?? '', distanceKm: trip.distanceKm != null ? Number(trip.distanceKm) : '', ratePerKm: trip.ratePerKm ?? '', costEur: trip.costEur ?? '', note: trip.note || '' });
 	}
 	const totalRow = sheet.addRow({ project: 'TOTAL', distanceKm: totalKm, costEur: totalCost });
 	totalRow.font = { bold: true };
@@ -916,6 +917,32 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	}
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+// One flat, sortable sheet (person and catégorie as their own columns) rather than mirroring the
+// review page's nested folders - an accountant importing this is far better served by columns to
+// re-sort/filter/pivot than by a layout that only makes sense read top-to-bottom on screen.
+async function buildBankStatementExcel(statement, transactions) {
+	const workbook = new ExcelJS.Workbook();
+	const sheet = workbook.addWorksheet('Compte société');
+	// Column WIDTHS only here - never `header`/`key` once the sheet already has rows added via
+	// addRow(array): ExcelJS's `.columns` setter is meant for an empty sheet and will insert its own
+	// header row wherever it likes, silently scrambling rows already added (caught by actually opening
+	// the generated file in the test below - the title row was disappearing and the header moved to
+	// row 1 - not by reading this code, which looked fine).
+	sheet.columns = [{ width: 14 }, { width: 24 }, { width: 16 }, { width: 22 }, { width: 18 }, { width: 34 }, { width: 13 }];
+	sheet.addRow([`Relevé N° ${statement.statementNumber || '?'} au ${statement.periodEndDate || ''}`]).font = { bold: true };
+	sheet.addRow([`Solde : ${statement.openingBalance ?? '?'} € (${statement.openingDate || '?'}) → ${statement.closingBalance ?? '?'} € (${statement.closingDate || '?'})`]);
+	sheet.addRow([]);
+	sheet.addRow(['Date opération', 'Personne / Partie', 'Type', 'Catégorie', 'Rôle', 'Description', 'Montant (€)']).font = { bold: true };
+	const sorted = [...transactions].sort((first, second) => (first.person || first.party || '').localeCompare(second.person || second.party || '', 'fr', { sensitivity: 'base' }) || first.operationDate.localeCompare(second.operationDate));
+	let total = 0;
+	for (const tx of sorted) {
+		total += Number(tx.amount || 0);
+		sheet.addRow([tx.operationDate, tx.person || tx.party || tx.note || '', bankTypeGroupLabelsFr[tx.type] || tx.type, tx.category || '', tx.partyRole ? BANK_PARTY_ROLES[tx.partyRole] || tx.partyRole : '', tx.merchant || tx.description || '', Number(tx.amount || 0)]);
+	}
+	sheet.addRow(['', 'TOTAL', '', '', '', '', Math.round(total * 100) / 100]).font = { bold: true };
+	return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+const bankTypeGroupLabelsFr = { carte: 'Carte', retrait: 'Retrait', virement_recu: 'Virement reçu', virement_envoye: 'Virement envoyé', prelevement: 'Prélèvement', frais: 'Frais', autre: 'Autre' };
 // A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
 // or line), with its unit value, repeat count and effective total, followed by the same brut/net/openings
 // totals the plan-measure UI shows - so what's on the PDF handed to a client, architect, or prime
@@ -2608,26 +2635,44 @@ app.get('/api/vehicle-trips/export.xlsx', auth, manager, async (request, respons
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx"`);
 	response.send(excel);
 });
+const TICKET_MODES = { train: 'Train', autobus: 'Autobus' };
 app.post('/api/vehicle-trips', auth, manager, async (request, response) => {
-	const vehicleId = String(request.body.vehicleId || '');
+	const mode = TICKET_MODES[request.body.mode] ? request.body.mode : 'voiture';
 	const projectId = String(request.body.projectId || '');
 	const type = String(request.body.type || 'professionnel');
-	const startKm = Number(request.body.startKm);
-	const endKm = Number(request.body.endKm);
-	if (!vehicleId || !projectId || !['professionnel', 'prive', 'domicile-travail'].includes(type) || !Number.isFinite(startKm) || !Number.isFinite(endKm) || startKm < 0 || endKm <= startKm) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
+	if (!projectId || !['professionnel', 'prive', 'domicile-travail'].includes(type)) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
 	const data = await readData();
-	const vehicle = (data.vehicles || []).find((item) => item.id === vehicleId);
-	if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
 	let context;
 	try { assertProjectAccess(data, request.user, projectId); context = projectContextFor(data, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	// Distance is never trusted from the client - always recomputed from startKm/endKm server-side, same
-	// "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter calibration.
-	const distanceKm = Math.round((endKm - startKm) * 100) / 100;
-	// costEur is a snapshot: computed once here from the vehicle's ratePerKm at this moment, then never
-	// recomputed - a later change to the vehicle's rate must not silently reprice trips already logged.
-	const ratePerKm = vehicle.ratePerKm || null;
-	const costEur = ratePerKm ? Math.round(distanceKm * ratePerKm * 100) / 100 : null;
-	const trip = { id: `trip-${Date.now()}`, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date: String(request.body.date || new Date().toISOString().slice(0, 10)), startKm, endKm, distanceKm, ratePerKm, costEur, note: String(request.body.note || ''), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const date = String(request.body.date || new Date().toISOString().slice(0, 10));
+	const note = String(request.body.note || '');
+	let trip;
+	// A train/autobus leg has no odometer and no per-km rate - it's a flat ticket price the worker
+	// types in directly (from the ticket itself), same honesty principle as a vehicle trip: the figure
+	// recorded is exactly what the person read off a real document, never an inferred number.
+	if (mode !== 'voiture') {
+		const amount = Number(request.body.amount);
+		if (!Number.isFinite(amount) || amount <= 0) return response.status(400).json({ error: 'Ticket amount must be a positive number' });
+		const costEur = Math.round(amount * 100) / 100;
+		trip = { id: `trip-${Date.now()}`, mode, vehicleId: null, vehicleName: TICKET_MODES[mode], projectId, projectName: context.projectName, type, date, startKm: null, endKm: null, distanceKm: null, ratePerKm: null, costEur, note, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	} else {
+		const vehicleId = String(request.body.vehicleId || '');
+		const startKm = Number(request.body.startKm);
+		const endKm = Number(request.body.endKm);
+		if (!vehicleId || !Number.isFinite(startKm) || !Number.isFinite(endKm) || startKm < 0 || endKm <= startKm) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
+		const vehicle = (data.vehicles || []).find((item) => item.id === vehicleId);
+		if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
+		// Distance is never trusted from the client - always recomputed from startKm/endKm server-side,
+		// same "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter
+		// calibration.
+		const distanceKm = Math.round((endKm - startKm) * 100) / 100;
+		// costEur is a snapshot: computed once here from the vehicle's ratePerKm at this moment, then
+		// never recomputed - a later change to the vehicle's rate must not silently reprice trips
+		// already logged.
+		const ratePerKm = vehicle.ratePerKm || null;
+		const costEur = ratePerKm ? Math.round(distanceKm * ratePerKm * 100) / 100 : null;
+		trip = { id: `trip-${Date.now()}`, mode, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date, startKm, endKm, distanceKm, ratePerKm, costEur, note, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	}
 	data.vehicleTrips = [...(data.vehicleTrips || []), trip];
 	await writeData(data);
 	response.status(201).json(trip);
@@ -2665,8 +2710,175 @@ app.get('/api/vehicle-trips/estimate-distance', auth, manager, async (request, r
 	}
 	if (changed) await writeData(data);
 	if (project.weatherLat == null || owner.companyAddressLat == null) return response.json({ available: false });
-	const estimatedKm = await estimateRoadDistanceKm({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
-	response.json(estimatedKm == null ? { available: false } : { available: true, estimatedKm });
+	const routes = await estimateRoadRoutes({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
+	response.json(!routes?.length ? { available: false } : { available: true, estimatedKm: routes[0].distanceKm, routes });
+});
+// Compte société: a bank statement PDF parsed into one row per operation (lib/bank-statement-parse.js -
+// pure text parsing, no AI, verified against a real statement's own printed totals). Everything here
+// is scoped to the company owner's id (same "one shared ledger per company" model as vehicles/data
+// below), not to the uploading user, so every associé on the account sees the same statements.
+const BANK_PARTY_ROLES = { associe: 'Associé', salarie: 'Salarié', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / professionnel', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+const normalizePartyName = (name) => String(name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+const bankOwnerIdFor = (data, userRecord) => companyOwnerForUser(data, userRecord)?.id || userRecord.id;
+// Suggests, never decides: a "carte" operation and an already-photographed Dépenses receipt are
+// offered as the same real purchase only on an EXACT amount match (a receipt's total is printed, not
+// estimated - any tolerance here could silently pair two different purchases that happen to cost the
+// same) within a tight ±5 day window (a bank posts a few days after the receipt date, never weeks).
+// Still only ever a suggestion: confirm-match requires an explicit click, and a purchase already
+// linked to one transaction is never offered to a second one.
+const MATCH_WINDOW_DAYS = 5;
+const parseOperationDate = (ddmmyyyy) => { const m = String(ddmmyyyy || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) : null; };
+const findSuggestedPurchaseMatch = (data, request, tx) => {
+	if (tx.type !== 'carte' || tx.matchedPurchaseId) return null;
+	const opDate = parseOperationDate(tx.operationDate);
+	if (!opDate) return null;
+	let best = null; let bestDiffDays = Infinity;
+	for (const purchase of data.purchases || []) {
+		if (purchase.matchedBankTransactionId) continue;
+		if (Math.abs(Number(purchase.amount || 0) - Math.abs(tx.amount)) > 0.005) continue;
+		const purchaseDate = purchase.purchaseDate ? new Date(`${purchase.purchaseDate}T00:00:00Z`) : null;
+		if (!purchaseDate) continue;
+		const diffDays = Math.abs((purchaseDate - opDate) / 86400000);
+		if (diffDays > MATCH_WINDOW_DAYS) continue;
+		if (!canAccessProject(data, request.user, purchase.projectId)) continue;
+		if (diffDays < bestDiffDays) { best = purchase; bestDiffDays = diffDays; }
+	}
+	return best ? { id: best.id, supplier: best.supplier, description: best.description, amount: best.amount, purchaseDate: best.purchaseDate, projectName: best.projectName } : null;
+};
+app.post('/api/bank-statements', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const file = request.file;
+	const isPdfFile = file && (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf'));
+	if (!file || !isPdfFile) return response.status(400).json({ error: 'Un relevé bancaire au format PDF est requis' });
+	let text = '';
+	try { text = (await parsePdf(file.buffer)).text; } catch (error) { return response.status(422).json({ error: `PDF illisible : ${error.message}` }); }
+	const summary = parseBankStatementSummary(text);
+	const parsed = parseBankStatementText(text);
+	if (!parsed.length) return response.status(422).json({ error: "Aucune opération reconnue dans ce PDF - le format de cette banque n'est peut-être pas encore pris en charge." });
+	// The original PDF is kept, not just the parsed figures read from it - so a disputed line or an
+	// accountant's later question can always be checked against the actual document the bank issued,
+	// same "keep the source, not just what we read from it" principle as every other upload in this app.
+	const statementId = `stmt-${Date.now()}`;
+	const storedName = storageKeyFor(file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, file.buffer, 'application/pdf'); } catch (uploadError) { return response.status(502).json({ error: 'Échec de la sauvegarde du PDF : ' + uploadError.message }); }
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const knownParties = (data.bankParties || {})[ownerId] || {};
+	const now = new Date().toISOString();
+	const statement = { id: statementId, ...summary, fileName: file.originalname, storedName, ownerId, createdBy: request.user.sub, createdAt: now };
+	const transactions = parsed.map((item, index) => {
+		const partyKey = normalizePartyName(item.person || item.party);
+		return { id: `btx-${Date.now()}-${index}`, statementId, ownerId, ...item, partyRole: knownParties[partyKey]?.role || null, confirmed: false, createdBy: request.user.sub, createdAt: now };
+	});
+	data.bankStatements = [...(data.bankStatements || []), statement];
+	data.bankTransactions = [...(data.bankTransactions || []), ...transactions];
+	await writeData(data);
+	response.status(201).json({ statement, transactions });
+});
+app.get('/api/bank-statements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	response.json((data.bankStatements || []).filter((item) => item.ownerId === ownerId).sort((first, second) => (second.periodEndDate || '').localeCompare(first.periodEndDate || '')));
+});
+app.get('/api/bank-statements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id).map((tx) => ({ ...tx, suggestedMatch: findSuggestedPurchaseMatch(data, request, tx) }));
+	response.json({ statement, transactions });
+});
+// Confirming a suggested match links both records to each other - never just one side - so a
+// Dépenses page built from `purchases` can also tell this receipt is already reconciled against the
+// relevé, and so neither record can be offered as a match to a THIRD transaction/purchase by mistake.
+app.post('/api/bank-transactions/:id/confirm-match', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	const purchase = (data.purchases || []).find((item) => item.id === String(request.body.purchaseId || ''));
+	if (!purchase || !canAccessProject(data, request.user, purchase.projectId)) return response.status(404).json({ error: 'Purchase not found' });
+	if (transaction.matchedPurchaseId) return response.status(409).json({ error: 'Transaction already matched' });
+	if (purchase.matchedBankTransactionId) return response.status(409).json({ error: 'Purchase already matched' });
+	transaction.matchedPurchaseId = purchase.id;
+	purchase.matchedBankTransactionId = transaction.id;
+	await writeData(data);
+	response.json({ transaction, purchase });
+});
+// Always reversible - a wrong confirm-match should never be a one-way door for real money records.
+app.post('/api/bank-transactions/:id/unmatch', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	const purchase = (data.purchases || []).find((item) => item.id === transaction.matchedPurchaseId);
+	if (purchase) purchase.matchedBankTransactionId = null;
+	transaction.matchedPurchaseId = null;
+	await writeData(data);
+	response.json({ transaction });
+});
+// The original PDF the gérant uploaded - same resolve-a-signed-url-else-stream-the-bytes pattern as
+// /api/documents/:id/download, so the browser's download button works the same way everywhere.
+app.get('/api/bank-statements/:id/download', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, statement.storedName, 300, statement.fileName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, statement.storedName);
+		response.setHeader('Content-Type', 'application/pdf');
+		response.setHeader('Content-Disposition', `attachment; filename="${statement.fileName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) { response.status(502).json({ error: 'Relevé download failed: ' + error.message }); }
+});
+app.get('/api/bank-statements/:id/export.xlsx', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id);
+	const excel = await buildBankStatementExcel(statement, transactions);
+	response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+	response.setHeader('Content-Disposition', `attachment; filename="ibra-compte-societe-${(statement.periodEndDate || '').replace(/\//g, '-')}.xlsx"`);
+	response.send(excel);
+});
+app.delete('/api/bank-statements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	if (statement.storedName) { try { await deleteFile(UPLOADS_BUCKET, statement.storedName); } catch { /* best-effort - the record is removed either way */ } }
+	data.bankStatements = data.bankStatements.filter((item) => item.id !== statement.id);
+	data.bankTransactions = (data.bankTransactions || []).filter((item) => item.statementId !== statement.id);
+	await writeData(data);
+	response.json({ deleted: true, id: statement.id });
+});
+app.patch('/api/bank-transactions/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	if (request.body.category !== undefined) transaction.category = String(request.body.category || '').trim() || transaction.category;
+	if (request.body.note !== undefined) transaction.note = String(request.body.note || '');
+	if (request.body.confirmed !== undefined) transaction.confirmed = Boolean(request.body.confirmed);
+	// Setting a party's role here is remembered company-wide (data.bankParties), so the NEXT uploaded
+	// statement already shows "Sous-traitant" etc. for that same name instead of asking again -
+	// without this, every monthly statement would need every party re-tagged from scratch.
+	if (request.body.partyRole !== undefined) {
+		const role = String(request.body.partyRole || '');
+		if (role && !BANK_PARTY_ROLES[role]) return response.status(400).json({ error: 'Invalid party role' });
+		transaction.partyRole = role || null;
+		const partyKey = normalizePartyName(transaction.person || transaction.party);
+		if (partyKey && role) {
+			data.bankParties = data.bankParties || {};
+			data.bankParties[ownerId] = data.bankParties[ownerId] || {};
+			data.bankParties[ownerId][partyKey] = { role, label: transaction.person || transaction.party };
+		}
+	}
+	await writeData(data);
+	response.json(transaction);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
 	const data = await readData();

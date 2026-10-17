@@ -478,9 +478,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
 			worker: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view'],
 			user: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view']
 		};
@@ -4286,7 +4286,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const trips = await request('/vehicle-trips');
 		// Same chantier-folder grouping as Documents/Factures/Dépenses - a trip belongs to exactly one
 		// chantier, so grouping by it keeps trips from different chantiers from piling into one flat list.
-		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})${trip.costEur != null ? ` · ${Number(trip.costEur).toFixed(2)} €` : ''}${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
+		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${trip.mode && trip.mode !== 'voiture' ? 'Billet' : `${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})`}${trip.costEur != null ? ` · ${Number(trip.costEur).toFixed(2)} €` : ''}${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
 		const byProject = new Map();
 		trips.forEach((trip) => { if (!byProject.has(trip.projectId)) byProject.set(trip.projectId, []); byProject.get(trip.projectId).push(trip); });
 		const groups = [...byProject.entries()].map(([projectId, items]) => ({ projectId, name: projectsCache.find((project) => project.id === projectId)?.name || items[0]?.projectName || projectId, items })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
@@ -4377,6 +4377,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'devis-view': () => Promise.allSettled([loadBudget(), loadFinancialSummary()]),
 			'purchases-view': () => Promise.allSettled([loadPurchases(), loadBudget(), loadFinancialSummary()]),
 			'vehicles-view': () => Promise.allSettled([loadVehicles(), loadTrips()]),
+			'bank-view': () => loadBankStatements(),
 			'line-items-view': () => Promise.allSettled([loadProjectOptions(), loadLineItems()]),
 			'factures-view': () => Promise.allSettled([loadProjectOptions(), loadFactures()]),
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary(), loadRgeSiteChecklist()]),
@@ -5092,20 +5093,53 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#trip-form [name="startKm"]')?.addEventListener('input', recalcTripDistance);
 		document.querySelector('#trip-form [name="endKm"]')?.addEventListener('input', recalcTripDistance);
 	}
-	// Convenience only: a one-way road-route estimate between the company's registered address and the
-	// chosen chantier, to sanity-check against - never written into startKm/endKm, which always stay the
-	// worker's own real odometer reading. Degrades silently (empty hint) if either address can't be
-	// geocoded or the routing service is unreachable - this must never block logging a trip.
+	// Train/autobus have no vehicle and no compteur - just a flat ticket amount - so toggling the mode
+	// swaps which fields are shown AND which are `required`, so the browser never blocks submitting a
+	// ticket for an empty compteur field (or a voiture trip for an empty amount field) it can't see.
+	// Applied once immediately (not just on 'change') so the default "Voiture" state - which the <select>
+	// already shows on first render, before any user interaction fires a 'change' event - is correctly
+	// required from the very first paint, not only after the user has touched the dropdown once.
+	const applyTripModeFields = (mode) => {
+		const isVoiture = mode === 'voiture';
+		const form = document.querySelector('#trip-form');
+		if (!form) return;
+		document.querySelector('#trip-voiture-fields').hidden = !isVoiture;
+		document.querySelector('#trip-voiture-fields-2').hidden = !isVoiture;
+		document.querySelector('#trip-route-estimate').hidden = !isVoiture;
+		document.querySelector('#trip-ticket-field').hidden = isVoiture;
+		form.elements.vehicleId.required = isVoiture;
+		form.elements.startKm.required = isVoiture;
+		form.elements.endKm.required = isVoiture;
+		form.elements.amount.required = !isVoiture;
+	};
+	document.querySelector('#trip-mode')?.addEventListener('change', (event) => applyTripModeFields(event.currentTarget.value));
+	applyTripModeFields(document.querySelector('#trip-mode')?.value || 'voiture');
+	// Road-route estimate (never straight-line) between the company's registered address and the chosen
+	// chantier, offered as up to 3 route options. Clicking one fills startKm/endKm for convenience, but
+	// the trip is still saved from those compteur fields like any other - a one-click fill is not a
+	// bypass of "the compteur is what's recorded", it's just a fast way to set it from a real route.
+	// Degrades silently (empty hint) if either address can't be geocoded or routing is unreachable -
+	// this must never block logging a trip.
 	document.querySelector('#trip-form [name="projectId"]')?.addEventListener('change', async (event) => {
 		const estimateEl = document.querySelector('#trip-route-estimate');
 		const projectId = event.currentTarget.value;
 		if (!estimateEl) return;
-		if (!projectId) { estimateEl.textContent = ''; return; }
-		estimateEl.textContent = 'Estimation de la distance...';
+		if (!projectId) { estimateEl.innerHTML = ''; return; }
+		estimateEl.innerHTML = '<small>Recherche des itinéraires...</small>';
 		try {
 			const result = await request(`/vehicle-trips/estimate-distance?projectId=${encodeURIComponent(projectId)}`);
-			estimateEl.textContent = result.available ? `Estimation route (aller simple) : ~${result.estimatedKm} km - à vérifier avec le compteur, pas la valeur enregistrée.` : '';
-		} catch { estimateEl.textContent = ''; }
+			if (!result.available || !result.routes?.length) { estimateEl.innerHTML = ''; return; }
+			estimateEl.innerHTML = `<small>Itinéraire routier (aller simple) - à vérifier avec le compteur :</small><div class="trip-route-options">${result.routes.map((route, index) => `<button type="button" class="secondary use-route-km" data-km="${route.distanceKm}">${index === 0 ? 'Itinéraire le plus court' : `Variante ${index + 1}`} : ${route.distanceKm} km (${route.durationMin} min)</button>`).join('')}</div>`;
+			estimateEl.querySelectorAll('.use-route-km').forEach((button) => button.addEventListener('click', () => {
+				const form = document.querySelector('#trip-form');
+				const startField = form.elements.startKm; const endField = form.elements.endKm;
+				const start = Number(startField.value) || 0;
+				startField.value = start;
+				endField.value = (start + Number(button.dataset.km)).toFixed(1);
+				endField.dispatchEvent(new Event('input', { bubbles: true }));
+				toast(`Compteur rempli : ${button.dataset.km} km ajoutés.`);
+			}));
+		} catch { estimateEl.innerHTML = ''; }
 	});
 	document.querySelector('#trip-form')?.addEventListener('submit', async (event) => {
 		event.preventDefault();
@@ -5114,10 +5148,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		const originalLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); }
 		try {
-			const payload = { vehicleId: form.elements.vehicleId.value, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, startKm: form.elements.startKm.value, endKm: form.elements.endKm.value, note: form.elements.note.value };
+			const mode = form.elements.mode.value;
+			const payload = mode === 'voiture'
+				? { mode, vehicleId: form.elements.vehicleId.value, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, startKm: form.elements.startKm.value, endKm: form.elements.endKm.value, note: form.elements.note.value }
+				: { mode, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, amount: form.elements.amount.value, note: form.elements.note.value };
 			await request('/vehicle-trips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 			form.reset();
+			// form.reset() puts the <select> back to its default option ("Voiture") but fires no 'change'
+			// event, so without this the required/hidden fields would stay stuck in whichever mode was
+			// just submitted (e.g. a train ticket leaving startKm/endKm silently optional afterwards).
+			applyTripModeFields('voiture');
 			const preview = document.querySelector('#trip-distance-preview'); if (preview) preview.textContent = '';
+			const estimateEl = document.querySelector('#trip-route-estimate'); if (estimateEl) estimateEl.innerHTML = '';
 			await loadTrips();
 			toast('Trajet enregistré.');
 		} catch (error) { toast(`Trajet non enregistré : ${error.message || 'erreur inconnue'}`); }
@@ -5141,6 +5183,166 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	document.querySelector('#download-trips-pdf')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.pdf', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.pdf`, event.currentTarget));
 	document.querySelector('#download-trips-excel')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.xlsx', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx`, event.currentTarget));
+	// Compte société: each statement's operations arrive already grouped - by whoever's card made the
+	// purchase (Reka / Dzeljo Ibrahim / future associés, found dynamically from the data, never a fixed
+	// list) first, then by category within that person's own section, so one associé's restaurant
+	// spending never mixes into another's. Transactions with no card (virements, prélèvements, frais)
+	// get their own type-based sections instead, since they belong to the company, not one person.
+	const bankCategoryOptions = ['Retrait espèces', 'Carburant', 'Repas', 'Matériaux / Location', 'Transport (train/bus)', 'Autre achat', 'Prélèvement / Cotisation', 'Virement reçu', 'Virement envoyé', 'Frais bancaires', 'Autre'];
+	const bankPartyRoles = { associe: 'Associé', salarie: 'Salarié', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / pro', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+	const bankTypeGroupLabels = { virement_recu: 'Virements reçus', virement_envoye: 'Virements envoyés', prelevement: 'Prélèvements / Cotisations', frais: 'Frais bancaires', autre: 'Autre' };
+	let currentBankStatementId = null;
+	let currentBankTransactions = [];
+	let activeBankGroupKey = null;
+	let activeBankCategoryKey = null;
+	async function loadBankStatements() {
+		const statements = await request('/bank-statements');
+		const list = document.querySelector('#bank-statements-list');
+		if (list) list.innerHTML = statements.length ? statements.map((statement) => `<div class="list-item open-bank-statement" data-statement="${statement.id}" style="cursor:pointer"><strong>Relevé N° ${escapeHtml(statement.statementNumber || '?')} · au ${escapeHtml(statement.periodEndDate || '')}</strong><small>Compte ${escapeHtml(statement.accountNumber || '')} · Solde : ${statement.openingBalance != null ? Number(statement.openingBalance).toFixed(2) : '?'} € → ${statement.closingBalance != null ? Number(statement.closingBalance).toFixed(2) : '?'} €</small></div>`).join('') : '<small>Aucun relevé importé.</small>';
+		document.querySelectorAll('.open-bank-statement').forEach((item) => item.addEventListener('click', () => loadBankStatementDetail(item.dataset.statement)));
+		if (currentBankStatementId && statements.some((statement) => statement.id === currentBankStatementId)) await loadBankStatementDetail(currentBankStatementId);
+	}
+	function renderBankTransactionRow(tx) {
+		const label = tx.merchant || tx.party || tx.note || tx.description;
+		const positive = tx.amount > 0;
+		const categorySelect = `<select class="bank-tx-category" data-tx="${tx.id}">${bankCategoryOptions.map((option) => `<option value="${escapeHtml(option)}" ${tx.category === option ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`;
+		const roleSelect = `<select class="bank-tx-role" data-tx="${tx.id}"><option value="">Rôle…</option>${Object.entries(bankPartyRoles).map(([value, roleLabel]) => `<option value="${value}" ${tx.partyRole === value ? 'selected' : ''}>${escapeHtml(roleLabel)}</option>`).join('')}</select>`;
+		const mainRow = `<div class="bank-transaction-row"><div class="bank-tx-desc"><strong>${escapeHtml(label)}</strong><br><small>${tx.operationDate}${tx.note && tx.note !== label ? ` · ${escapeHtml(tx.note)}` : ''}</small></div>${categorySelect}${roleSelect}<span class="bank-tx-amount ${positive ? 'positive' : ''}">${positive ? '+' : ''}${Number(tx.amount).toFixed(2)} €</span></div>`;
+		// Only ever a suggestion the gérant clicks to confirm (never silent): the same real purchase can
+		// otherwise end up counted twice - once as a Dépenses receipt, once as this bank line - so this
+		// is the one place in the page a single click can change what's treated as true, and it's always
+		// reversible from "Annuler" once confirmed.
+		if (tx.matchedPurchaseId) return `${mainRow}<div class="bank-match-note bank-match-confirmed">✓ Déjà documenté dans Dépenses <button type="button" class="link-button unmatch-bank-tx" data-tx="${tx.id}">Annuler</button></div>`;
+		if (tx.suggestedMatch) return `${mainRow}<div class="bank-match-note">⚠ Doublon possible : <strong>${escapeHtml(tx.suggestedMatch.supplier)}</strong> · ${Number(tx.suggestedMatch.amount).toFixed(2)} € · ${tx.suggestedMatch.purchaseDate} (${escapeHtml(tx.suggestedMatch.projectName || '')}) <button type="button" class="secondary confirm-match-bank-tx" data-tx="${tx.id}" data-purchase="${tx.suggestedMatch.id}">✓ Oui, déjà enregistré</button><button type="button" class="secondary danger delete-match-purchase" data-purchase="${tx.suggestedMatch.id}">Supprimer ce doublon</button></div>`;
+		return mainRow;
+	}
+	// Two levels of TABS (not accordions, which kept drifting open on their own and still read as one
+	// long pile): a row of group buttons (one per person's card, plus one per company-level type -
+	// virements, prélèvements, frais), then a second row of category buttons once a group is picked -
+	// clicking either replaces what's shown below it with exactly that one selection, nothing else.
+	const bankGroupsFromTransactions = (transactions) => {
+		const personGroups = new Map();
+		const typeGroups = new Map();
+		for (const tx of transactions) {
+			if (tx.person) { if (!personGroups.has(tx.person)) personGroups.set(tx.person, []); personGroups.get(tx.person).push(tx); }
+			else { const key = tx.type; if (!typeGroups.has(key)) typeGroups.set(key, []); typeGroups.get(key).push(tx); }
+		}
+		return [
+			...[...personGroups.entries()].sort((first, second) => first[0].localeCompare(second[0], 'fr')).map(([person, items]) => ({ key: `person:${person}`, label: person, items })),
+			...['virement_recu', 'virement_envoye', 'prelevement', 'frais', 'autre'].filter((type) => typeGroups.has(type)).map((type) => ({ key: `type:${type}`, label: bankTypeGroupLabels[type] || type, items: typeGroups.get(type) })),
+		];
+	};
+	const renderBankTabRow = (items, activeKey, className, dataAttr) => `<div class="bank-group-tabs">${items.map((item) => { const total = item.items.reduce((sum, tx) => sum + tx.amount, 0); return `<button type="button" class="secondary ${className} ${item.key === activeKey ? 'active' : ''}" data-${dataAttr}="${escapeHtml(item.key)}">${escapeHtml(item.label)} · ${item.items.length} · ${total.toFixed(2)} €</button>`; }).join('')}</div>`;
+	function renderBankDetailBody() {
+		const groups = bankGroupsFromTransactions(currentBankTransactions);
+		if (!activeBankGroupKey || !groups.some((group) => group.key === activeBankGroupKey)) { activeBankGroupKey = groups[0]?.key || null; activeBankCategoryKey = null; }
+		const container = document.querySelector('#bank-transactions-groups');
+		if (!container) return;
+		if (!groups.length) { container.innerHTML = '<small>Aucune opération.</small>'; return; }
+		const activeGroup = groups.find((group) => group.key === activeBankGroupKey);
+		const byCategory = new Map();
+		activeGroup.items.forEach((tx) => { const key = tx.category || 'Autre'; if (!byCategory.has(key)) byCategory.set(key, []); byCategory.get(key).push(tx); });
+		const categories = [...byCategory.entries()].sort((first, second) => first[0].localeCompare(second[0], 'fr')).map(([category, items]) => ({ key: category, label: category, items }));
+		if (!activeBankCategoryKey || !categories.some((category) => category.key === activeBankCategoryKey)) activeBankCategoryKey = categories[0]?.key || null;
+		const activeCategory = categories.find((category) => category.key === activeBankCategoryKey);
+		const categoryTabs = categories.length > 1 ? renderBankTabRow(categories, activeBankCategoryKey, 'bank-category-tab', 'category') : '';
+		const rows = activeCategory ? activeCategory.items.map(renderBankTransactionRow).join('') : '<small>Aucune opération.</small>';
+		container.innerHTML = `${renderBankTabRow(groups, activeBankGroupKey, 'bank-group-tab', 'group')}${categoryTabs}<div class="bank-transaction-list">${rows}</div>`;
+		container.querySelectorAll('.bank-group-tab').forEach((button) => button.addEventListener('click', () => { activeBankGroupKey = button.dataset.group; activeBankCategoryKey = null; renderBankDetailBody(); }));
+		container.querySelectorAll('.bank-category-tab').forEach((button) => button.addEventListener('click', () => { activeBankCategoryKey = button.dataset.category; renderBankDetailBody(); }));
+		container.querySelectorAll('.bank-tx-category').forEach((select) => select.addEventListener('change', async () => {
+			try {
+				await request(`/bank-transactions/${select.dataset.tx}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: select.value }) });
+				const tx = currentBankTransactions.find((item) => item.id === select.dataset.tx); if (tx) tx.category = select.value;
+				toast('Catégorie mise à jour.');
+				renderBankDetailBody();
+			} catch { toast('Catégorie non mise à jour.'); }
+		}));
+		container.querySelectorAll('.bank-tx-role').forEach((select) => select.addEventListener('change', async () => {
+			try {
+				await request(`/bank-transactions/${select.dataset.tx}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partyRole: select.value }) });
+				const tx = currentBankTransactions.find((item) => item.id === select.dataset.tx); if (tx) tx.partyRole = select.value || null;
+				toast('Rôle enregistré pour ce nom - appliqué automatiquement aux prochains relevés.');
+			} catch { toast('Rôle non enregistré.'); }
+		}));
+		container.querySelectorAll('.confirm-match-bank-tx').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/bank-transactions/${button.dataset.tx}/confirm-match`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ purchaseId: button.dataset.purchase }) });
+				const tx = currentBankTransactions.find((item) => item.id === button.dataset.tx); if (tx) { tx.matchedPurchaseId = button.dataset.purchase; tx.suggestedMatch = null; }
+				toast('Confirmé : déjà documenté, pas de doublon.');
+				renderBankDetailBody();
+			} catch (error) { toast(`Confirmation échouée : ${error.message || 'erreur inconnue'}`); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		container.querySelectorAll('.unmatch-bank-tx').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/bank-transactions/${button.dataset.tx}/unmatch`, { method: 'POST' });
+				const tx = currentBankTransactions.find((item) => item.id === button.dataset.tx); if (tx) tx.matchedPurchaseId = null;
+				toast('Lien annulé.');
+				renderBankDetailBody();
+			} catch { toast('Annulation échouée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		// Deletes the redundant Dépenses entry outright (the bank line is the real, authoritative record
+		// of the money movement) rather than just hiding the warning - same DELETE used on the Dépenses
+		// page itself, so it also removes that receipt's own stored file, not just the suggestion.
+		container.querySelectorAll('.delete-match-purchase').forEach((button) => button.addEventListener('click', async () => {
+			if (!window.confirm('Supprimer définitivement cette dépense en double ? Le PDF/photo associé sera aussi supprimé.')) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/purchases/${button.dataset.purchase}`, { method: 'DELETE' });
+				currentBankTransactions.forEach((tx) => { if (tx.suggestedMatch?.id === button.dataset.purchase) tx.suggestedMatch = null; });
+				toast('Dépense en double supprimée.');
+				renderBankDetailBody();
+			} catch { toast('Suppression échouée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+	}
+	async function loadBankStatementDetail(id) {
+		if (currentBankStatementId !== id) { activeBankGroupKey = null; activeBankCategoryKey = null; }
+		currentBankStatementId = id;
+		const { statement, transactions } = await request(`/bank-statements/${id}`);
+		currentBankTransactions = transactions;
+		const panel = document.querySelector('#bank-transactions-panel');
+		if (!panel) return;
+		panel.hidden = false;
+		document.querySelector('#bank-statement-title').textContent = `Relevé N° ${statement.statementNumber || '?'} · au ${statement.periodEndDate || ''}`;
+		document.querySelector('#bank-statement-delete').dataset.statement = statement.id;
+		document.querySelector('#bank-statement-download-pdf').dataset.statement = statement.id;
+		document.querySelector('#bank-statement-download-excel').dataset.statement = statement.id;
+		const totalIn = transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+		const totalOut = transactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0);
+		document.querySelector('#bank-statement-summary').textContent = `${transactions.length} opérations · Solde ${statement.openingBalance?.toFixed(2) ?? '?'} € → ${statement.closingBalance?.toFixed(2) ?? '?'} € · Entrées ${totalIn.toFixed(2)} € · Sorties ${totalOut.toFixed(2)} €`;
+		renderBankDetailBody();
+	}
+	document.querySelector('#bank-upload-input')?.addEventListener('change', async (event) => {
+		const file = event.currentTarget.files[0];
+		if (!file) return;
+		const body = new FormData();
+		body.append('file', file);
+		toast('Lecture du relevé en cours...');
+		try {
+			const response = await fetch(`${api}/bank-statements`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			if (!response.ok) throw new Error(await extractErrorMessage(response));
+			const result = await response.json();
+			toast(`Relevé importé : ${result.transactions.length} opérations lues.`);
+			currentBankStatementId = result.statement.id;
+			await loadBankStatements();
+		} catch (error) { toast(`Relevé non importé : ${error.message || 'erreur inconnue'}`); }
+		finally { event.currentTarget.value = ''; }
+	});
+	document.querySelector('#bank-statement-download-pdf')?.addEventListener('click', (event) => { const id = event.currentTarget.dataset.statement; if (id) downloadTripsFile(`/bank-statements/${id}/download`, `releve-${id}.pdf`, event.currentTarget); });
+	document.querySelector('#bank-statement-download-excel')?.addEventListener('click', (event) => { const id = event.currentTarget.dataset.statement; if (id) downloadTripsFile(`/bank-statements/${id}/export.xlsx`, `ibra-compte-societe-${id}.xlsx`, event.currentTarget); });
+	document.querySelector('#bank-statement-delete')?.addEventListener('click', async (event) => {
+		const statementId = event.currentTarget.dataset.statement;
+		if (!statementId || !window.confirm('Supprimer définitivement ce relevé et toutes ses opérations ?')) return;
+		try {
+			await request(`/bank-statements/${statementId}`, { method: 'DELETE' });
+			currentBankStatementId = null;
+			document.querySelector('#bank-transactions-panel').hidden = true;
+			toast('Relevé supprimé.');
+			await loadBankStatements();
+		} catch { toast('Relevé non supprimé.'); }
+	});
 	document.querySelector('#factures-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#factures-list'), event.currentTarget.value));
 	document.querySelector('#factures-refresh')?.addEventListener('click', () => { const search = document.querySelector('#factures-search'); if (search) search.value = ''; loadFactures(); });
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture, un ticket ou une photo du justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et le justificatif ont été enregistrés ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
