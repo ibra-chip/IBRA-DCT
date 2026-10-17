@@ -4252,7 +4252,8 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadVehicles() {
 		const vehicles = await request('/vehicles');
 		const list = document.querySelector('#vehicles-list');
-		if (list) list.innerHTML = vehicles.length ? vehicles.map((vehicle) => `<div class="list-item"><strong>${escapeHtml(vehicle.name)}</strong>${vehicle.plate ? `<small>${escapeHtml(vehicle.plate)}</small>` : ''}<small>${vehicle.ratePerKm ? `${Number(vehicle.ratePerKm).toFixed(2)} €/km` : 'Pas de tarif €/km'}</small><div class="form-row"><button type="button" class="secondary edit-vehicle-rate" data-vehicle-rate="${vehicle.id}" data-current-rate="${vehicle.ratePerKm || ''}">Modifier le tarif</button><button type="button" class="secondary danger delete-vehicle" data-vehicle-delete="${vehicle.id}">Supprimer</button></div></div>`).join('') : '<small>Aucun véhicule enregistré.</small>';
+		const vehicleRateLine = (vehicle) => vehicle.fiscalPower ? `Barème officiel · ${vehicle.fiscalPower} CV · ${vehicle.baremeSummary?.totalKm.toFixed(1) || '0'} km ${vehicle.baremeSummary?.year || ''} → ${vehicle.baremeSummary?.indemnityEur.toFixed(2) || '0.00'} €` : (vehicle.ratePerKm ? `${Number(vehicle.ratePerKm).toFixed(2)} €/km` : 'Pas de tarif €/km');
+		if (list) list.innerHTML = vehicles.length ? vehicles.map((vehicle) => `<div class="list-item"><strong>${escapeHtml(vehicle.name)}</strong>${vehicle.plate ? `<small>${escapeHtml(vehicle.plate)}</small>` : ''}<small>${vehicleRateLine(vehicle)}</small><div class="form-row"><button type="button" class="secondary edit-vehicle-rate" data-vehicle-rate="${vehicle.id}" data-current-rate="${vehicle.ratePerKm || ''}">Modifier le tarif</button><button type="button" class="secondary edit-vehicle-fiscal" data-vehicle-fiscal="${vehicle.id}" data-current-fiscal="${vehicle.fiscalPower || ''}">Modifier le barème (CV)</button><button type="button" class="secondary danger delete-vehicle" data-vehicle-delete="${vehicle.id}">Supprimer</button></div></div>`).join('') : '<small>Aucun véhicule enregistré.</small>';
 		const vehicleSelect = document.querySelector('#trip-form [name="vehicleId"]');
 		if (vehicleSelect) {
 			const current = vehicleSelect.value;
@@ -4265,6 +4266,13 @@ document.addEventListener('DOMContentLoaded', () => {
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
 			try { await request(`/vehicles/${button.dataset.vehicleRate}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ratePerKm: entered }) }); toast('Tarif mis à jour.'); await loadVehicles(); }
 			catch { toast('Tarif non mis à jour.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		document.querySelectorAll('.edit-vehicle-fiscal').forEach((button) => button.addEventListener('click', async () => {
+			const entered = window.prompt('Puissance fiscale (CV) pour le barème officiel - 3, 4, 5, 6 ou 7 (laissez vide pour revenir au tarif fixe) :', button.dataset.currentFiscal || '');
+			if (entered === null) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try { await request(`/vehicles/${button.dataset.vehicleFiscal}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ fiscalPower: entered }) }); toast('Barème mis à jour.'); await loadVehicles(); }
+			catch { toast('Barème non mis à jour.'); button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
 		document.querySelectorAll('.delete-vehicle').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm('Supprimer définitivement ce véhicule et tous ses trajets ?')) return;
@@ -5066,7 +5074,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const originalLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); }
 		try {
-			await request('/vehicles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.elements.name.value, plate: form.elements.plate.value, ratePerKm: form.elements.ratePerKm.value }) });
+			await request('/vehicles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.elements.name.value, plate: form.elements.plate.value, fiscalPower: form.elements.fiscalPower.value, ratePerKm: form.elements.fiscalPower.value ? '' : form.elements.ratePerKm.value }) });
 			form.reset();
 			await loadVehicles();
 			toast('Véhicule enregistré.');
