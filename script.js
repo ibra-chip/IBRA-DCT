@@ -478,9 +478,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
 			worker: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view'],
 			user: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view']
 		};
