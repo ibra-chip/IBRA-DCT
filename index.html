@@ -280,7 +280,7 @@
 					<button type="button" class="secondary" id="dxf-analyze-tab-detail" aria-pressed="true">Détail par mur</button>
 					<button type="button" class="secondary" id="dxf-analyze-tab-metrage" aria-pressed="false">Métrage (Fourniture et pose)</button>
 				</div>
-				<div id="dxf-analyze-detail-section" class="plan-measure-body" style="flex-direction:column;gap:12px">
+				<div id="dxf-analyze-detail-section" class="dxf-analyze-section">
 					<div class="form-row">
 						<label>Calque<select id="dxf-analyze-layer"></select></label>
 						<label>Axe de l’écart<select id="dxf-analyze-axis"><option value="y">Hauteur (y)</option><option value="x">Largeur (x)</option></select></label>
@@ -294,7 +294,7 @@
 					<div id="dxf-analyze-results" class="list"></div>
 					<button type="button" class="secondary" id="dxf-analyze-show-more" hidden></button>
 				</div>
-				<div id="dxf-analyze-metrage-section" class="plan-measure-body" style="flex-direction:column;gap:12px" hidden>
+				<div id="dxf-analyze-metrage-section" class="dxf-analyze-section" hidden>
 					<p class="plan-measure-status">Saisissez la largeur et la hauteur réelles (confirmées par vous, pas lues automatiquement) pour obtenir une surface et une ligne de devis « Fourniture et pose ».</p>
 					<div class="form-row">
 						<label>Description du matériau<input type="text" id="dxf-metrage-description" placeholder="ex. Bardage SINUS 18B-13, RAL 9016" /></label>
