@@ -796,7 +796,7 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 const tripTypeLabelsFr = { professionnel: 'Professionnel', 'domicile-travail': 'Domicile - travail', prive: 'Privé' };
 // Same table-with-totals layout as buildHoursPdf, grouped by chantier (a header row per project, same
 // as the Carnet de bord screen itself) so the PDF matches what the gerant actually sees on screen.
-async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, generatedAt }) {
+async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, baremeVehicles, generatedAt }) {
 	const doc = await PDFDocument.create();
 	const pageSize = [595.28, 841.89];
 	let page = doc.addPage(pageSize);
@@ -867,11 +867,21 @@ async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, g
 	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
 	y -= 20;
 	page.drawText(`TOTAL : ${totalKm.toFixed(1)} km${hasCost ? ` · ${totalCost.toFixed(2)} €` : ''}`, { x: marginX, y, size: 12, font: fontBold });
+	if (baremeVehicles?.length) {
+		y -= 30;
+		ensureRoom(50 + baremeVehicles.length * 16);
+		page.drawText(`Barème kilométrique officiel ${currentFiscalYear()}`, { x: marginX, y, size: 11, font: fontBold });
+		y -= 18;
+		for (const summary of baremeVehicles) {
+			page.drawText(`${truncate(summary.name, 30)} · ${summary.totalKm.toFixed(1)} km · ${summary.indemnityEur.toFixed(2)} €`, { x: marginX, y, size: 9, font });
+			y -= 15;
+		}
+	}
 	return Buffer.from(await doc.save());
 }
 // Same grouping and totals as buildTripsPdf, as a spreadsheet instead of a page layout - for a
 // gerant who wants to re-sort, filter or carry the figures into their own accounting file.
-async function buildTripsExcel(trips) {
+async function buildTripsExcel(trips, baremeVehicles) {
 	const workbook = new ExcelJS.Workbook();
 	const sheet = workbook.addWorksheet('Carnet de bord');
 	sheet.columns = [
@@ -896,6 +906,14 @@ async function buildTripsExcel(trips) {
 	}
 	const totalRow = sheet.addRow({ project: 'TOTAL', distanceKm: totalKm, costEur: totalCost });
 	totalRow.font = { bold: true };
+	if (baremeVehicles?.length) {
+		sheet.addRow({});
+		const titleRow = sheet.addRow({ project: `Barème kilométrique officiel ${currentFiscalYear()}` });
+		titleRow.font = { bold: true };
+		const headerRow = sheet.addRow({ project: 'Véhicule', distanceKm: 'Km cette année', costEur: 'Indemnité (€)' });
+		headerRow.font = { bold: true };
+		for (const summary of baremeVehicles) sheet.addRow({ project: summary.name, distanceKm: summary.totalKm, costEur: summary.indemnityEur });
+	}
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 // A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
@@ -2493,20 +2511,51 @@ app.delete('/api/purchases/:id', auth, manager, async (request, response) => {
 // Dépenses entry in this app.
 app.get('/api/vehicles', auth, manager, async (request, response) => {
 	const data = await readData();
-	response.json((data.vehicles || []).filter((vehicle) => { const creator = (data.users || []).find((user) => user.id === vehicle.createdBy); return creator && sameCompany(data, creator, request.userRecord); }));
+	const vehicles = (data.vehicles || []).filter((vehicle) => { const creator = (data.users || []).find((user) => user.id === vehicle.createdBy); return creator && sameCompany(data, creator, request.userRecord); });
+	response.json(vehicles.map((vehicle) => ({ ...vehicle, baremeSummary: baremeSummaryForVehicle(data, vehicle) })));
 });
 // ratePerKm is optional (not every company tracks a cost per kilometre) and is only ever read to
 // compute a trip's costEur at the moment that trip is created - same "snapshot, not a live lookup"
 // principle as vehicleName/projectName on a trip, so a later rate change never rewrites past trips.
 const parseRatePerKm = (value) => { const rate = Number(value); return Number.isFinite(rate) && rate > 0 ? Math.round(rate * 10000) / 10000 : null; };
+// Official French "barème kilométrique" (indemnité kilométrique) scale: unlike a flat ratePerKm, the
+// true rate depends on the VEHICLE'S total professional km for the whole calendar year, not any one
+// trip - the 5 000/20 000 km tiers mean the same trip is worth a different marginal amount depending on
+// how much that vehicle has already driven this year. So this is never applied per trip (that would be
+// arbitrary and wrong); it's only ever computed as one total for a vehicle's year, from its cumulative
+// km, exactly like a French comptable would read it off this table.
+const BAREME_KM = {
+	3: { upTo5000: 0.456, midRate: 0.273, midFixed: 915, over20000: 0.318 },
+	4: { upTo5000: 0.523, midRate: 0.294, midFixed: 1147, over20000: 0.352 },
+	5: { upTo5000: 0.548, midRate: 0.308, midFixed: 1200, over20000: 0.368 },
+	6: { upTo5000: 0.574, midRate: 0.3323, midFixed: 1256, over20000: 0.386 },
+	7: { upTo5000: 0.601, midRate: 0.34, midFixed: 1301, over20000: 0.405 },
+};
+const parseFiscalPower = (value) => { const cv = Math.round(Number(value)); return Number.isFinite(cv) && cv > 0 ? Math.min(cv, 7) : null; };
+const bareme = (fiscalPower, totalKm) => {
+	const bracket = BAREME_KM[Math.min(Math.max(fiscalPower, 3), 7)];
+	if (!bracket || !Number.isFinite(totalKm) || totalKm <= 0) return 0;
+	if (totalKm <= 5000) return bracket.upTo5000 * totalKm;
+	if (totalKm <= 20000) return bracket.midRate * totalKm + bracket.midFixed;
+	return bracket.over20000 * totalKm;
+};
+const currentFiscalYear = () => new Date().getFullYear();
+// Only "professionnel" trips count toward the barème (same rule the French tax scale itself applies -
+// domicile-travail and privé are excluded), summed for the vehicle's current calendar year only.
+const baremeSummaryForVehicle = (data, vehicle) => {
+	if (!vehicle.fiscalPower) return null;
+	const year = currentFiscalYear();
+	const totalKm = (data.vehicleTrips || []).filter((trip) => trip.vehicleId === vehicle.id && trip.type === 'professionnel' && String(trip.date || '').startsWith(String(year))).reduce((sum, trip) => sum + Number(trip.distanceKm || 0), 0);
+	return { year, totalKm: Math.round(totalKm * 100) / 100, indemnityEur: Math.round(bareme(vehicle.fiscalPower, totalKm) * 100) / 100 };
+};
 app.post('/api/vehicles', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name) return response.status(400).json({ error: 'Vehicle name is required' });
 	const data = await readData();
-	const vehicle = { id: `vehicle-${Date.now()}`, name, plate: String(request.body.plate || '').trim(), ratePerKm: parseRatePerKm(request.body.ratePerKm), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const vehicle = { id: `vehicle-${Date.now()}`, name, plate: String(request.body.plate || '').trim(), ratePerKm: parseRatePerKm(request.body.ratePerKm), fiscalPower: parseFiscalPower(request.body.fiscalPower), createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.vehicles = [...(data.vehicles || []), vehicle];
 	await writeData(data);
-	response.status(201).json(vehicle);
+	response.status(201).json({ ...vehicle, baremeSummary: baremeSummaryForVehicle(data, vehicle) });
 });
 app.patch('/api/vehicles/:id', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -2517,8 +2566,9 @@ app.patch('/api/vehicles/:id', auth, manager, async (request, response) => {
 	if (request.body.name !== undefined) { const name = String(request.body.name || '').trim(); if (!name) return response.status(400).json({ error: 'Vehicle name is required' }); vehicle.name = name; }
 	if (request.body.plate !== undefined) vehicle.plate = String(request.body.plate || '').trim();
 	if (request.body.ratePerKm !== undefined) vehicle.ratePerKm = parseRatePerKm(request.body.ratePerKm);
+	if (request.body.fiscalPower !== undefined) vehicle.fiscalPower = parseFiscalPower(request.body.fiscalPower);
 	await writeData(data);
-	response.json(vehicle);
+	response.json({ ...vehicle, baremeSummary: baremeSummaryForVehicle(data, vehicle) });
 });
 app.delete('/api/vehicles/:id', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -2537,11 +2587,15 @@ app.get('/api/vehicle-trips', auth, manager, async (request, response) => {
 });
 // Same access-scoped trip list as GET /api/vehicle-trips, just handed to buildTripsPdf/buildTripsExcel
 // instead of JSON - so a download can never show a manager more chantiers than the app itself would.
+const baremeVehiclesFor = (data, userRecord) => (data.vehicles || [])
+	.filter((vehicle) => { const creator = (data.users || []).find((user) => user.id === vehicle.createdBy); return creator && sameCompany(data, creator, userRecord); })
+	.map((vehicle) => baremeSummaryForVehicle(data, vehicle) && { name: vehicle.name, ...baremeSummaryForVehicle(data, vehicle) })
+	.filter(Boolean);
 app.get('/api/vehicle-trips/export.pdf', auth, manager, async (request, response) => {
 	const data = await readData();
 	const trips = (data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId));
 	const branding = await companyBrandingForPdf(data, request.userRecord);
-	const pdf = await buildTripsPdf({ ...branding, trips, generatedAt: new Date().toLocaleDateString('fr-FR') });
+	const pdf = await buildTripsPdf({ ...branding, trips, baremeVehicles: baremeVehiclesFor(data, request.userRecord), generatedAt: new Date().toLocaleDateString('fr-FR') });
 	response.setHeader('Content-Type', 'application/pdf');
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.pdf"`);
 	response.send(pdf);
@@ -2549,7 +2603,7 @@ app.get('/api/vehicle-trips/export.pdf', auth, manager, async (request, response
 app.get('/api/vehicle-trips/export.xlsx', auth, manager, async (request, response) => {
 	const data = await readData();
 	const trips = (data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId));
-	const excel = await buildTripsExcel(trips);
+	const excel = await buildTripsExcel(trips, baremeVehiclesFor(data, request.userRecord));
 	response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx"`);
 	response.send(excel);
