@@ -956,3 +956,5 @@ header .status{background:#ffffff1c;color:#ffffff;border-color:#ffffff30;positio
    between the now-always-visible sibling panels; .schedule-panel and .audit-history already had their
    own margin-top:18px from before, this just covers the other panels in the stack too. */
 #chantier-view .panel+.panel{margin-top:18px}
+.trip-route-options{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
+.trip-route-options button{font-size:.8rem;padding:8px 12px}

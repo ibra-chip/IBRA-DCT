@@ -25,7 +25,7 @@ import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
 import ExcelJS from 'exceljs';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
-import { estimateRoadDistanceKm } from './lib/distance.js';
+import { estimateRoadRoutes } from './lib/distance.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
@@ -2665,8 +2665,8 @@ app.get('/api/vehicle-trips/estimate-distance', auth, manager, async (request, r
 	}
 	if (changed) await writeData(data);
 	if (project.weatherLat == null || owner.companyAddressLat == null) return response.json({ available: false });
-	const estimatedKm = await estimateRoadDistanceKm({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
-	response.json(estimatedKm == null ? { available: false } : { available: true, estimatedKm });
+	const routes = await estimateRoadRoutes({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
+	response.json(!routes?.length ? { available: false } : { available: true, estimatedKm: routes[0].distanceKm, routes });
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
 	const data = await readData();

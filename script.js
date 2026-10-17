@@ -5092,20 +5092,32 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#trip-form [name="startKm"]')?.addEventListener('input', recalcTripDistance);
 		document.querySelector('#trip-form [name="endKm"]')?.addEventListener('input', recalcTripDistance);
 	}
-	// Convenience only: a one-way road-route estimate between the company's registered address and the
-	// chosen chantier, to sanity-check against - never written into startKm/endKm, which always stay the
-	// worker's own real odometer reading. Degrades silently (empty hint) if either address can't be
-	// geocoded or the routing service is unreachable - this must never block logging a trip.
+	// Road-route estimate (never straight-line) between the company's registered address and the chosen
+	// chantier, offered as up to 3 route options. Clicking one fills startKm/endKm for convenience, but
+	// the trip is still saved from those compteur fields like any other - a one-click fill is not a
+	// bypass of "the compteur is what's recorded", it's just a fast way to set it from a real route.
+	// Degrades silently (empty hint) if either address can't be geocoded or routing is unreachable -
+	// this must never block logging a trip.
 	document.querySelector('#trip-form [name="projectId"]')?.addEventListener('change', async (event) => {
 		const estimateEl = document.querySelector('#trip-route-estimate');
 		const projectId = event.currentTarget.value;
 		if (!estimateEl) return;
-		if (!projectId) { estimateEl.textContent = ''; return; }
-		estimateEl.textContent = 'Estimation de la distance...';
+		if (!projectId) { estimateEl.innerHTML = ''; return; }
+		estimateEl.innerHTML = '<small>Recherche des itinéraires...</small>';
 		try {
 			const result = await request(`/vehicle-trips/estimate-distance?projectId=${encodeURIComponent(projectId)}`);
-			estimateEl.textContent = result.available ? `Estimation route (aller simple) : ~${result.estimatedKm} km - à vérifier avec le compteur, pas la valeur enregistrée.` : '';
-		} catch { estimateEl.textContent = ''; }
+			if (!result.available || !result.routes?.length) { estimateEl.innerHTML = ''; return; }
+			estimateEl.innerHTML = `<small>Itinéraire routier (aller simple) - à vérifier avec le compteur :</small><div class="trip-route-options">${result.routes.map((route, index) => `<button type="button" class="secondary use-route-km" data-km="${route.distanceKm}">${index === 0 ? 'Itinéraire le plus court' : `Variante ${index + 1}`} : ${route.distanceKm} km (${route.durationMin} min)</button>`).join('')}</div>`;
+			estimateEl.querySelectorAll('.use-route-km').forEach((button) => button.addEventListener('click', () => {
+				const form = document.querySelector('#trip-form');
+				const startField = form.elements.startKm; const endField = form.elements.endKm;
+				const start = Number(startField.value) || 0;
+				startField.value = start;
+				endField.value = (start + Number(button.dataset.km)).toFixed(1);
+				endField.dispatchEvent(new Event('input', { bubbles: true }));
+				toast(`Compteur rempli : ${button.dataset.km} km ajoutés.`);
+			}));
+		} catch { estimateEl.innerHTML = ''; }
 	});
 	document.querySelector('#trip-form')?.addEventListener('submit', async (event) => {
 		event.preventDefault();
