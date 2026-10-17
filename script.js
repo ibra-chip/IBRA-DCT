@@ -5095,9 +5095,13 @@ document.addEventListener('DOMContentLoaded', () => {
 	// Train/autobus have no vehicle and no compteur - just a flat ticket amount - so toggling the mode
 	// swaps which fields are shown AND which are `required`, so the browser never blocks submitting a
 	// ticket for an empty compteur field (or a voiture trip for an empty amount field) it can't see.
-	document.querySelector('#trip-mode')?.addEventListener('change', (event) => {
-		const isVoiture = event.currentTarget.value === 'voiture';
+	// Applied once immediately (not just on 'change') so the default "Voiture" state - which the <select>
+	// already shows on first render, before any user interaction fires a 'change' event - is correctly
+	// required from the very first paint, not only after the user has touched the dropdown once.
+	const applyTripModeFields = (mode) => {
+		const isVoiture = mode === 'voiture';
 		const form = document.querySelector('#trip-form');
+		if (!form) return;
 		document.querySelector('#trip-voiture-fields').hidden = !isVoiture;
 		document.querySelector('#trip-voiture-fields-2').hidden = !isVoiture;
 		document.querySelector('#trip-route-estimate').hidden = !isVoiture;
@@ -5106,7 +5110,9 @@ document.addEventListener('DOMContentLoaded', () => {
 		form.elements.startKm.required = isVoiture;
 		form.elements.endKm.required = isVoiture;
 		form.elements.amount.required = !isVoiture;
-	});
+	};
+	document.querySelector('#trip-mode')?.addEventListener('change', (event) => applyTripModeFields(event.currentTarget.value));
+	applyTripModeFields(document.querySelector('#trip-mode')?.value || 'voiture');
 	// Road-route estimate (never straight-line) between the company's registered address and the chosen
 	// chantier, offered as up to 3 route options. Clicking one fills startKm/endKm for convenience, but
 	// the trip is still saved from those compteur fields like any other - a one-click fill is not a
@@ -5147,7 +5153,12 @@ document.addEventListener('DOMContentLoaded', () => {
 				: { mode, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, amount: form.elements.amount.value, note: form.elements.note.value };
 			await request('/vehicle-trips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 			form.reset();
+			// form.reset() puts the <select> back to its default option ("Voiture") but fires no 'change'
+			// event, so without this the required/hidden fields would stay stuck in whichever mode was
+			// just submitted (e.g. a train ticket leaving startKm/endKm silently optional afterwards).
+			applyTripModeFields('voiture');
 			const preview = document.querySelector('#trip-distance-preview'); if (preview) preview.textContent = '';
+			const estimateEl = document.querySelector('#trip-route-estimate'); if (estimateEl) estimateEl.innerHTML = '';
 			await loadTrips();
 			toast('Trajet enregistré.');
 		} catch (error) { toast(`Trajet non enregistré : ${error.message || 'erreur inconnue'}`); }
