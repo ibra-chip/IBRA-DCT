@@ -22,6 +22,7 @@ import { compressUpload, rasterizePdfPage } from './lib/compress-upload.js';
 import { convertDwgToDxf } from './lib/dwg-convert.js';
 import { parseDxfEntities, extractInserts, extractTextEntities, summarizeLayers, axisSpacing, rowSpacing } from './lib/dxf-parse.js';
 import { parseDevisExcel, isExcelFile } from './lib/devis-excel.js';
+import ExcelJS from 'exceljs';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { estimateRoadDistanceKm } from './lib/distance.js';
@@ -791,6 +792,111 @@ async function buildHoursPdf({ worker, companyName, companyAddress, logoBuffer, 
 	y -= 22;
 	page.drawText(`TOTAL : ${Number(total || 0).toFixed(2)} €`, { x: marginX, y, size: 13, font: fontBold });
 	return Buffer.from(await doc.save());
+}
+const tripTypeLabelsFr = { professionnel: 'Professionnel', 'domicile-travail': 'Domicile - travail', prive: 'Privé' };
+// Same table-with-totals layout as buildHoursPdf, grouped by chantier (a header row per project, same
+// as the Carnet de bord screen itself) so the PDF matches what the gerant actually sees on screen.
+async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, generatedAt }) {
+	const doc = await PDFDocument.create();
+	const pageSize = [595.28, 841.89];
+	let page = doc.addPage(pageSize);
+	const font = await doc.embedFont(StandardFonts.Helvetica);
+	const fontBold = await doc.embedFont(StandardFonts.HelveticaBold);
+	const marginX = 40;
+	const rightEdge = pageSize[0] - marginX;
+	let y = 800;
+	const truncate = (value, max) => { const text = String(value || ''); return text.length > max ? `${text.slice(0, max - 1)}…` : text; };
+	const headerTop = y;
+	let brandY = headerTop;
+	if (logoBuffer) {
+		try {
+			let image;
+			try { image = await doc.embedPng(logoBuffer); } catch { image = await doc.embedJpg(logoBuffer); }
+			const maxWidth = 100; const maxHeight = 50;
+			const scale = Math.min(maxWidth / image.width, maxHeight / image.height, 1);
+			const width = image.width * scale; const height = image.height * scale;
+			page.drawImage(image, { x: rightEdge - width, y: brandY - height, width, height });
+			brandY -= height + 6;
+		} catch { /* logo unreadable, continue without it */ }
+	}
+	const drawRight = (text, size, useFont, color) => {
+		if (!text) return;
+		const width = useFont.widthOfTextAtSize(text, size);
+		page.drawText(text, { x: rightEdge - width, y: brandY, size, font: useFont, color });
+		brandY -= size + 5;
+	};
+	drawRight(companyName, 11, fontBold);
+	drawRight(truncate(companyAddress, 50), 8, font, rgb(0.45, 0.45, 0.45));
+	let leftY = headerTop;
+	page.drawText('Carnet de bord - Trajets et kilométrage', { x: marginX, y: leftY, size: 16, font: fontBold });
+	leftY -= 22;
+	page.drawText(`Généré le ${generatedAt}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
+	y = Math.min(leftY, brandY) - 18;
+	const columns = [{ label: 'Date', x: marginX }, { label: 'Véhicule', x: marginX + 55 }, { label: 'Type', x: marginX + 185 }, { label: 'Km', x: marginX + 290 }, { label: 'Coût', x: rightEdge - 55 }];
+	const drawColumnHeader = () => {
+		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
+		y -= 6;
+		page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+		y -= 14;
+	};
+	const ensureRoom = (minHeight) => { if (y < minHeight) { page = doc.addPage(pageSize); y = 800; drawColumnHeader(); } };
+	const byProject = new Map();
+	trips.forEach((trip) => { if (!byProject.has(trip.projectId)) byProject.set(trip.projectId, []); byProject.get(trip.projectId).push(trip); });
+	const groups = [...byProject.entries()].map(([projectId, items]) => ({ name: items[0]?.projectName || projectId, items })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
+	let totalKm = 0; let totalCost = 0; let hasCost = false;
+	drawColumnHeader();
+	for (const group of groups) {
+		ensureRoom(80);
+		page.drawText(truncate(group.name, 70), { x: marginX, y, size: 10, font: fontBold });
+		y -= 16;
+		for (const trip of group.items) {
+			ensureRoom(70);
+			totalKm += Number(trip.distanceKm || 0);
+			if (trip.costEur != null) { totalCost += Number(trip.costEur); hasCost = true; }
+			page.drawText(trip.date || '', { x: columns[0].x, y, size: 9, font });
+			page.drawText(truncate(trip.vehicleName, 24), { x: columns[1].x, y, size: 9, font });
+			page.drawText(tripTypeLabelsFr[trip.type] || trip.type, { x: columns[2].x, y, size: 9, font });
+			page.drawText(`${Number(trip.distanceKm || 0).toFixed(1)} km`, { x: columns[3].x, y, size: 9, font });
+			page.drawText(trip.costEur != null ? `${Number(trip.costEur).toFixed(2)} €` : '-', { x: columns[4].x, y, size: 9, font });
+			y -= 15;
+		}
+		y -= 6;
+	}
+	ensureRoom(70);
+	y -= 4;
+	page.drawLine({ start: { x: marginX, y }, end: { x: rightEdge, y }, thickness: 0.6, color: rgb(0.6, 0.6, 0.6) });
+	y -= 20;
+	page.drawText(`TOTAL : ${totalKm.toFixed(1)} km${hasCost ? ` · ${totalCost.toFixed(2)} €` : ''}`, { x: marginX, y, size: 12, font: fontBold });
+	return Buffer.from(await doc.save());
+}
+// Same grouping and totals as buildTripsPdf, as a spreadsheet instead of a page layout - for a
+// gerant who wants to re-sort, filter or carry the figures into their own accounting file.
+async function buildTripsExcel(trips) {
+	const workbook = new ExcelJS.Workbook();
+	const sheet = workbook.addWorksheet('Carnet de bord');
+	sheet.columns = [
+		{ header: 'Chantier', key: 'project', width: 30 },
+		{ header: 'Date', key: 'date', width: 12 },
+		{ header: 'Véhicule', key: 'vehicle', width: 22 },
+		{ header: 'Type', key: 'type', width: 18 },
+		{ header: 'Compteur départ', key: 'startKm', width: 16 },
+		{ header: 'Compteur arrivée', key: 'endKm', width: 16 },
+		{ header: 'Distance (km)', key: 'distanceKm', width: 14 },
+		{ header: 'Tarif (€/km)', key: 'ratePerKm', width: 13 },
+		{ header: 'Coût (€)', key: 'costEur', width: 12 },
+		{ header: 'Note', key: 'note', width: 30 },
+	];
+	sheet.getRow(1).font = { bold: true };
+	const sorted = [...trips].sort((first, second) => (first.projectName || '').localeCompare(second.projectName || '', 'fr', { sensitivity: 'base' }) || first.date.localeCompare(second.date));
+	let totalKm = 0; let totalCost = 0;
+	for (const trip of sorted) {
+		totalKm += Number(trip.distanceKm || 0);
+		totalCost += Number(trip.costEur || 0);
+		sheet.addRow({ project: trip.projectName, date: trip.date, vehicle: trip.vehicleName, type: tripTypeLabelsFr[trip.type] || trip.type, startKm: trip.startKm, endKm: trip.endKm, distanceKm: Number(trip.distanceKm || 0), ratePerKm: trip.ratePerKm ?? '', costEur: trip.costEur ?? '', note: trip.note || '' });
+	}
+	const totalRow = sheet.addRow({ project: 'TOTAL', distanceKm: totalKm, costEur: totalCost });
+	totalRow.font = { bold: true };
+	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
 // A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
 // or line), with its unit value, repeat count and effective total, followed by the same brut/net/openings
@@ -2389,14 +2495,30 @@ app.get('/api/vehicles', auth, manager, async (request, response) => {
 	const data = await readData();
 	response.json((data.vehicles || []).filter((vehicle) => { const creator = (data.users || []).find((user) => user.id === vehicle.createdBy); return creator && sameCompany(data, creator, request.userRecord); }));
 });
+// ratePerKm is optional (not every company tracks a cost per kilometre) and is only ever read to
+// compute a trip's costEur at the moment that trip is created - same "snapshot, not a live lookup"
+// principle as vehicleName/projectName on a trip, so a later rate change never rewrites past trips.
+const parseRatePerKm = (value) => { const rate = Number(value); return Number.isFinite(rate) && rate > 0 ? Math.round(rate * 10000) / 10000 : null; };
 app.post('/api/vehicles', auth, manager, async (request, response) => {
 	const name = String(request.body.name || '').trim();
 	if (!name) return response.status(400).json({ error: 'Vehicle name is required' });
 	const data = await readData();
-	const vehicle = { id: `vehicle-${Date.now()}`, name, plate: String(request.body.plate || '').trim(), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const vehicle = { id: `vehicle-${Date.now()}`, name, plate: String(request.body.plate || '').trim(), ratePerKm: parseRatePerKm(request.body.ratePerKm), createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.vehicles = [...(data.vehicles || []), vehicle];
 	await writeData(data);
 	response.status(201).json(vehicle);
+});
+app.patch('/api/vehicles/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const vehicle = (data.vehicles || []).find((item) => item.id === request.params.id);
+	if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
+	const creator = (data.users || []).find((user) => user.id === vehicle.createdBy);
+	if (!creator || !sameCompany(data, creator, request.userRecord)) return response.status(403).json({ error: 'Access denied' });
+	if (request.body.name !== undefined) { const name = String(request.body.name || '').trim(); if (!name) return response.status(400).json({ error: 'Vehicle name is required' }); vehicle.name = name; }
+	if (request.body.plate !== undefined) vehicle.plate = String(request.body.plate || '').trim();
+	if (request.body.ratePerKm !== undefined) vehicle.ratePerKm = parseRatePerKm(request.body.ratePerKm);
+	await writeData(data);
+	response.json(vehicle);
 });
 app.delete('/api/vehicles/:id', auth, manager, async (request, response) => {
 	const data = await readData();
@@ -2413,6 +2535,25 @@ app.get('/api/vehicle-trips', auth, manager, async (request, response) => {
 	const data = await readData();
 	response.json((data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId)));
 });
+// Same access-scoped trip list as GET /api/vehicle-trips, just handed to buildTripsPdf/buildTripsExcel
+// instead of JSON - so a download can never show a manager more chantiers than the app itself would.
+app.get('/api/vehicle-trips/export.pdf', auth, manager, async (request, response) => {
+	const data = await readData();
+	const trips = (data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId));
+	const branding = await companyBrandingForPdf(data, request.userRecord);
+	const pdf = await buildTripsPdf({ ...branding, trips, generatedAt: new Date().toLocaleDateString('fr-FR') });
+	response.setHeader('Content-Type', 'application/pdf');
+	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.pdf"`);
+	response.send(pdf);
+});
+app.get('/api/vehicle-trips/export.xlsx', auth, manager, async (request, response) => {
+	const data = await readData();
+	const trips = (data.vehicleTrips || []).filter((item) => canAccessProject(data, request.user, item.projectId));
+	const excel = await buildTripsExcel(trips);
+	response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx"`);
+	response.send(excel);
+});
 app.post('/api/vehicle-trips', auth, manager, async (request, response) => {
 	const vehicleId = String(request.body.vehicleId || '');
 	const projectId = String(request.body.projectId || '');
@@ -2428,7 +2569,11 @@ app.post('/api/vehicle-trips', auth, manager, async (request, response) => {
 	// Distance is never trusted from the client - always recomputed from startKm/endKm server-side, same
 	// "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter calibration.
 	const distanceKm = Math.round((endKm - startKm) * 100) / 100;
-	const trip = { id: `trip-${Date.now()}`, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date: String(request.body.date || new Date().toISOString().slice(0, 10)), startKm, endKm, distanceKm, note: String(request.body.note || ''), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	// costEur is a snapshot: computed once here from the vehicle's ratePerKm at this moment, then never
+	// recomputed - a later change to the vehicle's rate must not silently reprice trips already logged.
+	const ratePerKm = vehicle.ratePerKm || null;
+	const costEur = ratePerKm ? Math.round(distanceKm * ratePerKm * 100) / 100 : null;
+	const trip = { id: `trip-${Date.now()}`, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date: String(request.body.date || new Date().toISOString().slice(0, 10)), startKm, endKm, distanceKm, ratePerKm, costEur, note: String(request.body.note || ''), createdBy: request.user.sub, createdAt: new Date().toISOString() };
 	data.vehicleTrips = [...(data.vehicleTrips || []), trip];
 	await writeData(data);
 	response.status(201).json(trip);

@@ -4252,13 +4252,20 @@ document.addEventListener('DOMContentLoaded', () => {
 	async function loadVehicles() {
 		const vehicles = await request('/vehicles');
 		const list = document.querySelector('#vehicles-list');
-		if (list) list.innerHTML = vehicles.length ? vehicles.map((vehicle) => `<div class="list-item"><strong>${escapeHtml(vehicle.name)}</strong>${vehicle.plate ? `<small>${escapeHtml(vehicle.plate)}</small>` : ''}<div class="form-row"><button type="button" class="secondary danger delete-vehicle" data-vehicle-delete="${vehicle.id}">Supprimer</button></div></div>`).join('') : '<small>Aucun véhicule enregistré.</small>';
+		if (list) list.innerHTML = vehicles.length ? vehicles.map((vehicle) => `<div class="list-item"><strong>${escapeHtml(vehicle.name)}</strong>${vehicle.plate ? `<small>${escapeHtml(vehicle.plate)}</small>` : ''}<small>${vehicle.ratePerKm ? `${Number(vehicle.ratePerKm).toFixed(2)} €/km` : 'Pas de tarif €/km'}</small><div class="form-row"><button type="button" class="secondary edit-vehicle-rate" data-vehicle-rate="${vehicle.id}" data-current-rate="${vehicle.ratePerKm || ''}">Modifier le tarif</button><button type="button" class="secondary danger delete-vehicle" data-vehicle-delete="${vehicle.id}">Supprimer</button></div></div>`).join('') : '<small>Aucun véhicule enregistré.</small>';
 		const vehicleSelect = document.querySelector('#trip-form [name="vehicleId"]');
 		if (vehicleSelect) {
 			const current = vehicleSelect.value;
 			vehicleSelect.innerHTML = vehicles.length ? vehicles.map((vehicle) => `<option value="${vehicle.id}">${escapeHtml(vehicle.name)}${vehicle.plate ? ` (${escapeHtml(vehicle.plate)})` : ''}</option>`).join('') : '<option value="">Ajoutez un véhicule d’abord</option>';
 			vehicleSelect.value = vehicles.some((vehicle) => vehicle.id === current) ? current : (vehicles[0]?.id || '');
 		}
+		document.querySelectorAll('.edit-vehicle-rate').forEach((button) => button.addEventListener('click', async () => {
+			const entered = window.prompt('Tarif €/km pour ce véhicule (laissez vide pour ne pas en mettre) :', button.dataset.currentRate || '');
+			if (entered === null) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try { await request(`/vehicles/${button.dataset.vehicleRate}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ratePerKm: entered }) }); toast('Tarif mis à jour.'); await loadVehicles(); }
+			catch { toast('Tarif non mis à jour.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
 		document.querySelectorAll('.delete-vehicle').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm('Supprimer définitivement ce véhicule et tous ses trajets ?')) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
@@ -4271,12 +4278,18 @@ document.addEventListener('DOMContentLoaded', () => {
 		const trips = await request('/vehicle-trips');
 		// Same chantier-folder grouping as Documents/Factures/Dépenses - a trip belongs to exactly one
 		// chantier, so grouping by it keeps trips from different chantiers from piling into one flat list.
-		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
+		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})${trip.costEur != null ? ` · ${Number(trip.costEur).toFixed(2)} €` : ''}${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
 		const byProject = new Map();
 		trips.forEach((trip) => { if (!byProject.has(trip.projectId)) byProject.set(trip.projectId, []); byProject.get(trip.projectId).push(trip); });
 		const groups = [...byProject.entries()].map(([projectId, items]) => ({ projectId, name: projectsCache.find((project) => project.id === projectId)?.name || items[0]?.projectName || projectId, items })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
 		const list = document.querySelector('#trips-list');
 		if (list) list.innerHTML = groups.length ? groups.map((group) => renderChantierFolder(group.name, group.items.length, group.items.map(renderTripItem).join(''))).join('') : '<small>Aucun trajet enregistré.</small>';
+		const totalsEl = document.querySelector('#trips-totals');
+		if (totalsEl) {
+			const totalKm = trips.reduce((sum, trip) => sum + Number(trip.distanceKm || 0), 0);
+			const totalCost = trips.reduce((sum, trip) => sum + Number(trip.costEur || 0), 0);
+			totalsEl.textContent = trips.length ? `Total : ${totalKm.toFixed(1)} km${totalCost ? ` · ${totalCost.toFixed(2)} €` : ''}` : '';
+		}
 		document.querySelectorAll('.delete-trip').forEach((button) => button.addEventListener('click', async () => {
 			if (!window.confirm('Supprimer définitivement ce trajet ?')) return;
 			button.disabled = true; button.setAttribute('aria-busy', 'true');
@@ -5053,7 +5066,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const originalLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); }
 		try {
-			await request('/vehicles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.elements.name.value, plate: form.elements.plate.value }) });
+			await request('/vehicles', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: form.elements.name.value, plate: form.elements.plate.value, ratePerKm: form.elements.ratePerKm.value }) });
 			form.reset();
 			await loadVehicles();
 			toast('Véhicule enregistré.');
@@ -5104,6 +5117,22 @@ document.addEventListener('DOMContentLoaded', () => {
 	});
 	document.querySelector('#trips-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#trips-list'), event.currentTarget.value));
 	document.querySelector('#trips-refresh')?.addEventListener('click', () => { const search = document.querySelector('#trips-search'); if (search) search.value = ''; loadTrips(); });
+	async function downloadTripsFile(path, filename, trigger) {
+		if (trigger) { trigger.disabled = true; trigger.setAttribute('aria-busy', 'true'); }
+		try {
+			const response = await fetch(`${api}${path}`, { headers: { Authorization: `Bearer ${token()}` } });
+			if (!response.ok) throw new Error();
+			const blob = await response.blob();
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url; link.download = filename;
+			document.body.append(link); link.click(); link.remove();
+			URL.revokeObjectURL(url);
+		} catch { toast('Fichier non téléchargé.'); }
+		finally { if (trigger) { trigger.disabled = false; trigger.removeAttribute('aria-busy'); } }
+	}
+	document.querySelector('#download-trips-pdf')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.pdf', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.pdf`, event.currentTarget));
+	document.querySelector('#download-trips-excel')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.xlsx', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx`, event.currentTarget));
 	document.querySelector('#factures-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#factures-list'), event.currentTarget.value));
 	document.querySelector('#factures-refresh')?.addEventListener('click', () => { const search = document.querySelector('#factures-search'); if (search) search.value = ''; loadFactures(); });
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture, un ticket ou une photo du justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et le justificatif ont été enregistrés ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
