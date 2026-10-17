@@ -2717,9 +2717,34 @@ app.get('/api/vehicle-trips/estimate-distance', auth, manager, async (request, r
 // pure text parsing, no AI, verified against a real statement's own printed totals). Everything here
 // is scoped to the company owner's id (same "one shared ledger per company" model as vehicles/data
 // below), not to the uploading user, so every associé on the account sees the same statements.
-const BANK_PARTY_ROLES = { associe: 'Associé', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / professionnel', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+const BANK_PARTY_ROLES = { associe: 'Associé', salarie: 'Salarié', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / professionnel', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
 const normalizePartyName = (name) => String(name || '').trim().toUpperCase().replace(/\s+/g, ' ');
 const bankOwnerIdFor = (data, userRecord) => companyOwnerForUser(data, userRecord)?.id || userRecord.id;
+// Suggests, never decides: a "carte" operation and an already-photographed Dépenses receipt are
+// offered as the same real purchase only on an EXACT amount match (a receipt's total is printed, not
+// estimated - any tolerance here could silently pair two different purchases that happen to cost the
+// same) within a tight ±5 day window (a bank posts a few days after the receipt date, never weeks).
+// Still only ever a suggestion: confirm-match requires an explicit click, and a purchase already
+// linked to one transaction is never offered to a second one.
+const MATCH_WINDOW_DAYS = 5;
+const parseOperationDate = (ddmmyyyy) => { const m = String(ddmmyyyy || '').match(/^(\d{2})\/(\d{2})\/(\d{4})$/); return m ? new Date(Date.UTC(Number(m[3]), Number(m[2]) - 1, Number(m[1]))) : null; };
+const findSuggestedPurchaseMatch = (data, request, tx) => {
+	if (tx.type !== 'carte' || tx.matchedPurchaseId) return null;
+	const opDate = parseOperationDate(tx.operationDate);
+	if (!opDate) return null;
+	let best = null; let bestDiffDays = Infinity;
+	for (const purchase of data.purchases || []) {
+		if (purchase.matchedBankTransactionId) continue;
+		if (Math.abs(Number(purchase.amount || 0) - Math.abs(tx.amount)) > 0.005) continue;
+		const purchaseDate = purchase.purchaseDate ? new Date(`${purchase.purchaseDate}T00:00:00Z`) : null;
+		if (!purchaseDate) continue;
+		const diffDays = Math.abs((purchaseDate - opDate) / 86400000);
+		if (diffDays > MATCH_WINDOW_DAYS) continue;
+		if (!canAccessProject(data, request.user, purchase.projectId)) continue;
+		if (diffDays < bestDiffDays) { best = purchase; bestDiffDays = diffDays; }
+	}
+	return best ? { id: best.id, supplier: best.supplier, description: best.description, amount: best.amount, purchaseDate: best.purchaseDate, projectName: best.projectName } : null;
+};
 app.post('/api/bank-statements', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
 	const file = request.file;
 	const isPdfFile = file && (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf'));
@@ -2759,8 +2784,37 @@ app.get('/api/bank-statements/:id', auth, manager, async (request, response) => 
 	const ownerId = bankOwnerIdFor(data, request.userRecord);
 	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
 	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
-	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id);
+	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id).map((tx) => ({ ...tx, suggestedMatch: findSuggestedPurchaseMatch(data, request, tx) }));
 	response.json({ statement, transactions });
+});
+// Confirming a suggested match links both records to each other - never just one side - so a
+// Dépenses page built from `purchases` can also tell this receipt is already reconciled against the
+// relevé, and so neither record can be offered as a match to a THIRD transaction/purchase by mistake.
+app.post('/api/bank-transactions/:id/confirm-match', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	const purchase = (data.purchases || []).find((item) => item.id === String(request.body.purchaseId || ''));
+	if (!purchase || !canAccessProject(data, request.user, purchase.projectId)) return response.status(404).json({ error: 'Purchase not found' });
+	if (transaction.matchedPurchaseId) return response.status(409).json({ error: 'Transaction already matched' });
+	if (purchase.matchedBankTransactionId) return response.status(409).json({ error: 'Purchase already matched' });
+	transaction.matchedPurchaseId = purchase.id;
+	purchase.matchedBankTransactionId = transaction.id;
+	await writeData(data);
+	response.json({ transaction, purchase });
+});
+// Always reversible - a wrong confirm-match should never be a one-way door for real money records.
+app.post('/api/bank-transactions/:id/unmatch', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	const purchase = (data.purchases || []).find((item) => item.id === transaction.matchedPurchaseId);
+	if (purchase) purchase.matchedBankTransactionId = null;
+	transaction.matchedPurchaseId = null;
+	await writeData(data);
+	response.json({ transaction });
 });
 // The original PDF the gérant uploaded - same resolve-a-signed-url-else-stream-the-bytes pattern as
 // /api/documents/:id/download, so the browser's download button works the same way everywhere.

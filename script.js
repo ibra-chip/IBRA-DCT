@@ -5189,7 +5189,7 @@ document.addEventListener('DOMContentLoaded', () => {
 	// spending never mixes into another's. Transactions with no card (virements, prélèvements, frais)
 	// get their own type-based sections instead, since they belong to the company, not one person.
 	const bankCategoryOptions = ['Retrait espèces', 'Carburant', 'Repas', 'Matériaux / Location', 'Transport (train/bus)', 'Autre achat', 'Prélèvement / Cotisation', 'Virement reçu', 'Virement envoyé', 'Frais bancaires', 'Autre'];
-	const bankPartyRoles = { associe: 'Associé', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / pro', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+	const bankPartyRoles = { associe: 'Associé', salarie: 'Salarié', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / pro', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
 	const bankTypeGroupLabels = { virement_recu: 'Virements reçus', virement_envoye: 'Virements envoyés', prelevement: 'Prélèvements / Cotisations', frais: 'Frais bancaires', autre: 'Autre' };
 	let currentBankStatementId = null;
 	let currentBankTransactions = [];
@@ -5207,7 +5207,14 @@ document.addEventListener('DOMContentLoaded', () => {
 		const positive = tx.amount > 0;
 		const categorySelect = `<select class="bank-tx-category" data-tx="${tx.id}">${bankCategoryOptions.map((option) => `<option value="${escapeHtml(option)}" ${tx.category === option ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`;
 		const roleSelect = `<select class="bank-tx-role" data-tx="${tx.id}"><option value="">Rôle…</option>${Object.entries(bankPartyRoles).map(([value, roleLabel]) => `<option value="${value}" ${tx.partyRole === value ? 'selected' : ''}>${escapeHtml(roleLabel)}</option>`).join('')}</select>`;
-		return `<div class="bank-transaction-row"><div class="bank-tx-desc"><strong>${escapeHtml(label)}</strong><br><small>${tx.operationDate}${tx.note && tx.note !== label ? ` · ${escapeHtml(tx.note)}` : ''}</small></div>${categorySelect}${roleSelect}<span class="bank-tx-amount ${positive ? 'positive' : ''}">${positive ? '+' : ''}${Number(tx.amount).toFixed(2)} €</span></div>`;
+		const mainRow = `<div class="bank-transaction-row"><div class="bank-tx-desc"><strong>${escapeHtml(label)}</strong><br><small>${tx.operationDate}${tx.note && tx.note !== label ? ` · ${escapeHtml(tx.note)}` : ''}</small></div>${categorySelect}${roleSelect}<span class="bank-tx-amount ${positive ? 'positive' : ''}">${positive ? '+' : ''}${Number(tx.amount).toFixed(2)} €</span></div>`;
+		// Only ever a suggestion the gérant clicks to confirm (never silent): the same real purchase can
+		// otherwise end up counted twice - once as a Dépenses receipt, once as this bank line - so this
+		// is the one place in the page a single click can change what's treated as true, and it's always
+		// reversible from "Annuler" once confirmed.
+		if (tx.matchedPurchaseId) return `${mainRow}<div class="bank-match-note bank-match-confirmed">✓ Déjà documenté dans Dépenses <button type="button" class="link-button unmatch-bank-tx" data-tx="${tx.id}">Annuler</button></div>`;
+		if (tx.suggestedMatch) return `${mainRow}<div class="bank-match-note">⚠ Doublon possible : <strong>${escapeHtml(tx.suggestedMatch.supplier)}</strong> · ${Number(tx.suggestedMatch.amount).toFixed(2)} € · ${tx.suggestedMatch.purchaseDate} (${escapeHtml(tx.suggestedMatch.projectName || '')}) <button type="button" class="secondary confirm-match-bank-tx" data-tx="${tx.id}" data-purchase="${tx.suggestedMatch.id}">✓ Oui, déjà enregistré</button><button type="button" class="secondary danger delete-match-purchase" data-purchase="${tx.suggestedMatch.id}">Supprimer ce doublon</button></div>`;
+		return mainRow;
 	}
 	// Two levels of TABS (not accordions, which kept drifting open on their own and still read as one
 	// long pile): a row of group buttons (one per person's card, plus one per company-level type -
@@ -5257,6 +5264,37 @@ document.addEventListener('DOMContentLoaded', () => {
 				const tx = currentBankTransactions.find((item) => item.id === select.dataset.tx); if (tx) tx.partyRole = select.value || null;
 				toast('Rôle enregistré pour ce nom - appliqué automatiquement aux prochains relevés.');
 			} catch { toast('Rôle non enregistré.'); }
+		}));
+		container.querySelectorAll('.confirm-match-bank-tx').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/bank-transactions/${button.dataset.tx}/confirm-match`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ purchaseId: button.dataset.purchase }) });
+				const tx = currentBankTransactions.find((item) => item.id === button.dataset.tx); if (tx) { tx.matchedPurchaseId = button.dataset.purchase; tx.suggestedMatch = null; }
+				toast('Confirmé : déjà documenté, pas de doublon.');
+				renderBankDetailBody();
+			} catch (error) { toast(`Confirmation échouée : ${error.message || 'erreur inconnue'}`); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		container.querySelectorAll('.unmatch-bank-tx').forEach((button) => button.addEventListener('click', async () => {
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/bank-transactions/${button.dataset.tx}/unmatch`, { method: 'POST' });
+				const tx = currentBankTransactions.find((item) => item.id === button.dataset.tx); if (tx) tx.matchedPurchaseId = null;
+				toast('Lien annulé.');
+				renderBankDetailBody();
+			} catch { toast('Annulation échouée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
+		}));
+		// Deletes the redundant Dépenses entry outright (the bank line is the real, authoritative record
+		// of the money movement) rather than just hiding the warning - same DELETE used on the Dépenses
+		// page itself, so it also removes that receipt's own stored file, not just the suggestion.
+		container.querySelectorAll('.delete-match-purchase').forEach((button) => button.addEventListener('click', async () => {
+			if (!window.confirm('Supprimer définitivement cette dépense en double ? Le PDF/photo associé sera aussi supprimé.')) return;
+			button.disabled = true; button.setAttribute('aria-busy', 'true');
+			try {
+				await request(`/purchases/${button.dataset.purchase}`, { method: 'DELETE' });
+				currentBankTransactions.forEach((tx) => { if (tx.suggestedMatch?.id === button.dataset.purchase) tx.suggestedMatch = null; });
+				toast('Dépense en double supprimée.');
+				renderBankDetailBody();
+			} catch { toast('Suppression échouée.'); button.disabled = false; button.removeAttribute('aria-busy'); }
 		}));
 	}
 	async function loadBankStatementDetail(id) {
