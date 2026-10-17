@@ -4286,7 +4286,7 @@ document.addEventListener('DOMContentLoaded', () => {
 		const trips = await request('/vehicle-trips');
 		// Same chantier-folder grouping as Documents/Factures/Dépenses - a trip belongs to exactly one
 		// chantier, so grouping by it keeps trips from different chantiers from piling into one flat list.
-		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})${trip.costEur != null ? ` · ${Number(trip.costEur).toFixed(2)} €` : ''}${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
+		const renderTripItem = (trip) => `<div class="list-item"><strong>${escapeHtml(trip.vehicleName || '')} · ${tripTypeLabels[trip.type] || trip.type}</strong><small>${trip.date} · ${trip.mode && trip.mode !== 'voiture' ? 'Billet' : `${Number(trip.distanceKm).toFixed(1)} km (${trip.startKm} → ${trip.endKm})`}${trip.costEur != null ? ` · ${Number(trip.costEur).toFixed(2)} €` : ''}${trip.note ? ` · ${escapeHtml(trip.note)}` : ''}</small><div class="form-row"><button type="button" class="secondary danger delete-trip" data-trip-delete="${trip.id}">Supprimer</button></div></div>`;
 		const byProject = new Map();
 		trips.forEach((trip) => { if (!byProject.has(trip.projectId)) byProject.set(trip.projectId, []); byProject.get(trip.projectId).push(trip); });
 		const groups = [...byProject.entries()].map(([projectId, items]) => ({ projectId, name: projectsCache.find((project) => project.id === projectId)?.name || items[0]?.projectName || projectId, items })).sort((first, second) => first.name.localeCompare(second.name, 'fr', { sensitivity: 'base' }));
@@ -5092,6 +5092,21 @@ document.addEventListener('DOMContentLoaded', () => {
 		document.querySelector('#trip-form [name="startKm"]')?.addEventListener('input', recalcTripDistance);
 		document.querySelector('#trip-form [name="endKm"]')?.addEventListener('input', recalcTripDistance);
 	}
+	// Train/autobus have no vehicle and no compteur - just a flat ticket amount - so toggling the mode
+	// swaps which fields are shown AND which are `required`, so the browser never blocks submitting a
+	// ticket for an empty compteur field (or a voiture trip for an empty amount field) it can't see.
+	document.querySelector('#trip-mode')?.addEventListener('change', (event) => {
+		const isVoiture = event.currentTarget.value === 'voiture';
+		const form = document.querySelector('#trip-form');
+		document.querySelector('#trip-voiture-fields').hidden = !isVoiture;
+		document.querySelector('#trip-voiture-fields-2').hidden = !isVoiture;
+		document.querySelector('#trip-route-estimate').hidden = !isVoiture;
+		document.querySelector('#trip-ticket-field').hidden = isVoiture;
+		form.elements.vehicleId.required = isVoiture;
+		form.elements.startKm.required = isVoiture;
+		form.elements.endKm.required = isVoiture;
+		form.elements.amount.required = !isVoiture;
+	});
 	// Road-route estimate (never straight-line) between the company's registered address and the chosen
 	// chantier, offered as up to 3 route options. Clicking one fills startKm/endKm for convenience, but
 	// the trip is still saved from those compteur fields like any other - a one-click fill is not a
@@ -5126,7 +5141,10 @@ document.addEventListener('DOMContentLoaded', () => {
 		const originalLabel = submitButton?.textContent;
 		if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); }
 		try {
-			const payload = { vehicleId: form.elements.vehicleId.value, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, startKm: form.elements.startKm.value, endKm: form.elements.endKm.value, note: form.elements.note.value };
+			const mode = form.elements.mode.value;
+			const payload = mode === 'voiture'
+				? { mode, vehicleId: form.elements.vehicleId.value, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, startKm: form.elements.startKm.value, endKm: form.elements.endKm.value, note: form.elements.note.value }
+				: { mode, projectId: form.elements.projectId.value, type: form.elements.type.value, date: form.elements.date.value, amount: form.elements.amount.value, note: form.elements.note.value };
 			await request('/vehicle-trips', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
 			form.reset();
 			const preview = document.querySelector('#trip-distance-preview'); if (preview) preview.textContent = '';

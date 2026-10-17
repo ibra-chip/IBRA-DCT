@@ -832,7 +832,7 @@ async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, b
 	leftY -= 22;
 	page.drawText(`Généré le ${generatedAt}`, { x: marginX, y: leftY, size: 9, font, color: rgb(0.45, 0.45, 0.45) });
 	y = Math.min(leftY, brandY) - 18;
-	const columns = [{ label: 'Date', x: marginX }, { label: 'Véhicule', x: marginX + 55 }, { label: 'Type', x: marginX + 185 }, { label: 'Km', x: marginX + 290 }, { label: 'Coût', x: rightEdge - 55 }];
+	const columns = [{ label: 'Date', x: marginX }, { label: 'Description', x: marginX + 55 }, { label: 'Type', x: marginX + 185 }, { label: 'Déplacement (km)', x: marginX + 290 }, { label: 'Indemnité', x: rightEdge - 55 }];
 	const drawColumnHeader = () => {
 		columns.forEach((column) => page.drawText(column.label, { x: column.x, y, size: 9, font: fontBold }));
 		y -= 6;
@@ -856,7 +856,7 @@ async function buildTripsPdf({ companyName, companyAddress, logoBuffer, trips, b
 			page.drawText(trip.date || '', { x: columns[0].x, y, size: 9, font });
 			page.drawText(truncate(trip.vehicleName, 24), { x: columns[1].x, y, size: 9, font });
 			page.drawText(tripTypeLabelsFr[trip.type] || trip.type, { x: columns[2].x, y, size: 9, font });
-			page.drawText(`${Number(trip.distanceKm || 0).toFixed(1)} km`, { x: columns[3].x, y, size: 9, font });
+			page.drawText(trip.distanceKm != null ? `${Number(trip.distanceKm).toFixed(1)} km` : 'Billet', { x: columns[3].x, y, size: 9, font });
 			page.drawText(trip.costEur != null ? `${Number(trip.costEur).toFixed(2)} €` : '-', { x: columns[4].x, y, size: 9, font });
 			y -= 15;
 		}
@@ -887,13 +887,13 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	sheet.columns = [
 		{ header: 'Chantier', key: 'project', width: 30 },
 		{ header: 'Date', key: 'date', width: 12 },
-		{ header: 'Véhicule', key: 'vehicle', width: 22 },
+		{ header: 'Description', key: 'vehicle', width: 22 },
 		{ header: 'Type', key: 'type', width: 18 },
 		{ header: 'Compteur départ', key: 'startKm', width: 16 },
 		{ header: 'Compteur arrivée', key: 'endKm', width: 16 },
-		{ header: 'Distance (km)', key: 'distanceKm', width: 14 },
+		{ header: 'Déplacement (km)', key: 'distanceKm', width: 16 },
 		{ header: 'Tarif (€/km)', key: 'ratePerKm', width: 13 },
-		{ header: 'Coût (€)', key: 'costEur', width: 12 },
+		{ header: 'Indemnité (€)', key: 'costEur', width: 13 },
 		{ header: 'Note', key: 'note', width: 30 },
 	];
 	sheet.getRow(1).font = { bold: true };
@@ -902,7 +902,7 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	for (const trip of sorted) {
 		totalKm += Number(trip.distanceKm || 0);
 		totalCost += Number(trip.costEur || 0);
-		sheet.addRow({ project: trip.projectName, date: trip.date, vehicle: trip.vehicleName, type: tripTypeLabelsFr[trip.type] || trip.type, startKm: trip.startKm, endKm: trip.endKm, distanceKm: Number(trip.distanceKm || 0), ratePerKm: trip.ratePerKm ?? '', costEur: trip.costEur ?? '', note: trip.note || '' });
+		sheet.addRow({ project: trip.projectName, date: trip.date, vehicle: trip.vehicleName, type: tripTypeLabelsFr[trip.type] || trip.type, startKm: trip.startKm ?? '', endKm: trip.endKm ?? '', distanceKm: trip.distanceKm != null ? Number(trip.distanceKm) : '', ratePerKm: trip.ratePerKm ?? '', costEur: trip.costEur ?? '', note: trip.note || '' });
 	}
 	const totalRow = sheet.addRow({ project: 'TOTAL', distanceKm: totalKm, costEur: totalCost });
 	totalRow.font = { bold: true };
@@ -2608,26 +2608,44 @@ app.get('/api/vehicle-trips/export.xlsx', auth, manager, async (request, respons
 	response.setHeader('Content-Disposition', `attachment; filename="ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx"`);
 	response.send(excel);
 });
+const TICKET_MODES = { train: 'Train', autobus: 'Autobus' };
 app.post('/api/vehicle-trips', auth, manager, async (request, response) => {
-	const vehicleId = String(request.body.vehicleId || '');
+	const mode = TICKET_MODES[request.body.mode] ? request.body.mode : 'voiture';
 	const projectId = String(request.body.projectId || '');
 	const type = String(request.body.type || 'professionnel');
-	const startKm = Number(request.body.startKm);
-	const endKm = Number(request.body.endKm);
-	if (!vehicleId || !projectId || !['professionnel', 'prive', 'domicile-travail'].includes(type) || !Number.isFinite(startKm) || !Number.isFinite(endKm) || startKm < 0 || endKm <= startKm) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
+	if (!projectId || !['professionnel', 'prive', 'domicile-travail'].includes(type)) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
 	const data = await readData();
-	const vehicle = (data.vehicles || []).find((item) => item.id === vehicleId);
-	if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
 	let context;
 	try { assertProjectAccess(data, request.user, projectId); context = projectContextFor(data, projectId); } catch (error) { return response.status(error.status || 500).json({ error: error.message }); }
-	// Distance is never trusted from the client - always recomputed from startKm/endKm server-side, same
-	// "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter calibration.
-	const distanceKm = Math.round((endKm - startKm) * 100) / 100;
-	// costEur is a snapshot: computed once here from the vehicle's ratePerKm at this moment, then never
-	// recomputed - a later change to the vehicle's rate must not silently reprice trips already logged.
-	const ratePerKm = vehicle.ratePerKm || null;
-	const costEur = ratePerKm ? Math.round(distanceKm * ratePerKm * 100) / 100 : null;
-	const trip = { id: `trip-${Date.now()}`, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date: String(request.body.date || new Date().toISOString().slice(0, 10)), startKm, endKm, distanceKm, ratePerKm, costEur, note: String(request.body.note || ''), createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	const date = String(request.body.date || new Date().toISOString().slice(0, 10));
+	const note = String(request.body.note || '');
+	let trip;
+	// A train/autobus leg has no odometer and no per-km rate - it's a flat ticket price the worker
+	// types in directly (from the ticket itself), same honesty principle as a vehicle trip: the figure
+	// recorded is exactly what the person read off a real document, never an inferred number.
+	if (mode !== 'voiture') {
+		const amount = Number(request.body.amount);
+		if (!Number.isFinite(amount) || amount <= 0) return response.status(400).json({ error: 'Ticket amount must be a positive number' });
+		const costEur = Math.round(amount * 100) / 100;
+		trip = { id: `trip-${Date.now()}`, mode, vehicleId: null, vehicleName: TICKET_MODES[mode], projectId, projectName: context.projectName, type, date, startKm: null, endKm: null, distanceKm: null, ratePerKm: null, costEur, note, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	} else {
+		const vehicleId = String(request.body.vehicleId || '');
+		const startKm = Number(request.body.startKm);
+		const endKm = Number(request.body.endKm);
+		if (!vehicleId || !Number.isFinite(startKm) || !Number.isFinite(endKm) || startKm < 0 || endKm <= startKm) return response.status(400).json({ error: 'Vehicle trip fields are incomplete or invalid' });
+		const vehicle = (data.vehicles || []).find((item) => item.id === vehicleId);
+		if (!vehicle) return response.status(404).json({ error: 'Vehicle not found' });
+		// Distance is never trusted from the client - always recomputed from startKm/endKm server-side,
+		// same "exact math from raw inputs" principle as the plan measurement tool's pixelsPerMeter
+		// calibration.
+		const distanceKm = Math.round((endKm - startKm) * 100) / 100;
+		// costEur is a snapshot: computed once here from the vehicle's ratePerKm at this moment, then
+		// never recomputed - a later change to the vehicle's rate must not silently reprice trips
+		// already logged.
+		const ratePerKm = vehicle.ratePerKm || null;
+		const costEur = ratePerKm ? Math.round(distanceKm * ratePerKm * 100) / 100 : null;
+		trip = { id: `trip-${Date.now()}`, mode, vehicleId, vehicleName: vehicle.name, projectId, projectName: context.projectName, type, date, startKm, endKm, distanceKm, ratePerKm, costEur, note, createdBy: request.user.sub, createdAt: new Date().toISOString() };
+	}
 	data.vehicleTrips = [...(data.vehicleTrips || []), trip];
 	await writeData(data);
 	response.status(201).json(trip);
