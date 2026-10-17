@@ -26,6 +26,7 @@ import ExcelJS from 'exceljs';
 import { cleanExtractedPdfText, extractPlanTextCallouts, extractPlanDetailIndex } from './lib/pdf-text-grounding.js';
 import { geocodeLocation, fetchForecast, weatherCodeLabel } from './lib/weather.js';
 import { estimateRoadRoutes } from './lib/distance.js';
+import { parseBankStatementText, parseBankStatementSummary } from './lib/bank-statement-parse.js';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import webpush from 'web-push';
 
@@ -916,6 +917,32 @@ async function buildTripsExcel(trips, baremeVehicles) {
 	}
 	return Buffer.from(await workbook.xlsx.writeBuffer());
 }
+// One flat, sortable sheet (person and catégorie as their own columns) rather than mirroring the
+// review page's nested folders - an accountant importing this is far better served by columns to
+// re-sort/filter/pivot than by a layout that only makes sense read top-to-bottom on screen.
+async function buildBankStatementExcel(statement, transactions) {
+	const workbook = new ExcelJS.Workbook();
+	const sheet = workbook.addWorksheet('Compte société');
+	// Column WIDTHS only here - never `header`/`key` once the sheet already has rows added via
+	// addRow(array): ExcelJS's `.columns` setter is meant for an empty sheet and will insert its own
+	// header row wherever it likes, silently scrambling rows already added (caught by actually opening
+	// the generated file in the test below - the title row was disappearing and the header moved to
+	// row 1 - not by reading this code, which looked fine).
+	sheet.columns = [{ width: 14 }, { width: 24 }, { width: 16 }, { width: 22 }, { width: 18 }, { width: 34 }, { width: 13 }];
+	sheet.addRow([`Relevé N° ${statement.statementNumber || '?'} au ${statement.periodEndDate || ''}`]).font = { bold: true };
+	sheet.addRow([`Solde : ${statement.openingBalance ?? '?'} € (${statement.openingDate || '?'}) → ${statement.closingBalance ?? '?'} € (${statement.closingDate || '?'})`]);
+	sheet.addRow([]);
+	sheet.addRow(['Date opération', 'Personne / Partie', 'Type', 'Catégorie', 'Rôle', 'Description', 'Montant (€)']).font = { bold: true };
+	const sorted = [...transactions].sort((first, second) => (first.person || first.party || '').localeCompare(second.person || second.party || '', 'fr', { sensitivity: 'base' }) || first.operationDate.localeCompare(second.operationDate));
+	let total = 0;
+	for (const tx of sorted) {
+		total += Number(tx.amount || 0);
+		sheet.addRow([tx.operationDate, tx.person || tx.party || tx.note || '', bankTypeGroupLabelsFr[tx.type] || tx.type, tx.category || '', tx.partyRole ? BANK_PARTY_ROLES[tx.partyRole] || tx.partyRole : '', tx.merchant || tx.description || '', Number(tx.amount || 0)]);
+	}
+	sheet.addRow(['', 'TOTAL', '', '', '', '', Math.round(total * 100) / 100]).font = { bold: true };
+	return Buffer.from(await workbook.xlsx.writeBuffer());
+}
+const bankTypeGroupLabelsFr = { carte: 'Carte', retrait: 'Retrait', virement_recu: 'Virement reçu', virement_envoye: 'Virement envoyé', prelevement: 'Prélèvement', frais: 'Frais', autre: 'Autre' };
 // A printable quantity-survey (metre) for a measured plan: one row per traced shape (surface, opening,
 // or line), with its unit value, repeat count and effective total, followed by the same brut/net/openings
 // totals the plan-measure UI shows - so what's on the PDF handed to a client, architect, or prime
@@ -2685,6 +2712,119 @@ app.get('/api/vehicle-trips/estimate-distance', auth, manager, async (request, r
 	if (project.weatherLat == null || owner.companyAddressLat == null) return response.json({ available: false });
 	const routes = await estimateRoadRoutes({ lat: owner.companyAddressLat, lon: owner.companyAddressLon }, { lat: project.weatherLat, lon: project.weatherLon });
 	response.json(!routes?.length ? { available: false } : { available: true, estimatedKm: routes[0].distanceKm, routes });
+});
+// Compte société: a bank statement PDF parsed into one row per operation (lib/bank-statement-parse.js -
+// pure text parsing, no AI, verified against a real statement's own printed totals). Everything here
+// is scoped to the company owner's id (same "one shared ledger per company" model as vehicles/data
+// below), not to the uploading user, so every associé on the account sees the same statements.
+const BANK_PARTY_ROLES = { associe: 'Associé', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / professionnel', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+const normalizePartyName = (name) => String(name || '').trim().toUpperCase().replace(/\s+/g, ' ');
+const bankOwnerIdFor = (data, userRecord) => companyOwnerForUser(data, userRecord)?.id || userRecord.id;
+app.post('/api/bank-statements', auth, manager, memoryUpload.single('file'), fixUploadFilenameEncoding, async (request, response) => {
+	const file = request.file;
+	const isPdfFile = file && (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf'));
+	if (!file || !isPdfFile) return response.status(400).json({ error: 'Un relevé bancaire au format PDF est requis' });
+	let text = '';
+	try { text = (await parsePdf(file.buffer)).text; } catch (error) { return response.status(422).json({ error: `PDF illisible : ${error.message}` }); }
+	const summary = parseBankStatementSummary(text);
+	const parsed = parseBankStatementText(text);
+	if (!parsed.length) return response.status(422).json({ error: "Aucune opération reconnue dans ce PDF - le format de cette banque n'est peut-être pas encore pris en charge." });
+	// The original PDF is kept, not just the parsed figures read from it - so a disputed line or an
+	// accountant's later question can always be checked against the actual document the bank issued,
+	// same "keep the source, not just what we read from it" principle as every other upload in this app.
+	const statementId = `stmt-${Date.now()}`;
+	const storedName = storageKeyFor(file.originalname);
+	try { await uploadFile(UPLOADS_BUCKET, storedName, file.buffer, 'application/pdf'); } catch (uploadError) { return response.status(502).json({ error: 'Échec de la sauvegarde du PDF : ' + uploadError.message }); }
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const knownParties = (data.bankParties || {})[ownerId] || {};
+	const now = new Date().toISOString();
+	const statement = { id: statementId, ...summary, fileName: file.originalname, storedName, ownerId, createdBy: request.user.sub, createdAt: now };
+	const transactions = parsed.map((item, index) => {
+		const partyKey = normalizePartyName(item.person || item.party);
+		return { id: `btx-${Date.now()}-${index}`, statementId, ownerId, ...item, partyRole: knownParties[partyKey]?.role || null, confirmed: false, createdBy: request.user.sub, createdAt: now };
+	});
+	data.bankStatements = [...(data.bankStatements || []), statement];
+	data.bankTransactions = [...(data.bankTransactions || []), ...transactions];
+	await writeData(data);
+	response.status(201).json({ statement, transactions });
+});
+app.get('/api/bank-statements', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	response.json((data.bankStatements || []).filter((item) => item.ownerId === ownerId).sort((first, second) => (second.periodEndDate || '').localeCompare(first.periodEndDate || '')));
+});
+app.get('/api/bank-statements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id);
+	response.json({ statement, transactions });
+});
+// The original PDF the gérant uploaded - same resolve-a-signed-url-else-stream-the-bytes pattern as
+// /api/documents/:id/download, so the browser's download button works the same way everywhere.
+app.get('/api/bank-statements/:id/download', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	try {
+		const url = await getDownloadUrl(UPLOADS_BUCKET, statement.storedName, 300, statement.fileName).catch(() => null);
+		if (request.query.resolve === 'url') return response.json({ url: url || null });
+		if (url) return response.redirect(302, url);
+		const buffer = await downloadFile(UPLOADS_BUCKET, statement.storedName);
+		response.setHeader('Content-Type', 'application/pdf');
+		response.setHeader('Content-Disposition', `attachment; filename="${statement.fileName.replace(/["\r\n]/g, '_')}"`);
+		response.send(buffer);
+	} catch (error) { response.status(502).json({ error: 'Relevé download failed: ' + error.message }); }
+});
+app.get('/api/bank-statements/:id/export.xlsx', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	const transactions = (data.bankTransactions || []).filter((item) => item.statementId === statement.id);
+	const excel = await buildBankStatementExcel(statement, transactions);
+	response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+	response.setHeader('Content-Disposition', `attachment; filename="ibra-compte-societe-${(statement.periodEndDate || '').replace(/\//g, '-')}.xlsx"`);
+	response.send(excel);
+});
+app.delete('/api/bank-statements/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const statement = (data.bankStatements || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!statement) return response.status(404).json({ error: 'Relevé not found' });
+	if (statement.storedName) { try { await deleteFile(UPLOADS_BUCKET, statement.storedName); } catch { /* best-effort - the record is removed either way */ } }
+	data.bankStatements = data.bankStatements.filter((item) => item.id !== statement.id);
+	data.bankTransactions = (data.bankTransactions || []).filter((item) => item.statementId !== statement.id);
+	await writeData(data);
+	response.json({ deleted: true, id: statement.id });
+});
+app.patch('/api/bank-transactions/:id', auth, manager, async (request, response) => {
+	const data = await readData();
+	const ownerId = bankOwnerIdFor(data, request.userRecord);
+	const transaction = (data.bankTransactions || []).find((item) => item.id === request.params.id && item.ownerId === ownerId);
+	if (!transaction) return response.status(404).json({ error: 'Transaction not found' });
+	if (request.body.category !== undefined) transaction.category = String(request.body.category || '').trim() || transaction.category;
+	if (request.body.note !== undefined) transaction.note = String(request.body.note || '');
+	if (request.body.confirmed !== undefined) transaction.confirmed = Boolean(request.body.confirmed);
+	// Setting a party's role here is remembered company-wide (data.bankParties), so the NEXT uploaded
+	// statement already shows "Sous-traitant" etc. for that same name instead of asking again -
+	// without this, every monthly statement would need every party re-tagged from scratch.
+	if (request.body.partyRole !== undefined) {
+		const role = String(request.body.partyRole || '');
+		if (role && !BANK_PARTY_ROLES[role]) return response.status(400).json({ error: 'Invalid party role' });
+		transaction.partyRole = role || null;
+		const partyKey = normalizePartyName(transaction.person || transaction.party);
+		if (partyKey && role) {
+			data.bankParties = data.bankParties || {};
+			data.bankParties[ownerId] = data.bankParties[ownerId] || {};
+			data.bankParties[ownerId][partyKey] = { role, label: transaction.person || transaction.party };
+		}
+	}
+	await writeData(data);
+	response.json(transaction);
 });
 app.get('/api/projects/:id/chantier-controls', auth, async (request, response) => {
 	const data = await readData();

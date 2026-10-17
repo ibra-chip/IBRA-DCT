@@ -478,9 +478,9 @@ document.addEventListener('DOMContentLoaded', () => {
 	};
 	const applyRole = (role) => {
 		const access = {
-			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
-			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			admin: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			gerant: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
+			manager: ['dashboard-view','devis-view','purchases-view','line-items-view','vehicles-view','bank-view','factures-view','chantier-view','rge-help-view','evidence-summary-view','documents-view','production-view','communication-view','time-view','my-tasks-view','settings-view','account-settings-view'],
 			worker: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view'],
 			user: ['production-view','communication-view','time-view','my-tasks-view','evidence-summary-view','account-settings-view']
 		};
@@ -4377,6 +4377,7 @@ document.addEventListener('DOMContentLoaded', () => {
 			'devis-view': () => Promise.allSettled([loadBudget(), loadFinancialSummary()]),
 			'purchases-view': () => Promise.allSettled([loadPurchases(), loadBudget(), loadFinancialSummary()]),
 			'vehicles-view': () => Promise.allSettled([loadVehicles(), loadTrips()]),
+			'bank-view': () => loadBankStatements(),
 			'line-items-view': () => Promise.allSettled([loadProjectOptions(), loadLineItems()]),
 			'factures-view': () => Promise.allSettled([loadProjectOptions(), loadFactures()]),
 			'chantier-view': () => Promise.allSettled([loadDashboard(), loadControlHistory(), loadSchedule(), loadFinancialSummary(), loadRgeSiteChecklist()]),
@@ -5182,6 +5183,128 @@ document.addEventListener('DOMContentLoaded', () => {
 	}
 	document.querySelector('#download-trips-pdf')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.pdf', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.pdf`, event.currentTarget));
 	document.querySelector('#download-trips-excel')?.addEventListener('click', (event) => downloadTripsFile('/vehicle-trips/export.xlsx', `ibra-carnet-de-bord-${new Date().toISOString().slice(0, 10)}.xlsx`, event.currentTarget));
+	// Compte société: each statement's operations arrive already grouped - by whoever's card made the
+	// purchase (Reka / Dzeljo Ibrahim / future associés, found dynamically from the data, never a fixed
+	// list) first, then by category within that person's own section, so one associé's restaurant
+	// spending never mixes into another's. Transactions with no card (virements, prélèvements, frais)
+	// get their own type-based sections instead, since they belong to the company, not one person.
+	const bankCategoryOptions = ['Retrait espèces', 'Carburant', 'Repas', 'Matériaux / Location', 'Transport (train/bus)', 'Autre achat', 'Prélèvement / Cotisation', 'Virement reçu', 'Virement envoyé', 'Frais bancaires', 'Autre'];
+	const bankPartyRoles = { associe: 'Associé', client: 'Client', sous_traitant: 'Sous-traitant', fournisseur: 'Fournisseur', organisme: 'Organisme social / pro', comptable: 'Expert-comptable', banque: 'Banque', autre: 'Autre' };
+	const bankTypeGroupLabels = { virement_recu: 'Virements reçus', virement_envoye: 'Virements envoyés', prelevement: 'Prélèvements / Cotisations', frais: 'Frais bancaires', autre: 'Autre' };
+	let currentBankStatementId = null;
+	let currentBankTransactions = [];
+	let activeBankGroupKey = null;
+	let activeBankCategoryKey = null;
+	async function loadBankStatements() {
+		const statements = await request('/bank-statements');
+		const list = document.querySelector('#bank-statements-list');
+		if (list) list.innerHTML = statements.length ? statements.map((statement) => `<div class="list-item open-bank-statement" data-statement="${statement.id}" style="cursor:pointer"><strong>Relevé N° ${escapeHtml(statement.statementNumber || '?')} · au ${escapeHtml(statement.periodEndDate || '')}</strong><small>Compte ${escapeHtml(statement.accountNumber || '')} · Solde : ${statement.openingBalance != null ? Number(statement.openingBalance).toFixed(2) : '?'} € → ${statement.closingBalance != null ? Number(statement.closingBalance).toFixed(2) : '?'} €</small></div>`).join('') : '<small>Aucun relevé importé.</small>';
+		document.querySelectorAll('.open-bank-statement').forEach((item) => item.addEventListener('click', () => loadBankStatementDetail(item.dataset.statement)));
+		if (currentBankStatementId && statements.some((statement) => statement.id === currentBankStatementId)) await loadBankStatementDetail(currentBankStatementId);
+	}
+	function renderBankTransactionRow(tx) {
+		const label = tx.merchant || tx.party || tx.note || tx.description;
+		const positive = tx.amount > 0;
+		const categorySelect = `<select class="bank-tx-category" data-tx="${tx.id}">${bankCategoryOptions.map((option) => `<option value="${escapeHtml(option)}" ${tx.category === option ? 'selected' : ''}>${escapeHtml(option)}</option>`).join('')}</select>`;
+		const roleSelect = `<select class="bank-tx-role" data-tx="${tx.id}"><option value="">Rôle…</option>${Object.entries(bankPartyRoles).map(([value, roleLabel]) => `<option value="${value}" ${tx.partyRole === value ? 'selected' : ''}>${escapeHtml(roleLabel)}</option>`).join('')}</select>`;
+		return `<div class="bank-transaction-row"><div class="bank-tx-desc"><strong>${escapeHtml(label)}</strong><br><small>${tx.operationDate}${tx.note && tx.note !== label ? ` · ${escapeHtml(tx.note)}` : ''}</small></div>${categorySelect}${roleSelect}<span class="bank-tx-amount ${positive ? 'positive' : ''}">${positive ? '+' : ''}${Number(tx.amount).toFixed(2)} €</span></div>`;
+	}
+	// Two levels of TABS (not accordions, which kept drifting open on their own and still read as one
+	// long pile): a row of group buttons (one per person's card, plus one per company-level type -
+	// virements, prélèvements, frais), then a second row of category buttons once a group is picked -
+	// clicking either replaces what's shown below it with exactly that one selection, nothing else.
+	const bankGroupsFromTransactions = (transactions) => {
+		const personGroups = new Map();
+		const typeGroups = new Map();
+		for (const tx of transactions) {
+			if (tx.person) { if (!personGroups.has(tx.person)) personGroups.set(tx.person, []); personGroups.get(tx.person).push(tx); }
+			else { const key = tx.type; if (!typeGroups.has(key)) typeGroups.set(key, []); typeGroups.get(key).push(tx); }
+		}
+		return [
+			...[...personGroups.entries()].sort((first, second) => first[0].localeCompare(second[0], 'fr')).map(([person, items]) => ({ key: `person:${person}`, label: person, items })),
+			...['virement_recu', 'virement_envoye', 'prelevement', 'frais', 'autre'].filter((type) => typeGroups.has(type)).map((type) => ({ key: `type:${type}`, label: bankTypeGroupLabels[type] || type, items: typeGroups.get(type) })),
+		];
+	};
+	const renderBankTabRow = (items, activeKey, className, dataAttr) => `<div class="bank-group-tabs">${items.map((item) => { const total = item.items.reduce((sum, tx) => sum + tx.amount, 0); return `<button type="button" class="secondary ${className} ${item.key === activeKey ? 'active' : ''}" data-${dataAttr}="${escapeHtml(item.key)}">${escapeHtml(item.label)} · ${item.items.length} · ${total.toFixed(2)} €</button>`; }).join('')}</div>`;
+	function renderBankDetailBody() {
+		const groups = bankGroupsFromTransactions(currentBankTransactions);
+		if (!activeBankGroupKey || !groups.some((group) => group.key === activeBankGroupKey)) { activeBankGroupKey = groups[0]?.key || null; activeBankCategoryKey = null; }
+		const container = document.querySelector('#bank-transactions-groups');
+		if (!container) return;
+		if (!groups.length) { container.innerHTML = '<small>Aucune opération.</small>'; return; }
+		const activeGroup = groups.find((group) => group.key === activeBankGroupKey);
+		const byCategory = new Map();
+		activeGroup.items.forEach((tx) => { const key = tx.category || 'Autre'; if (!byCategory.has(key)) byCategory.set(key, []); byCategory.get(key).push(tx); });
+		const categories = [...byCategory.entries()].sort((first, second) => first[0].localeCompare(second[0], 'fr')).map(([category, items]) => ({ key: category, label: category, items }));
+		if (!activeBankCategoryKey || !categories.some((category) => category.key === activeBankCategoryKey)) activeBankCategoryKey = categories[0]?.key || null;
+		const activeCategory = categories.find((category) => category.key === activeBankCategoryKey);
+		const categoryTabs = categories.length > 1 ? renderBankTabRow(categories, activeBankCategoryKey, 'bank-category-tab', 'category') : '';
+		const rows = activeCategory ? activeCategory.items.map(renderBankTransactionRow).join('') : '<small>Aucune opération.</small>';
+		container.innerHTML = `${renderBankTabRow(groups, activeBankGroupKey, 'bank-group-tab', 'group')}${categoryTabs}<div class="bank-transaction-list">${rows}</div>`;
+		container.querySelectorAll('.bank-group-tab').forEach((button) => button.addEventListener('click', () => { activeBankGroupKey = button.dataset.group; activeBankCategoryKey = null; renderBankDetailBody(); }));
+		container.querySelectorAll('.bank-category-tab').forEach((button) => button.addEventListener('click', () => { activeBankCategoryKey = button.dataset.category; renderBankDetailBody(); }));
+		container.querySelectorAll('.bank-tx-category').forEach((select) => select.addEventListener('change', async () => {
+			try {
+				await request(`/bank-transactions/${select.dataset.tx}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ category: select.value }) });
+				const tx = currentBankTransactions.find((item) => item.id === select.dataset.tx); if (tx) tx.category = select.value;
+				toast('Catégorie mise à jour.');
+				renderBankDetailBody();
+			} catch { toast('Catégorie non mise à jour.'); }
+		}));
+		container.querySelectorAll('.bank-tx-role').forEach((select) => select.addEventListener('change', async () => {
+			try {
+				await request(`/bank-transactions/${select.dataset.tx}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ partyRole: select.value }) });
+				const tx = currentBankTransactions.find((item) => item.id === select.dataset.tx); if (tx) tx.partyRole = select.value || null;
+				toast('Rôle enregistré pour ce nom - appliqué automatiquement aux prochains relevés.');
+			} catch { toast('Rôle non enregistré.'); }
+		}));
+	}
+	async function loadBankStatementDetail(id) {
+		if (currentBankStatementId !== id) { activeBankGroupKey = null; activeBankCategoryKey = null; }
+		currentBankStatementId = id;
+		const { statement, transactions } = await request(`/bank-statements/${id}`);
+		currentBankTransactions = transactions;
+		const panel = document.querySelector('#bank-transactions-panel');
+		if (!panel) return;
+		panel.hidden = false;
+		document.querySelector('#bank-statement-title').textContent = `Relevé N° ${statement.statementNumber || '?'} · au ${statement.periodEndDate || ''}`;
+		document.querySelector('#bank-statement-delete').dataset.statement = statement.id;
+		document.querySelector('#bank-statement-download-pdf').dataset.statement = statement.id;
+		document.querySelector('#bank-statement-download-excel').dataset.statement = statement.id;
+		const totalIn = transactions.filter((tx) => tx.amount > 0).reduce((sum, tx) => sum + tx.amount, 0);
+		const totalOut = transactions.filter((tx) => tx.amount < 0).reduce((sum, tx) => sum + tx.amount, 0);
+		document.querySelector('#bank-statement-summary').textContent = `${transactions.length} opérations · Solde ${statement.openingBalance?.toFixed(2) ?? '?'} € → ${statement.closingBalance?.toFixed(2) ?? '?'} € · Entrées ${totalIn.toFixed(2)} € · Sorties ${totalOut.toFixed(2)} €`;
+		renderBankDetailBody();
+	}
+	document.querySelector('#bank-upload-input')?.addEventListener('change', async (event) => {
+		const file = event.currentTarget.files[0];
+		if (!file) return;
+		const body = new FormData();
+		body.append('file', file);
+		toast('Lecture du relevé en cours...');
+		try {
+			const response = await fetch(`${api}/bank-statements`, { method: 'POST', headers: { Authorization: `Bearer ${token()}` }, body });
+			if (!response.ok) throw new Error(await extractErrorMessage(response));
+			const result = await response.json();
+			toast(`Relevé importé : ${result.transactions.length} opérations lues.`);
+			currentBankStatementId = result.statement.id;
+			await loadBankStatements();
+		} catch (error) { toast(`Relevé non importé : ${error.message || 'erreur inconnue'}`); }
+		finally { event.currentTarget.value = ''; }
+	});
+	document.querySelector('#bank-statement-download-pdf')?.addEventListener('click', (event) => { const id = event.currentTarget.dataset.statement; if (id) downloadTripsFile(`/bank-statements/${id}/download`, `releve-${id}.pdf`, event.currentTarget); });
+	document.querySelector('#bank-statement-download-excel')?.addEventListener('click', (event) => { const id = event.currentTarget.dataset.statement; if (id) downloadTripsFile(`/bank-statements/${id}/export.xlsx`, `ibra-compte-societe-${id}.xlsx`, event.currentTarget); });
+	document.querySelector('#bank-statement-delete')?.addEventListener('click', async (event) => {
+		const statementId = event.currentTarget.dataset.statement;
+		if (!statementId || !window.confirm('Supprimer définitivement ce relevé et toutes ses opérations ?')) return;
+		try {
+			await request(`/bank-statements/${statementId}`, { method: 'DELETE' });
+			currentBankStatementId = null;
+			document.querySelector('#bank-transactions-panel').hidden = true;
+			toast('Relevé supprimé.');
+			await loadBankStatements();
+		} catch { toast('Relevé non supprimé.'); }
+	});
 	document.querySelector('#factures-search')?.addEventListener('input', (event) => applyListSearch(document.querySelector('#factures-list'), event.currentTarget.value));
 	document.querySelector('#factures-refresh')?.addEventListener('click', () => { const search = document.querySelector('#factures-search'); if (search) search.value = ''; loadFactures(); });
 		document.querySelector('#purchase-form')?.addEventListener('submit', async (event) => { event.preventDefault(); const file = document.querySelector('#invoice-file').files[0]; const form = event.currentTarget; const body = new FormData(form); if (!file) { toast('Ajoutez une facture, un ticket ou une photo du justificatif.'); return; } body.append('invoice', file); const submitButton = form.querySelector('button.primary'); const originalLabel = submitButton?.textContent; if (submitButton) { submitButton.disabled = true; submitButton.textContent = 'Enregistrement...'; submitButton.setAttribute('aria-busy', 'true'); } try { const response = await fetch(`${api}/purchases`, { method:'POST', headers:{Authorization:`Bearer ${token()}`}, body }); if (!response.ok) throw new Error(); form.reset(); await refreshActiveView(); toast('La dépense et le justificatif ont été enregistrés ; le devis est à jour.'); } catch { toast('Dépense non enregistrée.'); } finally { if (submitButton) { submitButton.disabled = false; submitButton.textContent = originalLabel; submitButton.removeAttribute('aria-busy'); } } });
